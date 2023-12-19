@@ -56,12 +56,13 @@ class Data:
     To upload and manipulate the data to then be inputted in the k3d library for 3D animations.
     """
 
-    def __init__(self, everything=False, sun=False, stars=False, all_data=False, duplicates=False, no_duplicate=False, 
+    def __init__(self, everything=False, both_cubes=False, sun=False, stars=False, all_data=False, duplicates=False, no_duplicate=False, 
                  line_of_sight=False, trace_data=False, trace_no_duplicate=False, day_trace=False, day_trace_no_duplicate=False,
                  time_intervals_all_data=False, time_intervals_no_duplicate = False, time_interval=1, sun_texture_resolution=960,
                  sdo_pov = False, stereo_pov=False):
         
         # Arguments
+        self.both_cubes = (both_cubes or everything)  #choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
         self.sun = (sun or everything)  # choosing to plot the Sun
         self.stars = (stars or everything)  # choosing to plot the stars
         self.all_data = (all_data or everything)  # choosing to plot all the data (i.e. data containing the duplicates)
@@ -148,6 +149,7 @@ class Data:
         main_path = '../'
         self.paths = {'Main': main_path,
                       'Cubes': os.path.join(main_path, 'Cubes'),
+                      'Cubes_karine': os.path.join(main_path, 'Cubes_karine'),
                       'Textures': os.path.join(main_path, 'Textures'),
                       'Intensities': os.path.join(main_path, 'STEREO', 'int'),
                       'SDO': os.path.join(main_path, 'sdo')}
@@ -161,12 +163,21 @@ class Data:
         pattern = re.compile(r'cube(\d{3})\.save')
 
         # Getting the cube names and sorting it so that they are in the right order
-        self._cube_names = [cube_name for cube_name in os.listdir(self.paths['Cubes']) \
+        cube_names = [cube_name for cube_name in os.listdir(self.paths['Cubes']) \
                       if pattern.match(cube_name)]
-        self._cube_names.sort()
+        self._cube_names_1 = sorted(cube_names)  # first data set
+
+        if self.both_cubes:
+            cube_names_2 = [cube_name for cube_name in os.listdir(self.paths['Cubes_karine']) \
+                               if pattern.match(cube_name)] 
+            cube_names.append(cube_names_2)
+            self.cube_names_2 = sorted(cube_names_2) # second set
+
+        self._cube_names_all = [cube_name for cube_name in set(cube_names)]
+        self._cube_names_all.sort()
 
         # Getting the corresponding cube_numbers 
-        self._cube_numbers = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names]
+        self._cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
 
     def Dates_n_times(self):
         """
@@ -179,7 +190,7 @@ class Data:
 
         # Getting the corresponding filenames 
         filenames = []
-        for number in self._cube_numbers:
+        for number in self._cube_numbers_all:
             for filepath in all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
@@ -187,48 +198,65 @@ class Data:
                     break
         self.dates = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
 
-    def Uploading_data(self):
+    def Uploading_data(self, cubes_path, cube_names):
         """
         Uploading and preparing the data.
         """
 
         # Importing the necessary data
-        cubes = [readsav(os.path.join(self.paths['Cubes'], cube_name)).cube for cube_name in self._cube_names]
-        self.cubes = np.array(cubes)  # all data
+        cubes = [readsav(os.path.join(cubes_path, cube_name)).cube for cube_name in cube_names]
+        cubes = np.array(cubes)  # all data
+
+        # Initialisation so that the return of all the arguments works
+        cubes_lineofsight_STEREO = None
+        cubes_lineofsight_SDO = None
+        cubes_all_data = None
+        cubes_no_duplicates_STEREO = None
+        cubes_no_duplicates_SDO = None
+        cubes_no_duplicate = None
+        trace_cubes = None
+        trace_cubes_no_duplicate = None
+        day_cubes_all_data = None
+        day_cubes_no_duplicate = None
 
         # Importing line_of_sight_data
         if self.line_of_sight:  
-            cubes1 = [readsav(os.path.join(self.paths['Cubes'], cube_name)).cube1 for cube_name in self._cube_names]  
-            cubes2 = [readsav(os.path.join(self.paths['Cubes'], cube_name)).cube2 for cube_name in self._cube_names]
-            self.cubes_lineofsight_STEREO = np.array(cubes1).astype('uint8')  # line of sight seen from STEREO 
-            self.cubes_lineofsight_SDO = np.array(cubes2).astype('uint8')  # line of sight seen from SDO
+            cubes1 = [readsav(os.path.join(cubes_path, cube_name)).cube1 for cube_name in cube_names]  
+            cubes2 = [readsav(os.path.join(cubes_path, cube_name)).cube2 for cube_name in cube_names]
+            cubes_lineofsight_STEREO = np.array(cubes1).astype('uint8')  # line of sight seen from STEREO 
+            cubes_lineofsight_SDO = np.array(cubes2).astype('uint8')  # line of sight seen from SDO
 
         # Separating the data
         if self.all_data or self.time_intervals_all_data:
-            self.cubes_all_data = self.cubes != 0
-            self.cubes_all_data = self.cubes_all_data.astype('uint8')
+            cubes_all_data = (cubes != 0).astype('uint8')
+
         if self.duplicates:
-            self.cubes_no_duplicates_SDO = (self.cubes == 3) | (self.cubes==7)  # no duplicates seen from SDO
-            self.cubes_no_duplicates_STEREO = (self.cubes == 5) | (self.cubes==7)  # no duplicates seen from STEREO
-            self.cubes_no_duplicates_SDO = self.cubes_no_duplicates_SDO.astype('uint8')
-            self.cubes_no_duplicates_STEREO = self.cubes_no_duplicates_STEREO.astype('uint8')
+            cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
+            cubes_no_duplicates_STEREO = (cubes == 5) | (cubes==7)  # no duplicates seen from STEREO
+            cubes_no_duplicates_SDO = cubes_no_duplicates_SDO.astype('uint8')
+            cubes_no_duplicates_STEREO = cubes_no_duplicates_STEREO.astype('uint8')
+
         if self.no_duplicate or self.trace_no_duplicate or self.day_trace_no_duplicate or self.time_intervals_no_duplicate:
-            self.cubes_no_duplicate = (self.cubes == 7)  # no  duplicates
-            self.cubes_no_duplicate = self.cubes_no_duplicate.astype('uint8')
+            cubes_no_duplicate = (cubes == 7).astype('uint8')  # no  duplicates
 
         # Other useful data
         if self.trace_data:
-            self.trace_cubes = np.any(self.cubes, axis=0)  # the "trace" of all the data
-            self.trace_cubes = self.trace_cubes.astype('uint8')
+            trace_cubes = np.any(cubes, axis=0).astype('uint8')  # the "trace" of all the data
+
         if self.trace_no_duplicate:
-            self.trace_cubes_no_duplicate = np.any(self.cubes_no_duplicate, axis=0)  # the "trace" of the no duplicates data
-            self.trace_cubes_no_duplicate = self.trace_cubes_no_duplicate.astype('uint8')
+            trace_cubes_no_duplicate = np.any(cubes_no_duplicate, axis=0).astype('uint8')  # the "trace" of the no duplicates data
 
         # Trace by day 
         if self.day_trace:
-            self.day_cubes_all_data = self.Day_cubes(self.cubes)
+            day_cubes_all_data = self.Day_cubes(cubes)
+
         if self.day_trace_no_duplicate:
-            self.day_cubes_no_duplicate = self.Day_cubes(self.cubes_no_duplicate)
+            day_cubes_no_duplicate = self.Day_cubes(cubes_no_duplicate)
+
+        return cubes, cubes_lineofsight_STEREO, cubes_lineofsight_SDO, cubes_all_data, \
+                cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, cubes_no_duplicate, trace_cubes, \
+                trace_cubes_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate
+        
 
     def Day_cubes(self, cubes):
         """
