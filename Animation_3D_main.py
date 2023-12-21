@@ -5,14 +5,17 @@ Code to then put in the jupyter notebook (just because I prefer .py files).
 import os
 import re
 import k3d
+import time
 import glob
 import threading
 import numpy as np
 import ipywidgets as widgets
+
 from astropy.io import fits
 from scipy.io import readsav
+from typeguard import typechecked
 from IPython.display import display
-import time
+
 
 class CustomDate:
     """
@@ -20,7 +23,7 @@ class CustomDate:
     doesn't work in this case. 
     """
 
-    def __init__(self, year, month, day, hour, minute, second):
+    def __init__(self, year: int, month: int, day: int, hour: int, minute: int, second: int):
         self.year = year
         self.month = month
         self.day = day
@@ -56,13 +59,31 @@ class Data:
     To upload and manipulate the data to then be inputted in the k3d library for 3D animations.
     """
 
-    def __init__(self, everything=False, both_cubes=False, sun=False, stars=False, all_data=False, duplicates=False, no_duplicate=False, 
-                 line_of_sight=False, trace_data=False, trace_no_duplicate=False, day_trace=False, day_trace_no_duplicate=False,
-                 time_intervals_all_data=False, time_intervals_no_duplicate = False, time_interval=1, sun_texture_resolution=960,
-                 sdo_pov = False, stereo_pov=False):
+    @typechecked
+    def __init__(self, everything: bool = False, both_cubes: str | bool = False, sun: bool = False, stars: bool = False, 
+                 all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
+                 trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
+                 day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
+                 time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, sun_texture_resolution: int = 960,
+                 sdo_pov: bool = False, stereo_pov: bool = False):
         
         # Arguments
-        self.both_cubes = (both_cubes or everything)  #choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
+        self.first_cube = False  # visualising the first data set
+        self.second_cube = False  # for the second data set 
+        if isinstance(both_cubes, bool):
+            self.both_cubes = (both_cubes or everything) # choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
+        elif isinstance(both_cubes, str):
+            self.both_cubes = (False or everything) 
+            if 'alf' in both_cubes.lower():
+                self.first_cube = True
+                self.second_cube = False
+            elif 'kar' in both_cubes.lower():
+                self.first_cube = False
+                self.second_cube = True
+            else:
+                raise ValueError('Wrong value for argument both_cubes. If a string, it has to contain "alf" or "kar".')
+        if not (self.first_cube or self.second_cube):
+            self.first_cube = True  # To make sure something is plotted if both_cubes is not set    
         self.sun = (sun or everything)  # choosing to plot the Sun
         self.stars = (stars or everything)  # choosing to plot the stars
         self.all_data = (all_data or everything)  # choosing to plot all the data (i.e. data containing the duplicates)
@@ -114,15 +135,29 @@ class Data:
         # Functions
         self.Paths()
         self.Names()
-        self.Dates_n_times()
-        self.Uploading_data()
         self.Sun_pos()
+        self.Dates_all_data_sets()
+                
         self.Choices()
 
     def Choices(self):
         """
-        To choose what is computed and added depending on the arguments choices
+        To choose what is computed and added depending on the arguments chosen.
         """
+
+        if self.both_cubes or self.first_cube:
+            self.cubes_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1, self.cubes_all_data_1, \
+                self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, self.cubes_no_duplicate_1, \
+                self.trace_cubes_1, self.trace_no_duplicate_1, self.day_cubes_all_data_1, \
+                self.day_cubes_no_duplicate_1 = self.Uploading_data(self.paths['Cubes'], self._cubes_names_1) 
+            self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
+        
+        if self.both_cubes or self.second_cube:
+            self.cubes_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2, self.cubes_all_data_2, \
+                self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, self.cubes_no_duplicate_2, \
+                self.trace_cubes_2, self.trace_no_duplicate_2, self.day_cubes_all_data_2, \
+                self.day_cubes_no_duplicate_2 = self.Uploading_data(self.paths['Cubes_karine'], self._cubes_names_2) 
+            self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
 
         if self.sun:
             self.Sun_texture()
@@ -162,16 +197,21 @@ class Data:
         # Setting the cube name pattern (only cube{:03d}.save files are kept)
         pattern = re.compile(r'cube(\d{3})\.save')
 
-        # Getting the cube names and sorting it so that they are in the right order
-        cube_names = [cube_name for cube_name in os.listdir(self.paths['Cubes']) \
-                      if pattern.match(cube_name)]
-        self._cube_names_1 = sorted(cube_names)  # first data set
+        # The cube names
+        cube_names = []
 
-        if self.both_cubes:
+        if self.both_cubes or self.first_cube:
+            cube_names.append([cube_name for cube_name in os.listdir(self.paths['Cubes']) \
+                      if pattern.match(cube_name)])
+            cube_names_1 = sorted(cube_names)  # first data set
+            self._cube_numbers_1 = [int(pattern.match(cube_name).group(1)) for cube_name in cube_names_1]
+
+        if self.both_cubes or self.second_cube:
             cube_names_2 = [cube_name for cube_name in os.listdir(self.paths['Cubes_karine']) \
                                if pattern.match(cube_name)] 
             cube_names.append(cube_names_2)
-            self.cube_names_2 = sorted(cube_names_2) # second set
+            cube_names_2 = sorted(cube_names_2) # second set
+            self._cube_numbers_2 = [int(pattern.match(cube_name).group(1)) for cube_name in cube_names_2]
 
         self._cube_names_all = [cube_name for cube_name in set(cube_names)]
         self._cube_names_all.sort()
@@ -179,9 +219,9 @@ class Data:
         # Getting the corresponding cube_numbers 
         self._cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
 
-    def Dates_n_times(self):
+    def Dates_all_data_sets(self):
         """
-        To get the dates and times corresponding to the cube numbers. 
+        To get the dates and times corresponding to all the used cubes.
         To do so images where both numbers are in the filename are used.
         """
 
@@ -190,13 +230,33 @@ class Data:
 
         # Getting the corresponding filenames 
         filenames = []
-        for number in self._cube_numbers_all:
+        for number in self._cube_numbers_all: 
             for filepath in all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        self.dates = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
+        self.dates_all = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
+
+    def Dates_n_times(self, cube_numbers):
+        """
+        To get the dates and times corresponding to each cube sets. 
+        To do so images where both numbers are in the filename are used.
+        """
+
+        pattern = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+        all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
+
+        # Getting the corresponding filenames 
+        filenames = []
+        for number in cube_numbers:
+            for filepath in all_filenames:
+                filename = os.path.basename(filepath)
+                if filename[:4] == f'{number:04d}':
+                    filenames.append(filename)
+                    break
+        dates = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
+        return dates
 
     def Uploading_data(self, cubes_path, cube_names):
         """
@@ -258,13 +318,13 @@ class Data:
                 trace_cubes_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate
         
 
-    def Day_cubes(self, cubes):
+    def Day_cubes(self, cubes, dates):
         """
         To integrate the data for each day.
         The input being the used data set and the output being an np.ndarray of axis0 length equal to the number of days.
         """
 
-        days_all = np.array([date.day for date in self.dates])
+        days_all = np.array([date.day for date in self.dates_all])
         days_unique = np.unique(days_all)
 
         day_cubes = []
@@ -359,7 +419,7 @@ class Data:
         """
 
         # Reference data 
-        first_cube_name = os.path.join(self.paths['Cubes'], self._cube_names[0])
+        first_cube_name = os.path.join(self.paths['Cubes'], self._cube_names_all[0])
 
         # Initial data values
         solar_r = 6.96e5 
@@ -540,9 +600,11 @@ class K3dAnimation(Data):
     Creates the corresponding k3d animation to then be used in a Jupyter notebook file.
     """
 
-    def __init__(self, compression_level=9, plot_height=1220, sleep_time=2, camera_fov=1, camera_zoom_speed=0.7, 
-                 trace_opacity=0.1, make_screenshots=False, screenshot_scale=2, screenshot_sleep=5, 
-                 screenshot_version='v0', **kwargs):
+    @typechecked
+    def __init__(self, compression_level: int = 9, plot_height: int = 1220, sleep_time: int | float = 2, 
+                 camera_fov: int | float = 1, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
+                 make_screenshots: bool = False, screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5, 
+                 screenshot_version: str = 'v0', **kwargs):
         
         super().__init__(**kwargs)
 
