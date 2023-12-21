@@ -147,7 +147,7 @@ class Data:
 
         main_path = '/home/avoyeux/old_project/avoyeux/'
         self.paths = {'Main': main_path,
-                      'Cubes': os.path.join(main_path, 'Cubes'),
+                      'Cubes': os.path.join(main_path, 'Cubes_karine'),
                       'Textures': os.path.join(main_path, 'Textures'),
                       'Intensities': os.path.join(main_path, 'STEREO', 'int'),
                       'SDO': os.path.join(main_path, 'sdo')}
@@ -372,7 +372,7 @@ class Data:
 
         # Replacing nan values to the lower_cut 
         nw_image = np.where(np.isnan(image), lower_cut, image)  # TODO: would need to change the nan values to the interpolation for the pole
-
+        nw_image = np.flip(nw_image, axis=0)
         # Changing values to a logarithmic scale
         self.sun_texture = np.log(nw_image)
 
@@ -738,7 +738,7 @@ class K3dAnimation(Data):
 
         # Adding the different data sets (i.e. with or without duplicates)
         if self.all_data:
-            self.init_plot = k3d.voxels(self.cubes_all_data[0], outlines=False, opacity=0.1, 
+            self.init_plot = k3d.voxels(self.cubes_all_data[0], outlines=False, opacity=0.4, 
                                         compression_level=self.compression_level, color_map=[0x90ee90], name='All data')
             self.plot += self.init_plot
       
