@@ -140,6 +140,8 @@ class Data:
         self.Dates_all_data_sets()            
         self.Choices()
 
+        # Freeing not used arguments
+        del self._cube_names_all, self._cube_names_1, self._cube_names_2
     def Choices(self):
         """
         To choose what is computed and added depending on the arguments chosen.
@@ -151,7 +153,7 @@ class Data:
                 self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, self.cubes_no_duplicate_1, \
                 self.trace_cubes_1, self.trace_no_duplicate_1, self.day_cubes_all_data_1, \
                 self.day_cubes_no_duplicate_1, self.day_indexes_1 \
-                    = self.Uploading_data(self.paths['Cubes'], self._cubes_names_1, self.dates_1) 
+                    = self.Uploading_data(self.paths['Cubes'], self._cube_names_1, self.dates_1) 
             
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
@@ -159,7 +161,7 @@ class Data:
                 self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, self.cubes_no_duplicate_2, \
                 self.trace_cubes_2, self.trace_no_duplicate_2, self.day_cubes_all_data_2, \
                 self.day_cubes_no_duplicate_2, self.day_indexes_2 \
-                    = self.Uploading_data(self.paths['Cubes_karine'], self._cubes_names_2, self.dates_2) 
+                    = self.Uploading_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2) 
 
         if self.sun:
             self.Sun_texture()
@@ -208,17 +210,17 @@ class Data:
         cube_names = []
 
         if self.first_cube:
-            cube_names.append([cube_name for cube_name in os.listdir(self.paths['Cubes']) \
+            cube_names.extend([cube_name for cube_name in os.listdir(self.paths['Cubes']) \
                       if pattern.match(cube_name)])
-            cube_names_1 = sorted(cube_names)  # first data set
-            self._cube_numbers_1 = [int(pattern.match(cube_name).group(1)) for cube_name in cube_names_1]
+            self._cube_names_1 = sorted(cube_names)  # first data set
+            self._cube_numbers_1 = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_1]
 
         if self.second_cube:
             cube_names_2 = [cube_name for cube_name in os.listdir(self.paths['Cubes_karine']) \
                                if pattern.match(cube_name)] 
-            cube_names.append(cube_names_2)
-            cube_names_2 = sorted(cube_names_2) # second set
-            self._cube_numbers_2 = [int(pattern.match(cube_name).group(1)) for cube_name in cube_names_2]
+            cube_names.extend(cube_names_2)
+            self._cube_names_2 = sorted(cube_names_2) # second set
+            self._cube_numbers_2 = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_2]
 
         self._cube_names_all = [cube_name for cube_name in set(cube_names)]
         self._cube_names_all.sort()
