@@ -13,6 +13,7 @@ import ipywidgets as widgets
 
 from astropy.io import fits
 from scipy.io import readsav
+from scipy.sparse import coo_matrix
 from typeguard import typechecked
 from IPython.display import display
 
@@ -65,7 +66,7 @@ class Data:
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, sun_texture_resolution: int = 960,
-                 sdo_pov: bool = False, stereo_pov: bool = False):
+                 sdo_pov: bool = False, stereo_pov: bool = False, memory_saver: bool = True):
         
         # Arguments
         self.first_cube = False
@@ -101,6 +102,7 @@ class Data:
         self.sun_texture_resolution = sun_texture_resolution  # choosing the Sun's texture resolution
         self.sdo_pov = sdo_pov
         self.stereo_pov = stereo_pov
+        self.memory_saver = memory_saver  # to choose to use sparse 4D np.ndarrays to save memory
 
         # Instance attributes set when running the class
         self._cube_names = None  # sorted data cubes filenames
@@ -141,27 +143,54 @@ class Data:
         self.Choices()
 
         # Freeing not used arguments
-        del self._cube_names_all, self._cube_names_1, self._cube_names_2
+        self.Attribute_deletion()
+    
+    def Attribute_deletion(self):
+        """
+        To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
+        """
+
+        del self._cube_names_all
+
+        if self.first_cube:  # TODO: won't need the if statement if I properly initialise all the attributes in the __init__ of the class.
+            del self._cube_names_1
+        elif self.second_cube:
+            del self._cube_names_2
+
+
     def Choices(self):
         """
         To choose what is computed and added depending on the arguments chosen.
         """
 
+        if self.time_intervals_all_data or self.time_intervals_no_duplicate:
+            self.Time_interval()
+        
         if self.first_cube:
             self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
-            self.cubes_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1, self.cubes_all_data_1, \
+            self.cubes_shape_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1, self.cubes_all_data_1, \
                 self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, self.cubes_no_duplicate_1, \
                 self.trace_cubes_1, self.trace_no_duplicate_1, self.day_cubes_all_data_1, \
                 self.day_cubes_no_duplicate_1, self.day_indexes_1 \
                     = self.Uploading_data(self.paths['Cubes'], self._cube_names_1, self.dates_1) 
-            
+            if self.time_intervals_all_data or self.time_intervals_no_duplicate:
+                self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1 = \
+                    self.Time_chunks_choices(self.dates_1, self.cubes_all_data_1, self.cubes_no_duplicate_1)
+                self.cubes_all_data_1 = self.Sparse_data(self.cubes_all_data_1)
+                self.cubes_no_duplicate_1 = self.Sparse_data(self.cubes_no_duplicate_1)
+
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
-            self.cubes_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2, self.cubes_all_data_2, \
+            self.cubes_shape_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2, self.cubes_all_data_2, \
                 self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, self.cubes_no_duplicate_2, \
                 self.trace_cubes_2, self.trace_no_duplicate_2, self.day_cubes_all_data_2, \
                 self.day_cubes_no_duplicate_2, self.day_indexes_2 \
                     = self.Uploading_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2) 
+            if self.time_intervals_all_data or self.time_intervals_no_duplicate:
+                self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2 = \
+                    self.Time_chunks_choices(self.dates_2, self.cubes_all_data_2, self.cubes_no_duplicate_2)  
+                self.cubes_all_data_2 = self.Sparse_data(self.cubes_all_data_2)
+                self.cubes_no_duplicate_2 = self.Sparse_data(self.cubes_no_duplicate_2)
 
         if self.sun:
             self.Sun_texture()
@@ -169,16 +198,7 @@ class Data:
             self.Colours_1D()
         
         if self.stars:
-            self.Stars()
-
-        if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-            self.Time_interval()
-            if self.first_cube:
-                self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1 = \
-                    self.Time_chunks_choices(self.dates_1, self.cubes_all_data_1, self.cubes_no_duplicate_1)
-            if self.second_cube:
-                self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2 = \
-                    self.Time_chunks_choices(self.dates_2, self.cubes_all_data_2, self.cubes_no_duplicate_2)      
+            self.Stars() 
                          
         if self.sdo_pov:
             self.SDO_stats()
@@ -280,49 +300,77 @@ class Data:
         cubes_no_duplicates_STEREO = None
         cubes_no_duplicates_SDO = None
         cubes_no_duplicate = None
-        trace_cubes = None
-        trace_cubes_no_duplicate = None
+        trace_cube = None
+        trace_cube_no_duplicate = None
         day_cubes_all_data = None
         day_cubes_no_duplicate = None
         day_indexes = None
 
         # Importing line_of_sight_data
         if self.line_of_sight:  
-            cubes1 = [readsav(os.path.join(cubes_path, cube_name)).cube1 for cube_name in cube_names]  
-            cubes2 = [readsav(os.path.join(cubes_path, cube_name)).cube2 for cube_name in cube_names]
-            cubes_lineofsight_STEREO = np.array(cubes1).astype('uint8')  # line of sight seen from STEREO 
-            cubes_lineofsight_SDO = np.array(cubes2).astype('uint8')  # line of sight seen from SDO
+            cubes_lineofsight_STEREO = [readsav(os.path.join(cubes_path, cube_name)).cube1 for cube_name in cube_names]  
+            cubes_lineofsight_SDO = [readsav(os.path.join(cubes_path, cube_name)).cube2 for cube_name in cube_names]
+            cubes_lineofsight_STEREO = np.array(cubes_lineofsight_STEREO).astype('uint8')  # line of sight seen from STEREO 
+            cubes_lineofsight_SDO = np.array(cubes_lineofsight_SDO).astype('uint8')  # line of sight seen from SDO
+            cubes_lineofsight_STEREO = self.Sparse_data(cubes_lineofsight_STEREO)
+            cubes_lineofsight_SDO = self.Sparse_data(cubes_lineofsight_SDO)
 
         # Separating the data
         if self.all_data or self.time_intervals_all_data:
             cubes_all_data = (cubes != 0).astype('uint8')
+            if not self.time_intervals_all_data:
+                cubes_all_data = self.Sparse_data(cubes_all_data)
+
+        if self.no_duplicate or self.trace_no_duplicate or self.day_trace_no_duplicate or self.time_intervals_no_duplicate:
+            cubes_no_duplicate = (cubes == 7).astype('uint8')  # no  duplicates
+            if not (self.trace_no_duplicate or self.day_trace_no_duplicate or self.time_intervals_no_duplicate):
+                cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
 
         if self.duplicates:
             cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
             cubes_no_duplicates_STEREO = (cubes == 5) | (cubes==7)  # no duplicates seen from STEREO
             cubes_no_duplicates_SDO = cubes_no_duplicates_SDO.astype('uint8')
             cubes_no_duplicates_STEREO = cubes_no_duplicates_STEREO.astype('uint8')
-
-        if self.no_duplicate or self.trace_no_duplicate or self.day_trace_no_duplicate or self.time_intervals_no_duplicate:
-            cubes_no_duplicate = (cubes == 7).astype('uint8')  # no  duplicates
+            cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO)
+            cubes_no_duplicates_STEREO = self.Sparse_data(cubes_no_duplicates_STEREO)
 
         # Other useful data
         if self.trace_data:
-            trace_cubes = np.any(cubes, axis=0).astype('uint8')  # the "trace" of all the data
+            trace_cube = np.any(cubes, axis=0).astype('uint8')  # the "trace" of all the data
+            #trace_cube = self.Sparse_data(trace_cube)
 
         if self.trace_no_duplicate:
-            trace_cubes_no_duplicate = np.any(cubes_no_duplicate, axis=0).astype('uint8')  # the "trace" of the no duplicates data
+            trace_cube_no_duplicate = np.any(cubes_no_duplicate, axis=0).astype('uint8')  # the "trace" of the no duplicates data
+            #trace_cube_no_duplicate = self.Sparse_data(trace_cube_no_duplicate)
+            if not (self.day_trace_no_duplicate or self.time_intervals_no_duplicate):
+                cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
 
         # Trace by day 
         if self.day_trace:
             day_cubes_all_data, day_indexes = self.Day_cubes(cubes, dates)
+            day_cubes_all_data = self.Sparse_data(day_cubes_all_data)
 
         if self.day_trace_no_duplicate:
             day_cubes_no_duplicate, day_indexes = self.Day_cubes(cubes_no_duplicate, dates)
+            day_cubes_no_duplicate = self.Sparse_data(day_cubes_no_duplicate)
+            if not self.time_intervals_no_duplicate:
+                cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
 
-        return cubes, cubes_lineofsight_STEREO, cubes_lineofsight_SDO, cubes_all_data, \
-                cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, cubes_no_duplicate, trace_cubes, \
-                trace_cubes_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate, day_indexes
+        return cubes.shape, cubes_lineofsight_STEREO, cubes_lineofsight_SDO, cubes_all_data, \
+                cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, cubes_no_duplicate, trace_cube, \
+                trace_cube_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate, day_indexes
+    
+    def Sparse_data(self, cubes):
+        """
+        To make the voxel positions np.ndarrays less memory heavy by taking into account that they are sparse arrays.
+        """
+
+        if self.memory_saver:
+            time, depth, height, width = cubes.shape
+            sparse_matrices = [coo_matrix(cubes[t].reshape(depth * height, width)) for t in range(time)]
+            return sparse_matrices, cubes.shape
+        else:
+            return cubes
         
     def Day_cubes(self, cubes, dates):
         """
@@ -340,7 +388,6 @@ class Data:
             day_trace = np.any(cubes[day_indexes], axis=0)
             day_cubes.append(day_trace)
             days_indexes.append(day_indexes)
-        
         return np.array(day_cubes).astype('uint8'), np.array(day_indexes)
 
     def Time_interval(self):
@@ -389,14 +436,16 @@ class Data:
             self._date_max = date_seconds + self.time_interval / 2
         
             if self.time_intervals_all_data:
-                time_cubes_all_data.append(self.Time_chunks(dates, cubes_all_data))
+                time_cubes_all_data.append(self.Time_chunks(dates, cubes_all_data)) 
             if self.time_intervals_no_duplicate:
                 time_cubes_no_duplicate.append(self.Time_chunks(dates, cubes_no_duplicate))
         
         if self.time_intervals_all_data:
-            time_cubes_all_data = np.array([np.any(data, axis=0) for data in time_cubes_all_data]).astype('uint8')
+            time_cubes_all_data = np.array(time_cubes_all_data).astype('uint8')
+            time_cubes_all_data = self.Sparse_data(time_cubes_all_data)
         if self.time_intervals_no_duplicate:
-            time_cubes_no_duplicate = np.array([np.any(data, axis=0) for data in time_cubes_no_duplicate]).astype('uint8')
+            time_cubes_no_duplicate = np.array(time_cubes_no_duplicate).astype('uint8')
+            time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate)
         return time_cubes_all_data, time_cubes_no_duplicate
 
     def Time_chunks(self, dates, cubes):
@@ -415,7 +464,12 @@ class Data:
                 chunk.append(data2)
             else:
                 break
-        return np.array(chunk)  
+        if len(chunk) == 0:  # i.e. if nothing was found
+            return np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3]))
+        elif len(chunk) == 1:
+            return data2
+        else:
+            return np.any(chunk, axis=0)
 
     def Sun_pos(self):
         """
@@ -600,6 +654,7 @@ class Data:
             stereo_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
         self.stereo_pos = np.array(stereo_pos)          
 
+
 class K3dAnimation(Data):
     """
     Creates the corresponding k3d animation to then be used in a Jupyter notebook file.
@@ -683,6 +738,15 @@ class K3dAnimation(Data):
                         self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                         0, 0, 1]  # up vector
 
+    def Full_array(self, condition, sparse_cube, init_shape):
+        """
+        To recreate a full 3D np.array from a sparse np.ndarray representing a 3D volume.
+        """
+
+        if condition:
+            cube = sparse_cube.reshape(init_shape[1], init_shape[2], init_shape[3])
+            return cube
+
     def Update_voxel(self, change):
         """
         Updates the plots depending on which time frame you want to be shown. 
@@ -724,7 +788,6 @@ class K3dAnimation(Data):
                     break
         if self.make_screenshots:
             self.Screenshot_making()
-
 
     def Play(self):
         """
