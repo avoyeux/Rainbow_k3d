@@ -145,9 +145,9 @@ class Data:
         Input and output paths manager.
         """
 
-        main_path = '/home/avoyeux/old_project/avoyeux/'
+        main_path = '../'
         self.paths = {'Main': main_path,
-                      'Cubes': os.path.join(main_path, 'Cubes_karine'),
+                      'Cubes': os.path.join(main_path, 'Cubes'),
                       'Textures': os.path.join(main_path, 'Textures'),
                       'Intensities': os.path.join(main_path, 'STEREO', 'int'),
                       'SDO': os.path.join(main_path, 'sdo')}
