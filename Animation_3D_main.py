@@ -94,41 +94,70 @@ class Data:
         self.time_intervals_all_data = (time_intervals_all_data or everything)  # for the data integration over time for all_data
         self.time_intervals_no_duplicate = (time_intervals_no_duplicate or everything)  # same for no_duplicate
         self.time_interval = time_interval  # time interval in hours (if 'int' or 'h' in str), days (if 'd' in str), minutes (if 'min' in str)  
-        self.sun_texture_resolution = sun_texture_resolution  # choosing the Sun's texture resolution
+        self._sun_texture_resolution = sun_texture_resolution  # choosing the Sun's texture resolution
         self.sdo_pov = sdo_pov
         self.stereo_pov = stereo_pov
         self.memory_saver = memory_saver  # to choose to use sparse 4D np.ndarrays to save memory
 
         # Instance attributes set when running the class
-        self._cube_names = None  # sorted data cubes filenames
-        self._cube_numbers = None  # list of the sorted number corresponding to each cube file
-        self.dates = None  # list of the date with .year, .month, etc
-        self.cubes = None  # all the data with values [1, 3, 5, 7]
-        self.cubes_all_data = None  # boolean 4D array of all the data
-        self.cubes_lineofsight_STEREO = None  # boolean 4D array of the line of sight data seen from STEREO
-        self.cubes_lineofsight_SDO = None  # same for SDO
-        self.cubes_no_duplicates_SDO = None  # boolean 4D array of the no duplicates seen from SDO
-        self.cubes_no_duplicates_STEREO = None  # same for STEREO
-        self.cubes_no_duplicate = None  # same for no duplicates
-        self.trace_cubes = None  # boolean 3D array of all the data
-        self.trace_cubes_no_duplicate = None  # same for the no_duplicate data
-        self.day_cubes_all_data = None  # boolean 4D array of the integration of all_data for each days
-        self.day_cubes_no_duplicate = None  # same for no_duplicate
-        self.day_index = None  # list with len(axis0) being the number of days and axis1 being the axis0 index in self.cubes (so for most of the cubes)
-        self.time_cubes_all_data = None  # boolean 4D array of the integration of all_data over time_interval
-        self.time_cubes_no_duplicate = None  # same for no_duplicate
+        self.paths = None  # dictionary containing all the path names and the corresponding path
+        self._cube_names_all = None  # all the cube names that will be used
+        self._cube_names_1 = None  # cube names for the first set 
+        self._cube_names_2 = None  # for the second set
+        self._cube_numbers_all = None  # sorted list of the number corresponding to each used cube
+        self._cube_numbers_1 = None  # same but only for the first set
+        self._cube_numbers_2 = None  # same for the second set
+        self.dates_all = None  # list of the date with .year, .month, etc for all the cubes
+        self.dates_1 = None  # same for the first set of cubes
+        self.dates_2 = None  # same for the second set of cubes 
+        self.cubes_shape_1 = None  # shape of the 4D data cube for the first set
+        self.cubes_shape_2 = None  # same for the second set
+        self.cubes_all_data_1 = None  # (sparse or not) boolean 4D array of all the data for the first set
+        self.cubes_all_data_2 = None  # same for the second set 
+        self.cubes_lineofsight_STEREO_1 = None  # (sparse or not) boolean 4D array of the line of sight data seen from STEREO for the first set
+        self.cubes_lineofsight_STEREO_2 = None  # same for the second set
+        self.cubes_lineofsight_SDO_1 = None  # same for SDO and the first set
+        self.cubes_lineofsight_SDO_2 = None  # same for the second set
+        self.cubes_no_duplicate_1 = None  # (sparse or not) boolean 4D array for the no duplicates for set 1
+        self.cubes_no_duplicate_2 = None  # same for the second set
+        self.cubes_no_duplicates_STEREO_1 = None  # same seen from STEREO for the first set
+        self.cubes_no_duplicates_STEREO_2 = None  # same for the second set
+        self.cubes_no_duplicates_SDO_1 = None  # same seen from SDO for the first set
+        self.cubes_no_duplicates_SDO_2 = None  # same for the second set 
+        self.trace_cubes_1 = None  # boolean 3D array of all the data for the first set 
+        self.trace_cubes_2 = None  # same for the second set
+        self.trace_cubes_no_duplicate_1 = None  # same for the no duplicate data and the first set
+        self.trace_cubes_no_duplicate_2 = None  # same for the second set 
+        self.day_cubes_all_data_1 = None  # (sparse or not) boolean 4D array of the integration of all_data for each days for the first set
+        self.day_cubes_all_data_2 = None  # same for the second set 
+        self.day_cubes_no_duplicate_1 = None  # same for no duplicate data for the first set
+        self.day_cubes_no_duplicate_2 = None  # same for the second set 
+        self.day_indexes_1 = None  # list of the data cube index for each day. index[n][m]=x is for day n the cube index is x. All this is for the first set
+        self.day_indexes_2 = None  # same for the second set
+        self.time_cubes_all_data_1 = None  # (sparse or not) boolean 4D array of the integration of all_data over time_interval for the first set
+        self.time_cubes_all_data_2 = None  # same for the second set
+        self.time_cubes_no_duplicate_1 = None  # same for no_duplicate and the first set
+        self.time_cubes_no_duplicate_2 = None  # same for the second set 
         self._date_min = None  # minimum date in seconds for each time_chunk
         self._date_max = None  # maximum date in seconds for each time_chunk
         self.radius_index = None  # radius of the Sun in grid units
-        self.sun_center = None  # position of the Sun's center [x, y, z] in the grid
+        self._sun_center = None  # position of the Sun's center [x, y, z] in the grid
         self._texture_height = None  # height in pixels of the input texture image
         self._texture_width = None  # width in pixels of the input texture image 
-        self.sun_texture = None  # Sun's texture image after some visualisation treatment
+        self._sun_texture = None  # Sun's texture image after some visualisation treatment
         self.sun_points = None  # positions of the pixels for the Sun's texture
         self._sun_texture_x = None  # 1D array with values corresponding to the height texture image indexes and array indexes to the theta direction position
         self._sun_texture_y = None  # same for width and phi direction
         self.hex_colours = None  # 1D array with values being integer hex colours and indexes being the position in the Sun's surface
         self.stars_points = None  # position of the stars
+        self._pattern_int = None  # re.compile pattern of the 'int' STEREO .png filenames
+        self._all_filenames = None  # all the 'int' filenames for both cubes
+        self._days_per_month = None  # list of the number of day per each month in a normal year
+        self._length_dx = None  # x direction unit voxel size in km
+        self._length_dy = None  # same for the y direction
+        self._length_dz = None  # same for the z direction
+        self.SDO_pos = None  # array giving the position of the SDO satellite for each time step
+        self.STEREO_pos = None  # same for STEREO
 
         # Functions
         self.Paths()
@@ -137,7 +166,7 @@ class Data:
         self.Dates_all_data_sets()            
         self.Choices()
 
-        # Freeing not used arguments
+        # Deleting the private class attributes
         self.Attribute_deletion()
     
     def Attribute_deletion(self):
@@ -145,13 +174,9 @@ class Data:
         To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
         """
 
-        del self._cube_names_all
-
-        if self.first_cube:  # TODO: won't need the if statement if I properly initialise all the attributes in the __init__ of the class.
-            del self._cube_names_1
-        elif self.second_cube:
-            del self._cube_names_2
-
+        del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_all, self._cube_numbers_1, self._cube_numbers_2
+        del self._date_max, self._date_min, self._sun_center, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
+        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz
 
     def Choices(self):
         """
@@ -164,8 +189,8 @@ class Data:
         if self.first_cube:
             self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
             self.cubes_shape_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1, self.cubes_all_data_1, \
-                self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, self.cubes_no_duplicate_1, \
-                self.trace_cubes_1, self.trace_no_duplicate_1, self.day_cubes_all_data_1, \
+                self.cubes_no_duplicate_1, self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, \
+                self.trace_cubes_1, self.trace_cubes_no_duplicate_1, self.day_cubes_all_data_1, \
                 self.day_cubes_no_duplicate_1, self.day_indexes_1 \
                     = self.Uploading_data(self.paths['Cubes'], self._cube_names_1, self.dates_1) 
             if self.time_intervals_all_data or self.time_intervals_no_duplicate:
@@ -177,8 +202,8 @@ class Data:
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
             self.cubes_shape_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2, self.cubes_all_data_2, \
-                self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, self.cubes_no_duplicate_2, \
-                self.trace_cubes_2, self.trace_no_duplicate_2, self.day_cubes_all_data_2, \
+                self.cubes_no_duplicate_2, self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, \
+                self.trace_cubes_2, self.trace_cubes_no_duplicate_2, self.day_cubes_all_data_2, \
                 self.day_cubes_no_duplicate_2, self.day_indexes_2 \
                     = self.Uploading_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2) 
             if self.time_intervals_all_data or self.time_intervals_no_duplicate:
@@ -249,18 +274,18 @@ class Data:
         To do so images where both numbers are in the filename are used.
         """
 
-        self.pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-        self.all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
+        self._pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+        self._all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
 
         # Getting the corresponding filenames 
         filenames = []
         for number in self._cube_numbers_all: 
-            for filepath in self.all_filenames:
+            for filepath in self._all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        self.dates_all = [CustomDate.parse_date(self.pattern_int.match(filename).group(1)) for filename in filenames]
+        self.dates_all = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
 
     def Dates_n_times(self, cube_numbers):
         """
@@ -271,12 +296,12 @@ class Data:
         # Getting the corresponding filenames 
         filenames = []
         for number in cube_numbers:
-            for filepath in self.all_filenames:
+            for filepath in self._all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        dates = [CustomDate.parse_date(self.pattern_int.match(filename).group(1)) for filename in filenames]
+        dates = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
 
     def Uploading_data(self, cubes_path, cube_names, dates):
@@ -322,12 +347,12 @@ class Data:
                 cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
 
         if self.duplicates:
-            cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
             cubes_no_duplicates_STEREO = (cubes == 5) | (cubes==7)  # no duplicates seen from STEREO
-            cubes_no_duplicates_SDO = cubes_no_duplicates_SDO.astype('uint8')
+            cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
             cubes_no_duplicates_STEREO = cubes_no_duplicates_STEREO.astype('uint8')
-            cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO)
+            cubes_no_duplicates_SDO = cubes_no_duplicates_SDO.astype('uint8')
             cubes_no_duplicates_STEREO = self.Sparse_data(cubes_no_duplicates_STEREO)
+            cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO)
 
         # Other useful data
         if self.trace_data:
@@ -352,7 +377,7 @@ class Data:
                 cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
 
         return cubes.shape, cubes_lineofsight_STEREO, cubes_lineofsight_SDO, cubes_all_data, \
-                cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, cubes_no_duplicate, trace_cube, \
+                cubes_no_duplicate, cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, trace_cube, \
                 trace_cube_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate, day_indexes
     
     def Sparse_data(self, cubes):
@@ -383,7 +408,7 @@ class Data:
             day_trace = np.any(cubes[day_indexes], axis=0)
             day_cubes.append(day_trace)
             days_indexes.append(day_indexes)
-        return np.array(day_cubes).astype('uint8'), np.array(day_indexes)
+        return np.array(day_cubes).astype('uint8'), days_indexes
 
     def Time_interval(self):
         """
@@ -414,17 +439,17 @@ class Data:
         To integrate the data given a time chunk. 
         """
 
-        self.days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        self._days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         date = self.dates_all[0]
 
         if (date.year % 4 == 0 and date.year % 100 !=0) or (date.year % 400 == 0):  # Only works if the year doesn't change
-            self.days_per_month[2] = 29  # for leap years
+            self._days_per_month[2] = 29  # for leap years
 
         time_cubes_all_data = []
         time_cubes_no_duplicate = [] 
 
         for date in self.dates_all:
-            date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 \
+            date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 \
                 + date.second
 
             self._date_min = date_seconds - self.time_interval / 2
@@ -450,7 +475,7 @@ class Data:
 
         chunk = []
         for date2, data2 in zip(dates, cubes):
-            date_seconds2 = (((self.days_per_month[date2.month] + date2.day) * 24 + date2.hour) * 60 + date2.minute) * 60 \
+            date_seconds2 = (((self._days_per_month[date2.month] + date2.day) * 24 + date2.hour) * 60 + date2.minute) * 60 \
                 + date2.second
 
             if date_seconds2 < self._date_min:
@@ -472,25 +497,25 @@ class Data:
         """
 
         # Reference data 
-        first_cube_name = os.path.join(self.paths['Cubes_karine'], self._cube_names_all[0])
+        first_cube_name = os.path.join(self.paths['Cubes'], self._cube_names_1[0])
 
         # Initial data values
         solar_r = 6.96e5 
         self._length_dx = readsav(first_cube_name).dx
         self._length_dy = readsav(first_cube_name).dy
         self._length_dz = readsav(first_cube_name).dz
-        self._x_min = readsav(first_cube_name).xt_min
-        self._y_min = readsav(first_cube_name).yt_min
-        self._z_min = readsav(first_cube_name).zt_min
+        x_min = readsav(first_cube_name).xt_min
+        y_min = readsav(first_cube_name).yt_min
+        z_min = readsav(first_cube_name).zt_min
 
         # The Sun's radius
         self.radius_index = solar_r / self._length_dx  # TODO: need to change this if dx!=dy!=dz.
 
         # The Sun center's position
-        x_index = self._x_min / self._length_dx 
-        y_index = self._y_min / self._length_dy 
-        z_index = self._z_min / self._length_dz 
-        self.sun_center = np.array([0 - x_index, 0 - y_index, 0 - z_index])
+        x_index = x_min / self._length_dx 
+        y_index = y_min / self._length_dy 
+        z_index = z_min / self._length_dz 
+        self._sun_center = np.array([0 - x_index, 0 - y_index, 0 - z_index])
 
     def Sun_texture(self):
         """
@@ -516,7 +541,7 @@ class Data:
         nw_image = np.flip(nw_image, axis=0)
 
         # Changing values to a logarithmic scale
-        self.sun_texture = np.log(nw_image)
+        self._sun_texture = np.log(nw_image)
 
     def Sun_points(self):
         """
@@ -524,23 +549,22 @@ class Data:
         """
 
         # Initialisation
-        N = self.sun_texture_resolution  # number of points in the theta direction
+        N = self._sun_texture_resolution  # number of points in the theta direction
         theta = np.linspace(0, np.pi, N)  # latitude of the points
         phi = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
         theta, phi = np.meshgrid(theta, phi)  # the subsequent meshgrid
 
         # Conversion to cartesian coordinates
-        x = self.radius_index * np.sin(theta) * np.cos(phi) + self.sun_center[0]
-        y = self.radius_index * np.sin(theta) * np.sin(phi) + self.sun_center[1]
-        z = self.radius_index * np.cos(theta) + self.sun_center[2] 
+        x = self.radius_index * np.sin(theta) * np.cos(phi) + self._sun_center[0]
+        y = self.radius_index * np.sin(theta) * np.sin(phi) + self._sun_center[1]
+        z = self.radius_index * np.cos(theta) + self._sun_center[2] 
 
         # Creation of the position of the spherical cloud of points
-        self.sun_points = np.array([x, y, z]).T
-        self.sun_points = self.sun_points.astype('float32') 
+        self.sun_points = np.array([x, y, z], dtype='float32').T
 
         # The corresponding image indexes to get the colors
-        self._sun_texture_x = np.linspace(0, self._texture_height - 1, self.sun_points.shape[0]).astype('int')
-        self._sun_texture_y = np.linspace(0, self._texture_width - 1, self.sun_points.shape[1]).astype('int')
+        self._sun_texture_x = np.linspace(0, self._texture_height - 1, self.sun_points.shape[0], dtype='uint16')
+        self._sun_texture_y = np.linspace(0, self._texture_width - 1, self.sun_points.shape[1], dtype='uint16')
 
     def Colours_1D(self):
         """
@@ -550,9 +574,9 @@ class Data:
         x_indices = self._sun_texture_x[:, np.newaxis]
         y_indices = self._sun_texture_y[np.newaxis, :]
 
-        colours = self.sun_texture[x_indices, y_indices].flatten()
+        colours = self._sun_texture[x_indices, y_indices].flatten()
         normalized_colours = (colours - np.min(colours)) / (np.max(colours) - np.min(colours))
-        blue_val = (normalized_colours * 255).astype('int')
+        blue_val = (normalized_colours * 255).astype('uint8')
         self.hex_colours = (blue_val << 16) + (blue_val << 8) + blue_val
         self.hex_colours = self.hex_colours.astype('uint32')
 
@@ -568,13 +592,12 @@ class Data:
         stars_phi = np.random.uniform(0, 2 * np.pi, stars_N)
 
         # To cartesian
-        stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self.sun_center[0]
-        stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self.sun_center[1]
-        stars_z = stars_radius * np.cos(stars_theta) + self.sun_center[2]
+        stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self._sun_center[0]
+        stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self._sun_center[1]
+        stars_z = stars_radius * np.cos(stars_theta) + self._sun_center[2]
 
         # Cartesian positions
-        self.stars_points = np.array([stars_x, stars_y, stars_z]).T
-        self.stars_points = self.stars_points.astype('float32')
+        self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
 
     def SDO_stats(self):
         """
@@ -609,7 +632,7 @@ class Data:
             ypos_index = Yhec / (1000 * self._length_dy)
             zpos_index = Zhec / (1000 * self._length_dz)
 
-            SDO_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index]))
+            SDO_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index]))
             hdul.close()  
         self.SDO_pos = np.array(SDO_pos)
 
@@ -646,8 +669,8 @@ class Data:
             ypos_index = Yhec / ( self._length_dy)
             zpos_index = Zhec / ( self._length_dz)
 
-            stereo_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
-        self.stereo_pos = np.array(stereo_pos)          
+            stereo_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
+        self.STEREO_pos = np.array(stereo_pos)          
 
 
 class K3dAnimation(Data):
@@ -722,7 +745,7 @@ class K3dAnimation(Data):
                         self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                         0, 0, 1]  # up vector
         elif self.stereo_pov:
-            self.plot.camera = [self.stereo_pos[0, 0], self.stereo_pos[0, 1], self.stereo_pos[0, 2],
+            self.plot.camera = [self.STEREO_pos[0, 0], self.STEREO_pos[0, 1], self.STEREO_pos[0, 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]  # up vector
         else:
@@ -754,7 +777,7 @@ class K3dAnimation(Data):
                                 0, 0, 1]
             time.sleep(0.3)
         elif self.stereo_pov:
-            self.plot.camera = [self.stereo_pos[change['new'], 0], self.stereo_pos[change['new'], 1], self.stereo_pos[change['new'], 2],
+            self.plot.camera = [self.STEREO_pos[change['new'], 0], self.STEREO_pos[change['new'], 1], self.STEREO_pos[change['new'], 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]
             time.sleep(0.3)          
