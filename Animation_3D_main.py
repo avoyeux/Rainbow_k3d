@@ -61,7 +61,7 @@ class Data:
     """
 
     @typechecked
-    def __init__(self, everything: bool = False, both_cubes: str | bool = False, sun: bool = False, stars: bool = False, 
+    def __init__(self, everything: bool = False, both_cubes: str | bool = 'Alfred', sun: bool = False, stars: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
@@ -72,7 +72,8 @@ class Data:
         self.first_cube = False
         self.second_cube = False
         if isinstance(both_cubes, bool):
-            both_cubes = (both_cubes or everything) # choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
+            self.first_cube = (both_cubes or everything)
+            self.second_cube = (both_cubes or everything)
         elif isinstance(both_cubes, str):
             if 'alf' in both_cubes.lower():
                 self.first_cube = True
@@ -80,12 +81,6 @@ class Data:
                 self.second_cube = True
             elif not everything:
                 raise ValueError('Wrong string value for argument both_cubes. It has to contain "alf" or "kar".')
-            both_cubes = everything
-        if both_cubes:
-            self.first_cube = True
-            self.second_cube = True
-        elif not (self.first_cube or self.second_cube):
-            self.first_cube = True  # To make sure something is plotted if both_cubes is not set    
         self.sun = (sun or everything)  # choosing to plot the Sun
         self.stars = (stars or everything)  # choosing to plot the stars
         self.all_data = (all_data or everything)  # choosing to plot all the data (i.e. data containing the duplicates)
