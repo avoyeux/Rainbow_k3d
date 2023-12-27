@@ -661,7 +661,7 @@ class Data:
 
         colours = self._sun_texture[x_indices, y_indices].flatten()
         normalized_colours = (colours - np.min(colours)) / (np.max(colours) - np.min(colours))
-        blue_val = (normalized_colours * 255).astype('uint8')
+        blue_val = (normalized_colours * 255).astype('int')
         self.hex_colours = (blue_val << 16) + (blue_val << 8) + blue_val
         self.hex_colours = self.hex_colours.astype('uint32')
 
