@@ -104,7 +104,7 @@ class Data:
         self._cube_names_all = None  # all the cube names that will be used
         self._cube_names_1 = None  # cube names for the first set 
         self._cube_names_2 = None  # for the second set
-        self._cube_numbers_all = None  # sorted list of the number corresponding to each used cube
+        self.cube_numbers_all = None  # sorted list of the number corresponding to each used cube
         self._cube_numbers_1 = None  # same but only for the first set
         self._cube_numbers_2 = None  # same for the second set
         self.dates_all = None  # list of the date with .year, .month, etc for all the cubes
@@ -175,7 +175,7 @@ class Data:
         """
 
         # Private attributes 
-        del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_all, self._cube_numbers_1, self._cube_numbers_2
+        del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
         del self._date_max, self._date_min, self._sun_center, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
         del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz
 
@@ -267,7 +267,7 @@ class Data:
         self._cube_names_all.sort()
 
         # Getting the corresponding cube_numbers 
-        self._cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
+        self.cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
 
     def Dates_all_data_sets(self):
         """
@@ -280,7 +280,7 @@ class Data:
 
         # Getting the corresponding filenames 
         filenames = []
-        for number in self._cube_numbers_all: 
+        for number in self.cube_numbers_all: 
             for filepath in self._all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
@@ -508,7 +508,7 @@ class Data:
             time_cubes_all_data_1 = []
             time_cubes_no_duplicate_1 = []
             index = -1
-            for number in self._cube_numbers_all:
+            for number in self.cube_numbers_all:
                 if number in self._cube_numbers_1:
                     index += 1
                     cubes_lineofsight_STEREO_1.append(self.cubes_lineofsight_STEREO_1[index])
@@ -547,7 +547,7 @@ class Data:
             time_cubes_all_data_2 = []
             time_cubes_no_duplicate_2 = []
             index = -1
-            for number in self._cube_numbers_all:
+            for number in self.cube_numbers_all:
                 if number in self._cube_numbers_2:
                     index += 1
                     cubes_lineofsight_STEREO_2.append(self.cubes_lineofsight_STEREO_2[index])
@@ -695,7 +695,7 @@ class Data:
 
 
         SDO_fits_names = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                           for number in self._cube_numbers_all]
+                           for number in self.cube_numbers_all]
         
         SDO_pos = []
 
@@ -733,7 +733,7 @@ class Data:
         data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save')).datainfos
         stereo_pos = []
 
-        for number in self._cube_numbers_all:
+        for number in self.cube_numbers_all:
             stereo_lon = data[number].lon
             stereo_lat = data[number].lat
             stereo_dsun = data[number].dist
@@ -819,7 +819,7 @@ class K3dAnimation(Data):
         """
 
         if self.memory_saver:
-            if sparse_cube:
+            if not (sparse_cube==None):
                 cube = sparse_cube.toarray().reshape(self.cubes_shape[1], self.cubes_shape[2], self.cubes_shape[3])
                 return cube
             else:
@@ -837,7 +837,7 @@ class K3dAnimation(Data):
         self.plot.camera_zoom_speed = self.camera_zoom_speed  # it was zooming too quickly (default=1.2)
         
         # Point to look at, i.e. initial rotational reference
-        self._camera_reference = self.cubes_shape[::-1] / 2
+        self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
         #self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2  # I got no clue why it is the other way around than for the cubes, but I tested it.
         
         if self.sdo_pov:
@@ -924,13 +924,26 @@ class K3dAnimation(Data):
                 data = self.Full_array(self.time_cubes_no_duplicate_2[change['new']])
                 self.plot_interv_dupli_set2.voxels = data
         if self.day_trace or self.day_trace_no_duplicate:
-            for day_nb, day_index in enumerate(self.day_index):
-                if (change['new'] in day_index) and (change['old'] not in day_index):
-                    if self.day_trace:
-                        self.init_plot8.voxels = self.day_cubes_all_data[day_nb]
-                    if self.day_trace_no_duplicate:
-                        self.init_plot9.voxels = self.day_cubes_no_duplicate[day_nb]
-                    break
+            if self.first_cube:
+                for day_nb, day_index in enumerate(self.day_indexes_1):
+                    if (change['new'] in day_index) and (change['old'] not in day_index):
+                        if self.day_trace:
+                            data = self.Full_array(self.day_cubes_all_data_1[day_nb])
+                            self.plot_day_set1.voxels = data
+                        if self.day_trace_no_duplicate:
+                            data = self.Full_array(self.day_cubes_no_duplicate_1[day_nb])
+                            self.plot_day_dupli_set1.voxels = data
+                        break
+            if self.second_cube:
+                for day_nb, day_index in enumerate(self.day_indexes_2):
+                    if (change['new'] in day_index) and (change['old'] not in day_index):
+                        if self.day_trace:
+                            data = self.Full_array(self.day_cubes_all_data_2[day_nb])
+                            self.plot_day_set2.voxels = data
+                        if self.day_trace_no_duplicate:
+                            data = self.Full_array(self.day_cubes_no_duplicate_2[day_nb])
+                            self.plot_day_dupli_set2.voxels = data
+                        break           
         if self.make_screenshots:
             self.Screenshot_making()
 
@@ -939,7 +952,7 @@ class K3dAnimation(Data):
         Params for the play button.
         """
         
-        if self.play_pause_button.value and self.time_slider.value < len(self.cubes) - 1:
+        if self.play_pause_button.value and self.time_slider.value < len(self.cube_numbers_all) - 1:
             self.time_slider.value += 1
             threading.Timer(self.sleep_time, self.Play).start()  # where you also set the sleep() time.
                 
@@ -986,7 +999,7 @@ class K3dAnimation(Data):
         """
 
         self.date_text = [f'{date.year}-{date.month:02d}-{date.day:02d}_{date.hour:02d}h{date.minute:02d}min'
-                          for date in self.dates]
+                          for date in self.dates_all]
 
     def Time_interval_string(self):
         """
@@ -1031,7 +1044,7 @@ class K3dAnimation(Data):
         
         # Adding the SUN!!!
         if self.sun:
-            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, colors=self.hex_colours, shader='flat',
+            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, color=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
         
         # Adding the stars      
@@ -1041,70 +1054,146 @@ class K3dAnimation(Data):
 
         # Adding the different data sets (i.e. with or without duplicates)
         if self.all_data:
-            self.init_plot = k3d.voxels(self.cubes_all_data[0], outlines=False, opacity=0.4, 
-                                        compression_level=self.compression_level, color_map=[0x90ee90], name='All data')
-            self.plot += self.init_plot
-      
+            if self.first_cube:
+                data = self.Full_array(self.cubes_all_data_1[0])
+                self.plot_alldata_set1 = k3d.voxels(data, outlines=False, opacity=0.1, compression_level=self.compression_level,
+                                                     color_map=[0x90ee90], name='Set1: all data')
+                self.plot += self.plot_alldata_set1
+            if self.second_cube:
+                data = self.Full_array(self.cubes_all_data_2[0])
+                self.plot_alldata_set2 = k3d.voxels(data, outlines=False, opacity=0.1, compression_level=self.compression_level,
+                                                     color_map=[0x90ee90], name='Set2: all data')
+                self.plot += self.plot_alldata_set2           
+       
         if self.duplicates:
-            self.init_plot1 = k3d.voxels(self.cubes_no_duplicates_SDO[0], compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0xff0000], name='No duplicates from SDO')
-            self.init_plot2 = k3d.voxels(self.cubes_no_duplicates_STEREO[0], compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0x0000ff], name='No duplicates from STEREO')
-            self.plot += self.init_plot1
-            self.plot += self.init_plot2
+            if self.first_cube:
+                data = self.Full_array(self.cubes_no_duplicates_STEREO_1[0])
+                self.plot_dupli_STEREO_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0xff0000], name='Set1: no duplicates from SDO')
+                data = self.Full_array(self.cubes_no_duplicates_SDO_1[0])
+                self.plot_dupli_SDO_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x0000ff], name='Set1: no duplicates from STEREO')
+                self.plot += self.plot_dupli_STEREO_set1
+                self.plot += self.plot_dupli_SDO_set1
+            if self.second_cube:
+                data = self.Full_array(self.cubes_no_duplicates_STEREO_2[0])
+                self.plot_dupli_STEREO_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0xff0000], name='Set2: no duplicates from SDO')
+                data = self.Full_array(self.cubes_no_duplicates_SDO_2[0])
+                self.plot_dupli_SDO_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x0000ff], name='Set2: no duplicates from STEREO')
+                self.plot += self.plot_dupli_STEREO_set2
+                self.plot += self.plot_dupli_SDO_set2
                
         if self.no_duplicate:
-            self.init_plot3 = k3d.voxels(self.cubes_no_duplicate[0], compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0x8B0000], name='No duplicates')
-            self.plot += self.init_plot3
+            if self.first_cube:
+                data = self.Full_array(self.cubes_no_duplicate_1[0])
+                self.plot_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x8B0000], name='Set1: no duplicates')
+                self.plot += self.plot_dupli_set1
+            if self.second_cube:
+                data = self.Full_array(self.cubes_no_duplicate_2[0])
+                self.plot_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x8B0000], name='Set2: no duplicates')
+                self.plot += self.plot_dupli_set2
 
         if self.line_of_sight:
-            self.init_plot4 = k3d.voxels(self.cubes_lineofsight_STEREO[0], compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0x0000ff], name='Seen from Stereo')
-            self.init_plot5 = k3d.voxels(self.cubes_lineofsight_SDO[0], compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0xff0000], name='Seen from SDO')
-            self.plot += self.init_plot4
-            self.plot += self.init_plot5
+            if self.first_cube:
+                data = self.Full_array(self.cubes_lineofsight_STEREO_1[0])
+                self.plot_los_STEREO_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x0000ff], name='Set1: seen from Stereo')
+                data = self.Full_array(self.cubes_lineofsight_SDO_1[0])
+                self.plot_los_SDO_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0xff0000], name='Set1: seen from SDO')
+                self.plot += self.plot_los_STEREO_set1
+                self.plot += self.plot_los_SDO_set1
+            if self.second_cube:
+                data = self.Full_array(self.cubes_lineofsight_STEREO_2[0])
+                self.plot_los_STEREO_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0x0000ff], name='Set2: seen from Stereo')
+                data = self.Full_array(self.cubes_lineofsight_SDO_2[0])
+                self.plot_los_SDO_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                                        color_map=[0xff0000], name='Set2: seen from SDO')
+                self.plot += self.plot_los_STEREO_set2
+                self.plot += self.plot_los_SDO_set2
 
         if self.time_intervals_all_data:
-            self.init_plot6 = k3d.voxels(self.time_cubes_all_data[0], compression_level=self.compression_level, outlines=False, 
-                                        color_map=[0xff6666],opacity=1, 
-                                        name=f'All data for {self.time_interval}')
-            self.plot += self.init_plot6
+            if self.first_cube:
+                data = self.Full_array(self.time_cubes_all_data_1[0])
+                self.plot_interv_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False, 
+                                        color_map=[0xff6666],opacity=1, name=f'Set1: all data for {self.time_interval}')
+                self.plot += self.plot_interv_set1
+            if self.second_cube:
+                data = self.Full_array(self.time_cubes_all_data_2[0])
+                self.plot_interv_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False, 
+                                        color_map=[0xff6666],opacity=1, name=f'Set2: all data for {self.time_interval}')
+                self.plot += self.plot_interv_set2           
        
         if self.time_intervals_no_duplicate:
-            self.init_plot7 = k3d.voxels(self.time_cubes_no_duplicate[0], compression_level=self.compression_level, outlines=False,
-                                        color_map=[0xff6666], opacity=1,
-                                        name=f'No duplicate for {self.time_interval}')
-            self.plot += self.init_plot7
+            if self.first_cube:
+                data = self.Full_array(self.time_cubes_no_duplicate_1[0])
+                self.plot_interv_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
+                                        color_map=[0xff6666], opacity=1, name=f'Set1: no duplicate for {self.time_interval}')
+                self.plot = self.plot_interv_dupli_set1
+            if self.second_cube:
+                data = self.Full_array(self.time_cubes_no_duplicate_2[0])
+                self.plot_interv_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
+                                        color_map=[0xff6666], opacity=1, name=f'Set2: no duplicate for {self.time_interval}')
+                self.plot = self.plot_interv_dupli_set2           
         
         if self.trace_data:
-            self.plot += k3d.voxels(self.trace_cubes, compression_level=self.compression_level, outlines=False, color_map=[0xff6666],
-                                    opacity=self.trace_opacity, name='Trace of all the data')
+            if self.first_cube:
+                self.plot += k3d.voxels(self.trace_cubes_1, compression_level=self.compression_level, outlines=False, color_map=[0xff6666],
+                                    opacity=self.trace_opacity, name='Set1: total trace')
+            if self.second_cube:
+                self.plot += k3d.voxels(self.trace_cubes_2, compression_level=self.compression_level, outlines=False, color_map=[0xff6666],
+                                    opacity=self.trace_opacity, name='Set2: total trace')
         
         if self.trace_no_duplicate:
-            self.plot += k3d.voxels(self.trace_cubes_no_duplicate, compression_level=self.compression_level, outlines=False, 
-                                    color_map=[0xff6666], opacity=self.trace_opacity, name='Trace of the no duplicates')
+            if self.first_cube:
+                self.plot += k3d.voxels(self.trace_cubes_no_duplicate_1, compression_level=self.compression_level, outlines=False, 
+                                    color_map=[0xff6666], opacity=self.trace_opacity, name='Set1: no duplicates trace')
+            if self.second_cube:
+                self.plot += k3d.voxels(self.trace_cubes_no_duplicate_2, compression_level=self.compression_level, outlines=False, 
+                                    color_map=[0xff6666], opacity=self.trace_opacity, name='Set2: no duplicates trace')
             
         if self.day_trace:
-            date = self.dates[0]
-            self.init_plot8 = k3d.voxels(self.day_cubes_all_data[0], compression_level=self.compression_level, outlines=False,
+            if self.first_cube:
+                date = self.dates_1[0]
+                data = self.Full_array(self.day_cubes_all_data_1[0])
+                self.plot_day_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
                                          color_map=[0xff6666], opacity=self.trace_opacity, 
-                                         name=f'All data trace for {date.month:02d}.{date.day:02d}')
-            self.plot += self.init_plot8
-
+                                         name=f'Set1: total trace for {date.month:02d}.{date.day:02d}')
+                self.plot = self.plot_day_set1
+            if self.second_cube:
+                date = self.dates_2[0]
+                data = self.Full_array(self.day_cubes_all_data_2[0])
+                self.plot_day_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
+                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         name=f'Set2: total trace for {date.month:02d}.{date.day:02d}')
+                self.plot = self.plot_day_set2
+        
         if self.day_trace_no_duplicate:
-            date = self.dates[0]
-            self.init_plot9 = k3d.voxels(self.day_cubes_no_duplicate[0], compression_level=self.compression_level, outlines=False,
+            if self.first_cube:
+                date = self.dates_1[0]
+                data = self.Full_array(self.day_cubes_no_duplicate_1[0])
+                self.plot_day_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
                                          color_map=[0xff6666], opacity=self.trace_opacity, 
-                                         name=f'No duplicate trace for {date.month:02d}.{date.day:02d}') #TODO: change the name for each day
-            self.plot += self.init_plot9
+                                         name=f'Set1: no duplicate trace for {date.month:02d}.{date.day:02d}')
+                self.plot += self.plot_day_dupli_set1
+            if self.second_cube:
+                date = self.dates_2[0]
+                data = self.Full_array(self.day_cubes_no_duplicate_2[0])
+                self.plot_day_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
+                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         name=f'Set2: no duplicate trace for {date.month:02d}.{date.day:02d}')
+                self.plot += self.plot_day_dupli_set2
 
         # Adding a play/pause button
         self.play_pause_button = widgets.ToggleButton(value=False, description='Play', icon='play')
 
         # Set up the time slider and the play/pause button
-        self.time_slider = widgets.IntSlider(min=0, max=len(self.cubes)-1, description='Frame:')
+        self.time_slider = widgets.IntSlider(min=0, max=len(self.cube_numbers_all)-1, description='Frame:')
         self.date_dropdown = widgets.Dropdown(options=self.date_text, description='Date:')
         self.time_slider.observe(self.Update_voxel, names='value')
         self.time_link= widgets.jslink((self.time_slider, 'value'), (self.date_dropdown, 'index'))
