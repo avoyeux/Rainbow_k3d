@@ -1044,7 +1044,7 @@ class K3dAnimation(Data):
         
         # Adding the SUN!!!
         if self.sun:
-            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, color=self.hex_colours, shader='flat',
+            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, colors=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
         
         # Adding the stars      
