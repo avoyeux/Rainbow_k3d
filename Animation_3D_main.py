@@ -165,6 +165,7 @@ class Data:
         self.Sun_pos()
         self.Dates_all_data_sets()            
         self.Choices()
+        self.Complete_sparse_arrays()
 
         # Deleting the private class attributes
         self.Attribute_deletion()
@@ -195,10 +196,9 @@ class Data:
                 self.day_cubes_no_duplicate_1, self.day_indexes_1 \
                     = self.Uploading_data(self.paths['Cubes'], self._cube_names_1, self.dates_1) 
             if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-                self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1 = \
-                    self.Time_chunks_choices(self.dates_1, self.cubes_all_data_1, self.cubes_no_duplicate_1)
-                self.cubes_all_data_1 = self.Sparse_data(self.cubes_all_data_1)
-                self.cubes_no_duplicate_1 = self.Sparse_data(self.cubes_no_duplicate_1)
+                self.cubes_all_data_1, self.cubes_no_duplicate_1, \
+                    self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1 \
+                        = self.Time_chunks_choices(self.dates_1, self.cubes_all_data_1, self.cubes_no_duplicate_1)
 
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
@@ -208,10 +208,9 @@ class Data:
                 self.day_cubes_no_duplicate_2, self.day_indexes_2 \
                     = self.Uploading_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2) 
             if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-                self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2 = \
-                    self.Time_chunks_choices(self.dates_2, self.cubes_all_data_2, self.cubes_no_duplicate_2)  
-                self.cubes_all_data_2 = self.Sparse_data(self.cubes_all_data_2)
-                self.cubes_no_duplicate_2 = self.Sparse_data(self.cubes_no_duplicate_2)
+                self.cubes_all_data_2, self.cubes_no_duplicate_2, \
+                    self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2 \
+                        = self.Time_chunks_choices(self.dates_2, self.cubes_all_data_2, self.cubes_no_duplicate_2)
 
         if self.sun:
             self.Sun_texture()
@@ -465,10 +464,12 @@ class Data:
         if self.time_intervals_all_data:
             time_cubes_all_data = np.array(time_cubes_all_data, dtype='uint8')
             time_cubes_all_data = self.Sparse_data(time_cubes_all_data)
+            cubes_all_data = self.Sparse_data(cubes_all_data)
         if self.time_intervals_no_duplicate:
             time_cubes_no_duplicate = np.array(time_cubes_no_duplicate, dtype='uint8')
             time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate)
-        return time_cubes_all_data, time_cubes_no_duplicate
+            cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
+        return cubes_all_data, cubes_no_duplicate, time_cubes_all_data, time_cubes_no_duplicate
 
     def Time_chunks(self, dates, cubes):
         """
