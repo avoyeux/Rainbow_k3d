@@ -11,10 +11,10 @@ import threading
 import numpy as np
 import ipywidgets as widgets
 
+from sparse import COO, concatenate
 from astropy.io import fits
 from scipy.io import readsav
 from typeguard import typechecked
-from scipy.sparse import coo_matrix
 from IPython.display import display
 from multiprocessing import shared_memory, Process, Queue
 
@@ -302,6 +302,16 @@ class Data:
         dates = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
 
+    def Shared_memory(self, array):
+        """
+        Creating a shared memory space given an input np.ndarray.
+        """
+
+        shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
+        shared_array = np.ndarray(array.shape, dtype=array.dtype, buffer=shm.buf)
+        shared_array[:] = array
+        return shm, shared_array
+
     @decorators.running_time
     def Uploading_data(self, cubes_path, cube_names, dates):
         """
@@ -311,6 +321,7 @@ class Data:
         # Importing the necessary data
         cubes = [readsav(os.path.join(cubes_path, cube_name)).cube for cube_name in cube_names]
         cubes = np.array(cubes)  # all data
+        cubes = self.Sparse_data(cubes)
         self.cubes_shape = cubes.shape
         self._cubes_dtype = cubes.dtype
 
@@ -318,10 +329,18 @@ class Data:
         processes = []
         queue = Queue()
         results = [None, None, None, None, None, None, None, None, None, None, None, None, None]
-        shm = shared_memory.SharedMemory(create=True, size=cubes.nbytes)
-        self._shm_name = shm.name
-        shared_data = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
-        shared_data[:] = cubes
+        
+        # Shared memory
+        if self.memory_saver:
+            sparse_data = cubes.data
+            sparse_coords = cubes.coords
+
+            shm_data, self._shared_data = self.Shared_memory(sparse_data)
+            shm_coords, self._shared_coords = self.Shared_memory(sparse_coords)
+            self._shm_data_name, self._shm_coords_name = shm_data.name, shm_coords.name
+        else:
+            self._shm_name, self._shared_array = self.Shared_memory(cubes)
+        
         del cubes
 
         # Separating the data
@@ -374,13 +393,14 @@ class Data:
 
         for i, p in enumerate(processes):
             p.start()
-            print(f'process nb {i} started')
         for i, p in enumerate(processes):
             p.join()
             print(f'process nb {i} joined')
 
-        shm.close()
-        shm.unlink()
+        shm_data.close()
+        shm_data.unlink()
+        shm_coords.close()
+        shm_coords.unlink()
 
         while not queue.empty():
             identifier, result = queue.get()
@@ -388,115 +408,160 @@ class Data:
             print(f"identifier is {identifier}")
         return results
     
+    def Shared_array_reconstruction(self):
+        """
+        To reconstruct the shared COO array if the input array was already a sparse array, 
+        i.e. it was needed to separate it in data and coords.
+        """
+
+        shm_data = shared_memory.SharedMemory(name=self._shm_data_name)
+        shm_coords = shared_memory.SharedMemory(name=self._shm_coords_name)
+
+        data = np.ndarray((self.cubes_shape[0],), dtype=self._cubes_dtype, buffer=shm_data.buf)
+        coords = np.ndarray((len(self.cubes_shape), self.cubes_shape[0]), dtype='int', buffer=shm_coords.buf)
+        return COO(coords=coords, data=data, shape=self.cubes_shape)
+
     def Cubes_all_data(self, queue):
         """
         To create the cubes for all the data.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
-        cubes_all_data = (cubes != 0).astype('uint8')
-        cubes_all_data = self.Sparse_data(cubes_all_data)
+        cubes_all_data = self.Sparse_data(cubes != 0).astype('uint8')
         # queue.put((0, cubes_all_data))
-        print('0 finished')
     
     def Cubes_no_duplicate(self, queue):
         """
         To create the cubes for the no duplicate data.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
-        cubes_no_duplicate = (cubes == 7).astype('uint8')  # no  duplicates 
-        cubes_no_duplicate = self.Sparse_data(cubes_no_duplicate)
+        cubes_no_duplicate = self.Sparse_data(cubes == 7).astype('uint8')  # no  duplicates 
         # queue.put((1, cubes_no_duplicate))
-        print('1 finished')
 
     def Cubes_duplicates(self, queue):
         """
         To create the cubes for the no duplicate data from STEREO and SDO.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
         cubes_no_duplicates_STEREO = (cubes == 5) | (cubes==7)  # no duplicates seen from STEREO
         cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
-        cubes_no_duplicates_STEREO = cubes_no_duplicates_STEREO.astype('uint8')
-        cubes_no_duplicates_SDO = cubes_no_duplicates_SDO.astype('uint8')
-        cubes_no_duplicates_STEREO = self.Sparse_data(cubes_no_duplicates_STEREO)
-        cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO)
-        
+        cubes_no_duplicates_STEREO = self.Sparse_data(cubes_no_duplicates_STEREO).astype('uint8')
+        cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO).astype('uint8')
         # queue.put((2, cubes_no_duplicates_STEREO))
         # queue.put((3, cubes_no_duplicates_SDO))
-        print('2 finished')
 
     def Cubes_trace(self, queue):
         """
         To create the cubes of the trace of all the data.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
 
-        trace_cube = np.any(cubes, axis=0).astype('uint8')  # the "trace" of all the data
+            trace_cube = self.Sparse_Any_method(cubes).astype('uint8')
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+
+            trace_cube = np.any(cubes, axis=0).astype('uint8')  # the "trace" of all the data
         # queue.put((4, trace_cube))
-        print('3 finished')
+
+    def Sparse_Any_method(self, sparse_array, axis=0):
+        """
+        To recreate the result that np.any() gives but for a sparse array.
+        """
+
+        assert len(sparse_array.shape) == 4, "Only works for 4 dimensions"
+        assert axis == 0, "For now, only works for axis=0"
+
+        coords = sparse_array.coords
+        mask = np.zeros(sparse_array.shape[1:], dtype='bool')
+
+        mask[coords[1], coords[2], coords[3]] = True
+        return COO(mask)
 
     def Cubes_trace_no_duplicate(self, queue):
         """
         To create the cubes of the trace of the no duplicate.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:    
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
-        cubes_no_duplicate = (cubes == 7)
-        trace_cube_no_duplicate = np.any(cubes_no_duplicate, axis=0).astype('uint8') 
+        cubes_no_duplicate = self.Sparse_data(cubes == 7)
+
+        if self.memory_saver:
+            trace_cube_no_duplicate = self.Sparse_Any_method(cubes_no_duplicate).astype('uint8')
+        else:
+            trace_cube_no_duplicate = np.any(cubes_no_duplicate, axis=0).astype('uint8') 
         # queue.put((5, trace_cube_no_duplicate))
-        print('4 finished')
 
     def Cubes_day(self, queue, dates):
         """
         To create the cubes for the day integration of all data.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)        
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)        
 
         day_cubes_all_data, day_indexes = self.Day_cubes(cubes, dates)
         day_cubes_all_data = self.Sparse_data(day_cubes_all_data)
         # queue.put((6, day_indexes))
         # queue.put((7, day_cubes_all_data, day_indexes))
-        print('5 finished')
 
     def Cubes_day_no_duplicate(self, queue, dates):
         """
         To create the cubes for the day integration of the no duplicates.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
-        cubes_no_duplicate = (cubes == 7).astype('uint8')
+        cubes_no_duplicate = self.Sparse_data(cubes == 7).astype('uint8')
         day_cubes_no_duplicate, day_indexes = self.Day_cubes(cubes_no_duplicate, dates)
         day_cubes_no_duplicate = self.Sparse_data(day_cubes_no_duplicate)
         # queue.put((6, day_indexes))
         # queue.put((8, day_cubes_no_duplicate))
-        print('6 finished')
 
     def Cubes_time_chunks(self, queue, dates):
         """
         To create the cubes for the time integrations for all data.
         """
 
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
         time_cubes_all_data = []
-        cubes_all_data = (cubes != 0).astype('uint8')
+        cubes_all_data = self.Sparse_data(cubes != 0).astype('uint8')
         for date in self.dates_all:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
@@ -504,21 +569,26 @@ class Data:
             date_max = date_seconds + self.time_interval / 2      
             time_cubes_all_data.append(self.Time_chunks(dates, cubes_all_data, date_max, date_min)) 
         
-        time_cubes_all_data = np.array(time_cubes_all_data, dtype='uint8')
+        if self.memory_saver:
+            time_cubes_all_data = [arr.reshape((1,) + arr.shape) for arr in time_cubes_all_data]
+            time_cubes_all_data = concatenate(time_cubes_all_data, axis=0)
+        else:
+            time_cubes_all_data = np.array(time_cubes_all_data, dtype='uint8')
         time_cubes_all_data = self.Sparse_data(time_cubes_all_data)
         # queue.put((9, time_cubes_all_data))
-        print('7 finished')
 
     def Cubes_time_chunks_no_duplicate(self, queue, dates):
         """
         To create the cubes for the time integrations for the no duplicates.
         """
-
-        shm = shared_memory.SharedMemory(name=self._shm_name)
-        cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
+        if self.memory_saver:
+            cubes = self.Shared_array_reconstruction()
+        else:
+            shm = shared_memory.SharedMemory(name=self._shm_name)
+            cubes = np.ndarray(self.cubes_shape, dtype=self._cubes_dtype, buffer=shm.buf)
 
         time_cubes_no_duplicate = [] 
-        cubes_no_duplicate = (cubes == 7)
+        cubes_no_duplicate = self.Sparse_data(cubes == 7)
         for date in self.dates_all:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
@@ -526,10 +596,13 @@ class Data:
             date_max = date_seconds + self.time_interval / 2
             time_cubes_no_duplicate.append(self.Time_chunks(dates, cubes_no_duplicate, date_max, date_min))
         
-        time_cubes_no_duplicate = np.array(time_cubes_no_duplicate, dtype='uint8')
-        time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate)
+        if self.memory_saver:
+            time_cubes_no_duplicate = [arr.reshape((1,) + arr.shape) for arr in time_cubes_no_duplicate]
+            time_cubes_no_duplicate = concatenate(time_cubes_no_duplicate, axis=0)
+        else:
+            time_cubes_no_duplicate = np.array(time_cubes_no_duplicate, dtype='uint8')
+            time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate)
         # queue.put((10, time_cubes_no_duplicate))
-        print('8 finished')
     
     def Cubes_lineofsight(self, queue, cubes_path, cube_names):
         """
@@ -545,7 +618,6 @@ class Data:
 
         # queue.put((11, cubes_lineofsight_STEREO))
         # queue.put((12, cubes_lineofsight_SDO))
-        print('9 finished')
 
     def Sparse_data(self, cubes):
         """
@@ -553,9 +625,7 @@ class Data:
         """
 
         if self.memory_saver:
-            time, depth, height, width = cubes.shape
-            sparse_matrices = [coo_matrix(cubes[t].reshape(depth * height, width)) for t in range(time)]
-            return sparse_matrices
+            return COO(cubes)
         else:
             return cubes
         
@@ -572,10 +642,17 @@ class Data:
         days_indexes = []
         for day in days_unique:
             day_indexes = np.where(days==day)[0]
-            day_trace = np.any(cubes[day_indexes], axis=0)
+            if self.memory_saver:
+                day_trace = self.Sparse_Any_method(cubes[day_indexes])
+            else:
+                day_trace = np.any(cubes[day_indexes], axis=0)
             day_cubes.append(day_trace)
             days_indexes.append(day_indexes)
-        return np.array(day_cubes, dtype='uint8'), days_indexes
+        if self.memory_saver:
+            day_cubes = [arr.reshape((1,) + arr.shape) for arr in day_cubes]
+            return concatenate(day_cubes, axis=0), day_indexes
+        else:
+            return np.array(day_cubes, dtype='uint8'), days_indexes
 
     def Time_interval(self):
         """
@@ -618,11 +695,19 @@ class Data:
             else:
                 break
         if len(chunk) == 0:  # i.e. if nothing was found
-            return np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3]))
+            if self.memory_saver:
+                return COO(np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3])))
+            else:
+                return np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3]))
         elif len(chunk) == 1:
             return data2
         else:
-            return np.any(chunk, axis=0)
+            if self.memory_saver:
+                chunk = [arr.reshape((1,) + arr.shape) for arr in chunk]
+                chunk = concatenate(chunk, axis=0)
+                return self.Sparse_Any_method(chunk)
+            else:
+                return np.any(chunk, axis=0)
     
     @decorators.running_time
     def Complete_sparse_arrays(self):
