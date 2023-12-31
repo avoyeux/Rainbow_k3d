@@ -4,6 +4,7 @@ Has functions that I regularly use.
 
 import time
 import numpy as np
+
 from functools import wraps
 
 
@@ -29,6 +30,28 @@ class decorators:
                   f"({round(END_time - START_time, 2)}s).\033[0m")
             return result
         return wrapper
+
+    @staticmethod
+    def batch_processor(batch_size):
+        """
+        For RAM management. If the number of files, given by their path is too large, then you can use this to split the paths in
+        batches and adds the output together to use less RAM.
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(file_paths, *args, **kwargs):
+                batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
+                results = []
+
+                for batch in batches:
+                    batch_result = func(batch, *args, **kwargs)
+
+                    
+                    results.extend(batch_result)
+                return results
+            return wrapper
+        return decorator
 
 
 class PlotFunctions:
