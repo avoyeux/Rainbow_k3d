@@ -518,20 +518,6 @@ class Data:
         trace_cube = COO.any(cubes, axis=0).astype('uint8')
         queue.put((4, trace_cube))
 
-    def Sparse_Any_method(self, sparse_array, axis=0):  # TODO: will need to delete this function after checking
-        """
-        To recreate the result that np.any() gives but for a sparse array.
-        """
-
-        assert len(sparse_array.shape) == 4, "Only works for 4 dimensions"
-        assert axis == 0, "For now, only works for axis=0"
-
-        coords = sparse_array.coords
-        mask = np.zeros(sparse_array.shape[1:], dtype='bool')
-
-        mask[coords[1], coords[2], coords[3]] = True
-        return COO(mask)
-
     def Cubes_trace_no_duplicate(self, queue):
         """
         To create the cubes of the trace of the no duplicate.
