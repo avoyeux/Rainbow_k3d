@@ -352,7 +352,7 @@ class Data:
         manager = Manager()
         queue = manager.Queue()
         total_length = len(cube_names)
-        batch_number = 4
+        batch_number = 6
         step = int(np.ceil(total_length / batch_number))
 
         for i in range(batch_number):
@@ -1230,16 +1230,16 @@ class K3dAnimation(Data):
                             compression_level=self.compression_level)
 
         # Adding the different data sets (i.e. with or without duplicates)
-        if self.all_data:
+        if self.all_data:  #old color color_map=[0x90ee90]
             if self.first_cube:
                 data = self.Full_array(self.cubes_all_data_1[0])
-                self.plot_alldata_set1 = k3d.voxels(data, outlines=False, opacity=0.1, compression_level=self.compression_level,
-                                                     color_map=[0x90ee90], name='Set1: all data')
+                self.plot_alldata_set1 = k3d.voxels(data, outlines=False, opacity=0.5, compression_level=self.compression_level,
+                                                     color_map=[0x0000ff], name='Set1: all data')
                 self.plot += self.plot_alldata_set1
             if self.second_cube:
                 data = self.Full_array(self.cubes_all_data_2[0])
-                self.plot_alldata_set2 = k3d.voxels(data, outlines=False, opacity=0.1, compression_level=self.compression_level,
-                                                     color_map=[0x90ee90], name='Set2: all data')
+                self.plot_alldata_set2 = k3d.voxels(data, outlines=False, opacity=0.3, compression_level=self.compression_level,
+                                                     color_map=[0xff6e00], name='Set2: all data')
                 self.plot += self.plot_alldata_set2           
        
         if self.duplicates:
@@ -1343,14 +1343,14 @@ class K3dAnimation(Data):
                 date = self.dates_1[0]
                 data = self.Full_array(self.day_cubes_all_data_1[0])
                 self.plot_day_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         color_map=[0x0000ff], opacity=0.3,
                                          name=f'Set1: total trace for {date.month:02d}.{date.day:02d}')
                 self.plot += self.plot_day_set1
             if self.second_cube:
                 date = self.dates_2[0]
                 data = self.Full_array(self.day_cubes_all_data_2[0])
                 self.plot_day_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         color_map=[0xff6e00], opacity=0.1, 
                                          name=f'Set2: total trace for {date.month:02d}.{date.day:02d}')
                 self.plot += self.plot_day_set2
         
@@ -1359,14 +1359,14 @@ class K3dAnimation(Data):
                 date = self.dates_1[0]
                 data = self.Full_array(self.day_cubes_no_duplicate_1[0])
                 self.plot_day_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         color_map=[0x0000ff], opacity=0.3, 
                                          name=f'Set1: no duplicate trace for {date.month:02d}.{date.day:02d}')
                 self.plot += self.plot_day_dupli_set1
             if self.second_cube:
                 date = self.dates_2[0]
                 data = self.Full_array(self.day_cubes_no_duplicate_2[0])
                 self.plot_day_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6666], opacity=self.trace_opacity, 
+                                         color_map=[0xff6e00], opacity=0.1, 
                                          name=f'Set2: no duplicate trace for {date.month:02d}.{date.day:02d}')
                 self.plot += self.plot_day_dupli_set2
 
