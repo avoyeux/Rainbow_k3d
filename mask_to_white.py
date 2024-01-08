@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 
 
-mask_paths = Path("../STEREO/masque_karine").glob('*.png')
-nw_path = "../STEREO/masque_try"
+mask_paths = Path("../STEREO/masque_karine_notprocessed").glob('*.png')
+nw_path = "../STEREO/masque_karine"
 os.makedirs(nw_path, exist_ok=True)
 
 for mask_path in mask_paths:
