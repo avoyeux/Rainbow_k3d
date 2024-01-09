@@ -273,7 +273,7 @@ class Data:
         """
 
         self._pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-        self._all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
+        self._all_filenames = sorted(glob.glob(os.path.join(self.paths['Intensities'], '*.png')))
 
         # # Getting the corresponding filenames 
         # filenames = []
@@ -285,7 +285,7 @@ class Data:
         #             break
         # self.dates_all = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
         self.dates_all = [CustomDate.parse_date(self._pattern_int.match(os.path.basename(filename)).group(1)) 
-                          for filename in sorted(self._all_filenames)]
+                          for filename in self._all_filenames]
 
     def Dates_n_times(self, cube_numbers):
         """
@@ -669,7 +669,7 @@ class Data:
         if len(chunk) == 0:  # i.e. if nothing was found
             return COO(np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3])))
         elif len(chunk) == 1:
-            return data2
+            return chunk[0]
         else:
             chunk = stack(chunk, axis=0)
             return COO.any(chunk, axis=0)
@@ -1295,12 +1295,12 @@ class K3dAnimation(Data):
             if self.first_cube:
                 data = self.Full_array(self.time_cubes_no_duplicate_1[0])
                 self.plot_interv_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                        color_map=[0x0000ff], opacity=0.4, name=f'Set1: no duplicate for {self.time_interval}')
+                                        color_map=[0x0000ff], opacity=0.5, name=f'Set1: no duplicate for {self.time_interval}')
                 self.plot += self.plot_interv_dupli_set1
             if self.second_cube:
                 data = self.Full_array(self.time_cubes_no_duplicate_2[0])
                 self.plot_interv_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                        color_map=[0xff6e00], opacity=0.13, name=f'Set2: no duplicate for {self.time_interval}')
+                                        color_map=[0xff6e00], opacity=0.25, name=f'Set2: no duplicate for {self.time_interval}')
                 self.plot += self.plot_interv_dupli_set2           
         
         if self.trace_data:
