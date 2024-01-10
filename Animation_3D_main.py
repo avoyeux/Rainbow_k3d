@@ -1137,7 +1137,7 @@ class K3dAnimation(Data):
         if self.time_intervals_all_data or self.time_intervals_no_duplicate:
             screenshot_name = f'interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
         else:
-            screenshot_name = f'Plot_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
+            screenshot_name = f'nodupli_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
         screenshot_namewpath = os.path.join(self.paths['Screenshots'], screenshot_name)
         with open(screenshot_namewpath, 'wb') as f:
             f.write(screenshot_png)
@@ -1251,12 +1251,12 @@ class K3dAnimation(Data):
             if self.first_cube:
                 data = self.Full_array(self.cubes_no_duplicate_1[0])
                 self.plot_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0x000080], opacity=0.5, name='Set1: no duplicates')
+                                        color_map=[0x0000ff], opacity=0.3, name='Set1: no duplicates')
                 self.plot += self.plot_dupli_set1
             if self.second_cube:
                 data = self.Full_array(self.cubes_no_duplicate_2[0])
                 self.plot_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0xff0000], opacity=0.15, name='Set2: no duplicates')
+                                        color_map=[0xff6e00], opacity=0.15, name='Set2: no duplicates')
                 self.plot += self.plot_dupli_set2
 
         if self.line_of_sight:
