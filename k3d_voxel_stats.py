@@ -22,7 +22,7 @@ class Stats(Data):
     """
 
     @typechecked
-    def __init__(self, kwargs: dict = {}, everything: bool = True):
+    def __init__(self, everything: bool = True, **kwargs):
 
         super().__init__(everything, both_cubes=True, **kwargs)
         self.Structure()
@@ -35,17 +35,12 @@ class Stats(Data):
         if isinstance(cubes, list):
             shape = (self.cubes_shape[1], self.cubes_shape[2], self.cubes_shape[3]) 
             print(f'the initial cube shape is {shape}')
-            data = np.array([])
-            coords = np.empty((0, shape[0]))
-            empty_coo = COO(data=data, coords=coords, shape=shape)
-            # empty_coo = COO(data=[], coords=[], shape=shape)
-            print(f' empty coo has shape {empty_coo.shape} and is {empty_coo}')
-            print(f'it has coords {empty_coo.coords} and data {empty_coo.data}')
+            empty_coo = COO(data=[], coords=[], shape=shape)
             for loop in range(len(cubes)):
                 if cubes[loop] is None:
                     cubes[loop] = empty_coo
             result = stack(cubes, axis=0)
-            print(f'the shpae of the concatenate is {result.shape}')
+            print(f'the shape of the concatenate is {result.shape}')
             return result
         else:
             print(f"the initial cube ain't a list. it's shape is {cubes.shape}")
@@ -73,7 +68,11 @@ class Stats(Data):
                      'no_duplicates_sdo_alf': self.Calculations(self.cubes_no_duplicates_SDO_1),
                      'no_duplicates_sdo_kar': self.Calculations(self.cubes_no_duplicates_SDO_2),
                      'no_duplicates_alf': self.Calculations(self.cubes_no_duplicate_1),
-                     'no_duplicates_kar': self.Calculations(self.cubes_no_duplicate_2)}
+                     'no_duplicates_kar': self.Calculations(self.cubes_no_duplicate_2),
+                     f'interval_{self.time_interval}_all_data_alf': self.Calculations(self.time_cubes_all_data_1),
+                     f'interval_{self.time_interval}_all_data_kar': self.Calculations(self.time_cubes_all_data_2),
+                     f'interval_{self.time_interval}_no_duplicates_alf': self.Calculations(self.time_cubes_no_duplicate_1),
+                     f'interval_{self.time_interval}_no_duplicates_kar': self.Calculations(self.time_cubes_no_duplicate_2)}
         
         df = pd.DataFrame(data_dict)
         df.to_csv('../k3d_stats.csv', index=False)
@@ -109,4 +108,4 @@ class Stats(Data):
     
 
 if __name__=='__main__':
-    Stats()
+    Stats(time_interval='20min')
