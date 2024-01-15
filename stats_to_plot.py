@@ -10,7 +10,11 @@ import matplotlib.pyplot as plt
 
 from typeguard import typechecked
 
+
 class Plotting:
+    """
+    PLOTTING!!!!!!!!!!!!!!!!!!!!!!!!!
+    """
 
     @typechecked
     def __init__(self, interval: int):

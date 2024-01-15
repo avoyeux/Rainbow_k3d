@@ -1,7 +1,8 @@
 """
-Code to then put in the jupyter notebook (just because I prefer .py files).
+Imports of the data, preprocessing and creation of the 3D k3d visualisation class to then be used in a jupyter notebook.
 """
 
+# Imports
 import os
 import re
 import k3d
@@ -14,11 +15,10 @@ import ipywidgets as widgets
 from astropy.io import fits
 from scipy.io import readsav
 from typeguard import typechecked
-from sparse import COO, stack, concatenate
 from IPython.display import display
+from sparse import COO, stack, concatenate
 from multiprocessing import shared_memory, Process, Manager
-
-# Personal Python files 
+ 
 from common_alf import decorators
 
 
@@ -64,14 +64,14 @@ class Data:
     To upload and manipulate the data to then be inputted in the k3d library for 3D animations.
     """
 
-    @decorators.running_time
-    @typechecked
+    @decorators.running_time  # gives the start and the end time of the function
+    @typechecked  # checks the type for the inputs at runtime 
     def __init__(self, everything: bool = False, both_cubes: str | bool = 'Alfred', sun: bool = False, stars: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, sun_texture_resolution: int = 960,
-                 sdo_pov: bool = False, stereo_pov: bool = False, memory_saver: bool = True):
+                 sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 6, make_screenshots: bool = False):
         
         # Arguments
         self.first_cube = False
@@ -102,8 +102,10 @@ class Data:
         self.time_intervals_no_duplicate = (time_intervals_no_duplicate or everything)  # same for no_duplicate
         self.time_interval = time_interval  # time interval in hours (if 'int' or 'h' in str), days (if 'd' in str), minutes (if 'min' in str)  
         self._sun_texture_resolution = sun_texture_resolution  # choosing the Sun's texture resolution
-        self.sdo_pov = sdo_pov
-        self.stereo_pov = stereo_pov
+        self.stereo_pov = stereo_pov  # following the STEREO pov
+        self.sdo_pov = sdo_pov  # same for the SDO pov 
+        self.batch_number = batch_number  # number of batches for the I/O bound tasks
+        self.make_screenshots = make_screenshots  # creating screenshots when clicking play
 
         # Instance attributes set when running the class
         self.paths = None  # dictionary containing all the path names and the corresponding path
@@ -160,8 +162,8 @@ class Data:
         self._length_dx = None  # x direction unit voxel size in km
         self._length_dy = None  # same for the y direction
         self._length_dz = None  # same for the z direction
-        self.SDO_pos = None  # array giving the position of the SDO satellite for each time step
-        self.STEREO_pos = None  # same for STEREO
+        self.STEREO_pos = None  # array giving the position of the STEREO satellite for each time step
+        self.SDO_pos = None  # same for SDO
 
         # Functions
         self.Paths()
@@ -173,17 +175,20 @@ class Data:
 
         # Deleting the private class attributes
         self.Attribute_deletion()
+
+    def Paths(self):
+        """
+        Input and output paths manager.
+        """
+
+        main_path = '../'
+        self.paths = {'Main': main_path,
+                      'Cubes': os.path.join(main_path, 'Cubes'),
+                      'Cubes_karine': os.path.join(main_path, 'Cubes_karine'),
+                      'Textures': os.path.join(main_path, 'Textures'),
+                      'Intensities': os.path.join(main_path, 'STEREO', 'int'),
+                      'SDO': os.path.join(main_path, 'sdo')}    
     
-    def Attribute_deletion(self):
-        """
-        To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
-        """
-
-        # Private attributes 
-        del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
-        del self._date_max, self._date_min, self._sun_center, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
-        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz, self._cubes_dtype
-
     def Choices(self):
         """
         To choose what is computed and added depending on the arguments chosen.
@@ -217,27 +222,14 @@ class Data:
         if self.stars:
             self.Stars() 
                          
-        if self.sdo_pov:
-            self.SDO_stats()
-        elif self.stereo_pov:
+        if self.stereo_pov:
             self.STEREO_stats()
-
-    def Paths(self):
-        """
-        Input and output paths manager.
-        """
-
-        main_path = '../'
-        self.paths = {'Main': main_path,
-                      'Cubes': os.path.join(main_path, 'Cubes'),
-                      'Cubes_karine': os.path.join(main_path, 'Cubes_karine'),
-                      'Textures': os.path.join(main_path, 'Textures'),
-                      'Intensities': os.path.join(main_path, 'STEREO', 'int'),
-                      'SDO': os.path.join(main_path, 'sdo')}
+        elif self.sdo_pov:
+            self.SDO_stats()
 
     def Names(self):
         """
-        To get the file names of all the cubes.
+        To get the filenames of all the cubes.
         """
 
         # Setting the cube name pattern (only cube{:03d}.save files are kept)
@@ -259,12 +251,14 @@ class Data:
             self._cube_names_2 = sorted(cube_names_2) # second set
             self._cube_numbers_2 = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_2]
 
-        # self._cube_names_all = [cube_name for cube_name in set(cube_names)]
-        # self._cube_names_all.sort()
+        if not self.make_screenshots:
+            self._cube_names_all = [cube_name for cube_name in set(cube_names)]
+            self._cube_names_all.sort()
 
-        # # Getting the corresponding cube_numbers 
-        # self.cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
-        self.cube_numbers_all = np.arange(0, 413) # all the possible numbers for the gifs
+            # Getting the corresponding cube_numbers 
+            self.cube_numbers_all = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names_all]
+        else:
+            self.cube_numbers_all = np.arange(0, 413) # all the possible numbers for the gifs
 
     def Dates_all_data_sets(self):
         """
@@ -275,22 +269,24 @@ class Data:
         self._pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
         self._all_filenames = sorted(glob.glob(os.path.join(self.paths['Intensities'], '*.png')))
 
-        # # Getting the corresponding filenames 
-        # filenames = []
-        # for number in self.cube_numbers_all: 
-        #     for filepath in self._all_filenames:
-        #         filename = os.path.basename(filepath)
-        #         if filename[:4] == f'{number:04d}':
-        #             filenames.append(filename)
-        #             break
-        # self.dates_all = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
-        self.dates_all = [CustomDate.parse_date(self._pattern_int.match(os.path.basename(filename)).group(1)) 
-                          for filename in self._all_filenames]
+        if not self.make_screenshots:
+            # Getting the corresponding filenames 
+            filenames = []
+            for number in self.cube_numbers_all: 
+                for filepath in self._all_filenames:
+                    filename = os.path.basename(filepath)
+                    if filename[:4] == f'{number:04d}':
+                        filenames.append(filename)
+                        break
+            self.dates_all = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
+        else:
+            self.dates_all = [CustomDate.parse_date(self._pattern_int.match(os.path.basename(filename)).group(1)) 
+                            for filename in self._all_filenames]
 
     def Dates_n_times(self, cube_numbers):
         """
         To get the dates and times corresponding to each cube sets. 
-        To do so images where both numbers are in the filename are used.
+        To do so images where the cube number is in the filename is used.
         """
 
         # Getting the corresponding filenames 
@@ -303,51 +299,11 @@ class Data:
                     break
         dates = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
-
-    def Shared_memory(self, array, dtype):
-        """
-        Creating a shared memory space given an input np.ndarray.
-        """
-
-        shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
-        shared_array = np.ndarray(array.shape, dtype=dtype, buffer=shm.buf)
-        np.copyto(shared_array, array)
-        return shm, shared_array
     
-    def Cubes(self, queue, queue_index, path, names):
-        """
-        To import the Cubes. As it is mainly an I/O bound task, using a function so that I can parallelise.
-        """
-
-        cubes = [readsav(os.path.join(path, cube_name)).cube.astype('uint8') for cube_name in names]
-        cubes = np.array(cubes)  
-        cubes = self.Sparse_data(cubes)
-        queue.put((queue_index, cubes))
-
-    def Cubes_lineofsight_STEREO(self, queue, queue_index, path, names):
-        """
-        To trace the cubes for the line of sight STEREO data.
-        """
-
-        cubes_lineofsight_STEREO = [readsav(os.path.join(path, cube_name)).cube1.astype('uint8') for cube_name in names]  
-        cubes_lineofsight_STEREO = np.array(cubes_lineofsight_STEREO)  # line of sight seen from STEREO 
-        cubes_lineofsight_STEREO = self.Sparse_data(cubes_lineofsight_STEREO)
-        queue.put((queue_index, cubes_lineofsight_STEREO))
-        
-    def Cubes_lineofsight_SDO(self, queue, queue_index, path, names):
-        """
-        To trace the cubes for the line of sight SDO data.
-        """
-
-        cubes_lineofsight_SDO = [readsav(os.path.join(path, cube_name)).cube2.astype('uint8') for cube_name in names]
-        cubes_lineofsight_SDO = np.array(cubes_lineofsight_SDO)  # line of sight seen from SDO
-        cubes_lineofsight_SDO = self.Sparse_data(cubes_lineofsight_SDO)
-        queue.put((queue_index, cubes_lineofsight_SDO))
-
     @decorators.running_time
     def Processing_data(self, cubes_path, cube_names, dates):
         """
-        Downloading and preparing the data.
+        Downloading and processing the data depending on the arguments chosen.
         """
 
         # Multiprocessing initial I/O bound tasks
@@ -355,23 +311,22 @@ class Data:
         manager = Manager()
         queue = manager.Queue()
         total_length = len(cube_names)
-        batch_number = 6
-        step = int(np.ceil(total_length / batch_number))
+        step = int(np.ceil(total_length / self.batch_number))
 
-        for i in range(batch_number):
-            if not (i==batch_number - 1):
+        for i in range(self.batch_number):
+            if not (i==self.batch_number - 1):
                 IO_processes.append(Process(target=self.Cubes, args=(queue, i, cubes_path, cube_names[step * i:step * (i + 1)])))
                 if self.line_of_sight:
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self.batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self.batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
             else:
                 IO_processes.append(Process(target=self.Cubes, args=(queue, i, cubes_path, cube_names[step * i:])))
                 if self.line_of_sight:
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, batch_number + i, cubes_path, cube_names[step * i:])))
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * batch_number + i, cubes_path, cube_names[step * i:])))
-        
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self.batch_number + i, cubes_path, cube_names[step * i:])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self.batch_number + i, cubes_path, cube_names[step * i:])))
+        # Ordering the results gotten from the I/O bound tasks
         results = []
-        for i in range(batch_number * 3):
+        for i in range(self.batch_number * 3):
             results.append(None)
         for p in IO_processes:
             p.start()
@@ -380,16 +335,16 @@ class Data:
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
-        cubes = concatenate(results[:batch_number], axis=0)
+        cubes = concatenate(results[:self.batch_number], axis=0)
         if self.line_of_sight:
-            STEREO = concatenate(results[batch_number:batch_number * 2], axis=0)
-            SDO = concatenate(results[batch_number * 2:], axis=0)
+            STEREO = concatenate(results[self.batch_number:self.batch_number * 2], axis=0)
+            SDO = concatenate(results[self.batch_number * 2:], axis=0)
 
         self.cubes_shape = cubes.shape
         self._cubes_dtype = cubes.dtype
         print(f'CUBES - {round(cubes.nbytes/ 2**20,3)}Mb')
 
-        # For multiprocessing
+        # CPU bound processes 
         processes = []
         results = [None, None, None, None, None, None, None, None, None, None, None, None]
         if self.line_of_sight:
@@ -399,12 +354,12 @@ class Data:
         # Shared memory
         sparse_data = cubes.data
         sparse_coords = cubes.coords
-
+        # Shared memory properties
         self._sparse_data_shape = sparse_data.shape
         self._sparse_coords_shape = sparse_coords.shape
         self.sparse_data_dtype = sparse_data.dtype
         self.sparse_coords_dtype = sparse_coords.dtype
-
+        # Shared memory object and np.ndarray
         shm_data, shared_data = self.Shared_memory(sparse_data, self.sparse_data_dtype)
         shm_coords, shared_coords = self.Shared_memory(sparse_coords, self.sparse_coords_dtype)
         self._shm_data_name, self._shm_coords_name = shm_data.name, shm_coords.name
@@ -412,36 +367,26 @@ class Data:
         # Separating the data
         if self.all_data:
             processes.append(Process(target=self.Cubes_all_data, args=(queue,)))
-
         if self.no_duplicate:
             processes.append(Process(target=self.Cubes_no_duplicate, args=(queue,)))
-
         if self.duplicates:
             processes.append(Process(target=self.Cubes_duplicates_STEREO, args=(queue,)))
             processes.append(Process(target=self.Cubes_duplicates_SDO, args=(queue,)))
-
         if self.trace_data:
             processes.append(Process(target=self.Cubes_trace, args=(queue,)))
-
         if self.trace_no_duplicate:
             processes.append(Process(target=self.Cubes_trace_no_duplicate, args=(queue,)))
-
         if self.day_trace:
             processes.append(Process(target=self.Cubes_day, args=(queue, dates)))
-
         if self.day_trace_no_duplicate:
             processes.append(Process(target=self.Cubes_day_no_duplicate, args=(queue, dates)))
-
         if self.time_intervals_all_data or self.time_intervals_no_duplicate:
             self._days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
             date = self.dates_all[0]
-
             if (date.year % 4 == 0 and date.year % 100 !=0) or (date.year % 400 == 0):  # Only works if the year doesn't change
                 self._days_per_month[2] = 29  # for leap years
-            
         if self.time_intervals_all_data:
             processes.append(Process(target=self.Cubes_time_chunks, args=(queue, dates)))
-
         if self.time_intervals_no_duplicate:
             processes.append(Process(target=self.Cubes_time_chunks_no_duplicate, args=(queue, dates)))
 
@@ -455,15 +400,64 @@ class Data:
         shm_coords.close()
         shm_coords.unlink()
 
+        # Ordering and saving the results
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
         return results
     
+    def Sparse_data(self, cubes):
+        """
+        To make the voxel positions np.ndarrays less memory heavy by taking into account that they are sparse arrays.
+        """
+
+        cubes = COO(cubes)  # the .to_numpy() method wasn't used as the idx_type argument isn't working properly
+        cubes.coords = cubes.coords.astype('uint16')  # to save memory
+        return cubes
+    
+    def Cubes(self, queue, queue_index, path, names):
+        """
+        To import the cubes in sections as it is mainly an I/O bound task.
+        """
+
+        cubes = [readsav(os.path.join(path, cube_name)).cube.astype('uint8') for cube_name in names]
+        cubes = np.array(cubes)  
+        cubes = self.Sparse_data(cubes)
+        queue.put((queue_index, cubes))
+
+    def Cubes_lineofsight_STEREO(self, queue, queue_index, path, names):
+        """
+        To trace the cubes for the line of sight STEREO data. Also imported in sections as it is mainly an I/O bound task.
+        """
+
+        cubes_lineofsight_STEREO = [readsav(os.path.join(path, cube_name)).cube1.astype('uint8') for cube_name in names]  
+        cubes_lineofsight_STEREO = np.array(cubes_lineofsight_STEREO)  # line of sight seen from STEREO 
+        cubes_lineofsight_STEREO = self.Sparse_data(cubes_lineofsight_STEREO)
+        queue.put((queue_index, cubes_lineofsight_STEREO))
+        
+    def Cubes_lineofsight_SDO(self, queue, queue_index, path, names):
+        """
+        To trace the cubes for the line of sight SDO data. Also imported in sections as it is mainly an I/O bound task.
+        """
+
+        cubes_lineofsight_SDO = [readsav(os.path.join(path, cube_name)).cube2.astype('uint8') for cube_name in names]
+        cubes_lineofsight_SDO = np.array(cubes_lineofsight_SDO)  # line of sight seen from SDO
+        cubes_lineofsight_SDO = self.Sparse_data(cubes_lineofsight_SDO)
+        queue.put((queue_index, cubes_lineofsight_SDO))
+
+    def Shared_memory(self, array, dtype):
+        """
+        Creating a shared memory space given an input np.ndarray.
+        """
+
+        shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
+        shared_array = np.ndarray(array.shape, dtype=dtype, buffer=shm.buf)
+        np.copyto(shared_array, array)
+        return shm, shared_array
+    
     def Shared_array_reconstruction(self):
         """
-        To reconstruct the shared COO array if the input array was already a sparse array, 
-        i.e. it was needed to separate it in data and coords.
+        To reconstruct the shared COO array as it is separated in a data and a coords np.ndarray.
         """
 
         shm_data = shared_memory.SharedMemory(name=self._shm_data_name)
@@ -472,7 +466,7 @@ class Data:
         data = np.ndarray(self._sparse_data_shape, dtype=self.sparse_data_dtype, buffer=shm_data.buf)
         coords = np.ndarray(self._sparse_coords_shape, dtype=self.sparse_coords_dtype, buffer=shm_coords.buf)
         cubes = COO(coords=coords, data=data, shape=self.cubes_shape)
-        return COO.copy(cubes)  #TODO: need to see this is way quicker or self.Sparse_data(cubes)
+        return COO.copy(cubes)  # had to add a .copy() as it wasn't working properly
 
     def Cubes_all_data(self, queue):
         """
@@ -494,7 +488,7 @@ class Data:
 
     def Cubes_duplicates_STEREO(self, queue):
         """
-        To create the cubes for the no duplicate data from STEREO and SDO.
+        To create the cubes for the no duplicate data from STEREO.
         """
 
         cubes = self.Shared_array_reconstruction()
@@ -504,7 +498,7 @@ class Data:
     
     def Cubes_duplicates_SDO(self, queue):
         """
-        To create the cubes for the no duplicate data from STEREO and SDO.
+        To create the cubes for the no duplicate data from SDO.
         """
 
         cubes = self.Shared_array_reconstruction()
@@ -589,15 +583,6 @@ class Data:
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0)
         time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate).astype('uint8')
         queue.put((9, time_cubes_no_duplicate))
-
-    def Sparse_data(self, cubes):
-        """
-        To make the voxel positions np.ndarrays less memory heavy by taking into account that they are sparse arrays.
-        """
-
-        cubes = COO(cubes)
-        cubes.coords = cubes.coords.astype('uint16')
-        return cubes
     
     def Day_indexes(self):
         """
@@ -607,7 +592,6 @@ class Data:
         
         days_unique = sorted(set([date.day for date in self.dates_all]))
         days = np.array([date.day for date in self.dates_all])
-
         self.day_indexes = [np.where(days==day)[0] for day in days_unique]
 
     def Day_cubes(self, cubes, dates):
@@ -647,7 +631,6 @@ class Data:
                 raise ValueError("Time_interval string value not supported. Add 'min' for minutes, 'h' for hours or 'd' for days.")
         else:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
-        
         self.time_interval = time_delta
 
     def Time_chunks(self, dates, cubes, date_max, date_min):
@@ -659,7 +642,7 @@ class Data:
         for date2, data2 in zip(dates, cubes):
             date_seconds2 = (((self._days_per_month[date2.month] + date2.day) * 24 + date2.hour) * 60 + date2.minute) * 60 \
                 + date2.second
-
+            
             if date_seconds2 < date_min:
                 continue
             elif date_seconds2 <= date_max:
@@ -852,56 +835,52 @@ class Data:
         # Cartesian positions
         self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
 
-    def SDO_stats(self):
-        """
-        To save the information needed to find the position of SDO.
-        """
-
-        from astropy import units as u
-        from astropy.coordinates import CartesianRepresentation
-        from sunpy.coordinates.frames import  HeliographicCarrington
-
-
-        SDO_fits_names = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                           for number in self.cube_numbers_all]
-        
-        SDO_pos = []
-
-        for fits_name in SDO_fits_names:
-            hdul = fits.open(fits_name)
-            header = hdul[0].header
-
-
-            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
-                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
-                                                observer='self')
-            hec_coords = hec_coords.represent_as(CartesianRepresentation)
-
-            Xhec = hec_coords.x.value
-            Yhec = hec_coords.y.value
-            Zhec = hec_coords.z.value
-
-            xpos_index = Xhec / (1000 * self._length_dx)
-            ypos_index = Yhec / (1000 * self._length_dy)
-            zpos_index = Zhec / (1000 * self._length_dz)
-
-            SDO_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index]))
-            hdul.close()  
-        self.SDO_pos = np.array(SDO_pos)
-
     def STEREO_stats(self):
         """
         To save the information needed to find the position of STEREO.
         """
 
+        data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save')).datainfos
+
+        # Multiprocessing initial I/O bound tasks
+        IO_processes = []
+        manager = Manager()
+        queue = manager.Queue()
+        total_length = len(self.cube_numbers_all)
+        step = int(np.ceil(total_length / self.batch_number))
+        # Preping the processes
+        for i in range(self.batch_number):
+            if not (i==self.batch_number - 1):
+                IO_processes.append(Process(target=self.STEREO_coords, args=(queue, i, data, self.cube_numbers_all[step * i:step * (i + 1)])))
+            else:
+                IO_processes.append(Process(target=self.STEREO_coords, args=(queue, i, data, self.cube_numbers_all[step * i:])))
+        # Running the processes
+        for p in IO_processes:
+            p.start()
+        for p in IO_processes:
+            p.join()
+
+        # Ordering the results
+        results = []
+        for i in range(self.batch_number):
+            results.append(None)
+        while not queue.empty():
+            identifier, result = queue.get()
+            results[identifier] = result
+        self.STEREO_pos = np.concatenate(results, axis=0) 
+
+    def STEREO_coords(self, queue, i, data, numbers):
+        """
+        To get the position of STEREO given the fits filepath.
+        Done like this as the computation is I/O bound and so the paths are separated in sections for multiprocessing.
+        """
+
         from astropy import units as u
         from astropy.coordinates import CartesianRepresentation
         from sunpy.coordinates.frames import  HeliographicCarrington
 
-        data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save')).datainfos
         stereo_pos = []
-
-        for number in self.cube_numbers_all:
+        for number in numbers:
             stereo_lon = data[number].lon
             stereo_lat = data[number].lat
             stereo_dsun = data[number].dist
@@ -923,8 +902,84 @@ class Data:
             zpos_index = Zhec / self._length_dz
 
             stereo_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
-        self.STEREO_pos = np.array(stereo_pos)          
+        queue.put((i, np.array(stereo_pos)))       
+    
+    def SDO_stats(self):
+        """
+        To save the information needed to find the position of SDO.
+        """
 
+        SDO_fits_names = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
+                           for number in self.cube_numbers_all]
+
+        # Multiprocessing initial I/O bound tasks
+        IO_processes = []
+        manager = Manager()
+        queue = manager.Queue()
+        total_length = len(SDO_fits_names)
+        step = int(np.ceil(total_length / self.batch_number))
+        # Preping the processes
+        for i in range(self.batch_number):
+            if not (i==self.batch_number - 1):
+                IO_processes.append(Process(target=self.SDO_coords, args=(queue, i, SDO_fits_names[step * i:step * (i + 1)])))
+            else:
+                IO_processes.append(Process(target=self.SDO_coords, args=(queue, i, SDO_fits_names[step * i:])))
+        # Running the processes
+        for p in IO_processes:
+            p.start()
+        for p in IO_processes:
+            p.join()
+
+        # Ordering the results
+        results = []
+        for i in range(self.batch_number):
+            results.append(None)
+        while not queue.empty():
+            identifier, result = queue.get()
+            results[identifier] = result
+        self.SDO_pos = np.concatenate(results, axis=0)
+
+    def SDO_coords(self, queue, i, paths):
+        """
+        To get the position of SDO given the fits filepath.
+        Done like this as the computation is I/O bound and so the paths are separated in sections for multiprocessing.
+        """
+
+        from astropy import units as u
+        from astropy.coordinates import CartesianRepresentation
+        from sunpy.coordinates.frames import  HeliographicCarrington
+
+        SDO_pos = []
+        for fits_name in paths:
+            hdul = fits.open(fits_name)
+            header = hdul[0].header
+
+            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
+                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
+                                                observer='self')
+            hec_coords = hec_coords.represent_as(CartesianRepresentation)
+
+            Xhec = hec_coords.x.value
+            Yhec = hec_coords.y.value
+            Zhec = hec_coords.z.value
+
+            xpos_index = Xhec / (1000 * self._length_dx)
+            ypos_index = Yhec / (1000 * self._length_dy)
+            zpos_index = Zhec / (1000 * self._length_dz)
+
+            SDO_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index]))
+            hdul.close()  
+        queue.put((i, np.array(SDO_pos)))
+
+    def Attribute_deletion(self):
+        """
+        To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
+        """
+
+        # Private attributes 
+        del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
+        del self._date_max, self._date_min, self._sun_center, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
+        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz, self._cubes_dtype
 
 class K3dAnimation(Data):
     """
@@ -937,7 +992,7 @@ class K3dAnimation(Data):
                  make_screenshots: bool = False, screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5, 
                  screenshot_version: str = 'v0', **kwargs):
         
-        super().__init__(**kwargs)
+        super().__init__(make_screenshots=make_screenshots, **kwargs)
 
         # Arguments
         self.compression_level = compression_level  # the compression level of the data in the 3D visualisation
@@ -946,19 +1001,32 @@ class K3dAnimation(Data):
         self.camera_fov = camera_fov  # the name speaks for itself
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
         self.trace_opacity = trace_opacity  # opacity factor for all the trace voxels
-        self.make_screenshots = make_screenshots  # creating screenshots when clicking play
         self.screenshot_scale = screenshot_scale  # the 'resolution' of the screenshot 
         self.screenshot_sleep = screenshot_sleep  # sleep time between each screenshot as synchronisation time is needed
         self.version = screenshot_version  # to save the screenshot with different names if multiple screenshots need to be saved
 
         # Instance attributes set when running the class
         self.plot = None  # k3d plot object
-        self.init_plot = None  # voxels plot of the all data 
-        self.init_plot1 = None  # voxels plot of the no duplicates seen from SDO
-        self.init_plot2 = None  # voxels plot of the no duplicates seen from STEREO
-        self.init_plot3 = None  # voxels plot of the no duplicate 
-        self.init_plot4 = None  # voxels plot of the line of sight from STEREO
-        self.init_plot5 = None  # voxels plot of the line of sight from SDO 
+        self.plot_alldata_set1 = None  # voxels plot of the all data for set 1
+        self.plot_alldata_set2 = None  # same for set 2 
+        self.plot_dupli_STEREO_set1 = None  # voxels plot of the no duplicates seen from STEREO for set 1
+        self.plot_dupli_STEREO_set2 = None  # same for set 2
+        self.plot_dupli_SDO_set1 = None  # same seen from SDO for set 1
+        self.plot_dupli_SDO_set2 = None  # same for set 2
+        self.plot_dupli_set1 = None  # voxels plot of the no duplicate for set 1
+        self.plot_dupli_set2 = None  # same for set 2
+        self.plot_los_STEREO_set1 = None  # voxels plot of the line of sight from STEREO for set 1 
+        self.plot_los_STEREO_set2 = None  # same for set 2
+        self.plot_los_SDO_set1 = None  # same seen from SDO for set 1
+        self.plot_los_SDO_set2 = None  # same for set 2
+        self.plot_interv_set1 = None  # voxels plot for the time integration of all data for set 1
+        self.plot_interv_set2 = None  # same for set 2
+        self.plot_interv_dupli_set1 = None  # same for the no duplicates data and set 1
+        self.plot_interv_dupli_set2 = None  # same for set 2
+        self.plot_day_set1 = None  # voxels plot for the day integration of all data for set 1
+        self.plot_day_set2 = None  # same for set 2
+        self.plot_day_dupli_set1 = None  # same for no duplicates and set 1
+        self.plot_day_dupli_set2 = None  # same for set 2 
         self.play_pause_button = None  # Play/Pause widget initialisation
         self.time_slider = None  # time slider widget
         self.date_dropdown = None  # Date dropdown widget to show the date
@@ -984,6 +1052,7 @@ class K3dAnimation(Data):
     def Full_array(self, sparse_cube):
         """
         To recreate a full 3D np.array from a sparse np.ndarray representing a 3D volume.
+        If the initial value is None, returns an empty np.ndarray with the right shape.
         """
 
         if sparse_cube:
@@ -1004,14 +1073,14 @@ class K3dAnimation(Data):
         # Point to look at, i.e. initial rotational reference
         self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
         
-        if self.sdo_pov:
-            self.plot.camera = [self.SDO_pos[0, 0], self.SDO_pos[0, 1], self.SDO_pos[0, 2],
-                        self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                        0, 0, 1]  # up vector
-        elif self.stereo_pov:
+        if self.stereo_pov:
             self.plot.camera = [self.STEREO_pos[0, 0], self.STEREO_pos[0, 1], self.STEREO_pos[0, 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]  # up vector
+        elif self.sdo_pov:
+            self.plot.camera = [self.SDO_pos[0, 0], self.SDO_pos[0, 1], self.SDO_pos[0, 2],
+                        self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
+                        0, 0, 1]  # up vector
         else:
             au_in_solar_r = 215  # 1 au in solar radii
             distance_to_sun = au_in_solar_r * self.radius_index 
@@ -1026,17 +1095,17 @@ class K3dAnimation(Data):
         Also creates the screenshots if it is set to True.
         """
 
-        if self.sdo_pov:
+        if self.stereo_pov:
+            self.plot.camera = [self.STEREO_pos[change['new'], 0], self.STEREO_pos[change['new'], 1], self.STEREO_pos[change['new'], 2],
+                                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
+                                0, 0, 1]
+            time.sleep(0.2) 
+        elif self.sdo_pov:
             self.plot.camera = [self.SDO_pos[change['new'], 0], self.SDO_pos[change['new'], 1], self.SDO_pos[change['new'], 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]
             time.sleep(0.2)
-        elif self.stereo_pov:
-            self.plot.camera = [self.STEREO_pos[change['new'], 0], self.STEREO_pos[change['new'], 1], self.STEREO_pos[change['new'], 2],
-                                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                                0, 0, 1]
-            time.sleep(0.2)          
-        
+              
         if self.all_data:
             if self.first_cube:
                 data = self.Full_array(self.cubes_all_data_1[change['new']])
@@ -1130,7 +1199,6 @@ class K3dAnimation(Data):
         import base64
 
         self.plot.fetch_screenshot()
-
         time.sleep(self.screenshot_sleep)
 
         screenshot_png = base64.b64decode(self.plot.screenshot)
@@ -1196,8 +1264,7 @@ class K3dAnimation(Data):
         """
         
         # Initialisation of the plot
-        self.plot = k3d.plot(grid_visible=False)  # plot with no axes and a dark background  background_color=0x000000
-        # self.plot = k3d.plot(grid_visible=True)
+        self.plot = k3d.plot(grid_visible=False)  # plot with no axes. If a dark background is needed then background_color=0x000000
         self.plot.height = self.plot_height  
             
         # Adding the camera specific parameters
@@ -1205,9 +1272,8 @@ class K3dAnimation(Data):
         
         # Adding the SUN!!!
         if self.sun:
-            self.plot_sun = k3d.points(positions=self.sun_points, point_size=2.5, colors=self.hex_colours, shader='flat',
+            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, colors=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
-            self.plot += self.plot_sun
         
         # Adding the stars      
         if self.stars: 

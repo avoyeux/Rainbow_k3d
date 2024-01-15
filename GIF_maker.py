@@ -1,6 +1,11 @@
+"""
+Older version for making GIFs. Most probably, I won't need this code any more but not yet 100% sure.
+"""
+
+# Imports
 import os
-import imageio.v3 as imageio
 import numpy as np
+import imageio.v3 as imageio
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 

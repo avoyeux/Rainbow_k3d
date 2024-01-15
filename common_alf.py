@@ -35,7 +35,7 @@ class decorators:
     def batch_processor(batch_size):
         """
         For RAM management. If the number of files, given by their path is too large, then you can use this to split the paths in
-        batches and adds the output together to use less RAM.
+        batches and adds the output together to use less RAM. STill a draft
         """
 
         def decorator(func):

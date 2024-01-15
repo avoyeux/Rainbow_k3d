@@ -1,6 +1,12 @@
-from PIL import Image
-import numpy as np
+"""
+Small function to change the original masks to grayscale uint8 masks with white (i.e. 255) being the null values.
+"""
+
+# Imports
 import os
+import numpy as np
+from PIL import Image
+
 from pathlib import Path
 
 

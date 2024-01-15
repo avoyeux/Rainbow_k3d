@@ -1,9 +1,16 @@
+"""
+Creates figures, and the corresponding GIF, for the STEREO images with the contours of the mask.
+Also adds the gridlines showing the latitude and longitude.
+It's quite an old code so needs a lot of improvements. Will change it when I use it again.
+"""
+
 # Imports
 import os
 import re
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+
 from pathlib import Path
 
 

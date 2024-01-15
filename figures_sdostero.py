@@ -98,7 +98,7 @@ class ImageFinder:
 
     def Main_loop(self):
         """
-        
+        Loop for the SDO images.
         """
 
         self.groups = []
@@ -113,7 +113,7 @@ class ImageFinder:
 
     def Second_loop(self, sdo_groups):
         """
-        
+        Loop for the screenshot images (i.e. the ones gotten with k3d).
         """
         
         for path_screenshot in self.screenshot:
@@ -140,7 +140,7 @@ class ImageFinder:
             
     def Third_loop(self, sdo_groups, screenshot_groups):
         """
-        
+        Loop for the STEREO images.
         """
 
         for path_stereo in self.stereo_image:
@@ -161,6 +161,10 @@ class ImageFinder:
                 raise ValueError(f"Stereo filename {os.path.basename(path_stereo)} doesn't match")
 
     def Multiprocessing(self):
+        """
+        For the multiprocessing.
+        Some class attributes are set to None as multiprocessing doesn't like pattern objects.
+        """
 
         # Multiprocesses hates patterns
         self.last_screenshot = None
@@ -179,6 +183,7 @@ class ImageFinder:
         """
         Plots the corresponding images together.
         """
+
         sdo_str, stereo_str, screen_str = group_str
 
         self.Patterns()
@@ -224,8 +229,12 @@ class ImageFinder:
         plt.close()
 
 class GIF_making:
+    """
+    To create the corresponding GIF.
+    """
 
     def __init__(self, interval='1h', fps=5, stereo='int'):
+
         self.fps = fps
         self.interval = interval
         self.stereo = stereo
@@ -233,6 +242,10 @@ class GIF_making:
         self.GIF()
 
     def Paths(self):
+        """
+        Paths creator.
+        """
+
         main_path = '../'
 
         self.paths = {'Main': main_path,
@@ -241,6 +254,10 @@ class GIF_making:
         os.makedirs(self.paths['GIF'], exist_ok=True)
 
     def GIF(self):
+        """
+        Making the GIF.
+        """
+
         images_path = sorted(Path(self.paths['Figures']).glob(f'*_{self.interval}_*.png'))
 
         images = [iio3.imread(image_path) for image_path in images_path]
@@ -249,6 +266,7 @@ class GIF_making:
 
         iio3.imwrite(os.path.join(self.paths['GIF'], f'GIF_both_{self.stereo}_{self.interval}_fps{self.fps}.gif'),
                       images, format='GIF', fps=self.fps)
+
 
 if __name__=='__main__':
     ImageFinder(interval='nodupli', ints=True)

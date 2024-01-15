@@ -1,9 +1,11 @@
-import matplotlib.pyplot as plt
-import numpy as np
+"""
+Used to separate the mp.4 images from Sir Auchere's presentation.
+"""
+
+# Imports
 import os
 import cv2
 import datetime
-
 
 
 class DataFinder:
@@ -27,6 +29,9 @@ class DataFinder:
 
 
 class Cutting_mp4(DataFinder):
+    """
+    Cutting the mp4 images.
+    """
 
     def __init__(self):
         super().__init__()
