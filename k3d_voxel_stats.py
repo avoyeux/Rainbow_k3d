@@ -7,13 +7,18 @@ velocity and so on.
 # Imports 
 import os
 import re
+
 import numpy as np
 import pandas as pd
 
+from PIL import Image
+from glob import glob
 from pathlib import Path
-from sparse import COO, concatenate, stack
+from astropy.io import fits
+from sparse import COO, stack
 from typeguard import typechecked
 from Animation_3D_main import Data, CustomDate
+
 
 
 class Stats(Data):
@@ -107,5 +112,78 @@ class Stats(Data):
         return (((date.day - 23) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
     
 
+class MaskStats:
+    """
+    To save some mask stats.
+    """
+
+    def __init__(self):
+
+        # Functions
+        self.Paths()
+        self.Numbers()
+        self.Saving()
+
+    def Paths(self):
+        """
+        For the paths to the masks and to save the csv stats file.
+        """
+
+        main_path = os.path.join(os.getcwd(), '..')
+
+        self.paths = {'Main': main_path,
+                      'SDO_fits': os.path.join(main_path, 'sdo'),
+                      'STEREO_masks': os.path.join(main_path, 'STEREO', 'masque_karine'),
+                      'STATS': os.path.join(main_path, 'STATS')}
+        os.makedirs(self.paths['STATS'], exist_ok=True)
+    
+    def Numbers(self):
+        """
+        To get the numbers of the files (using a pattern) to match the data correctly.
+        """
+
+        pattern = re.compile(r'''AIA_fullhead_(\d{3}).fits.gz''')
+        STEREO_paths = glob(os.path.join(self.paths['SDO_fits'], '*.fits.gz'))
+
+        self.numbers = sorted([int(pattern.match(os.path.basename(path)).group(1)) for path in STEREO_paths])
+
+    def Downloads(self):
+        """
+        To get the data from the corresponding masks.
+        """
+        
+        SDO_pattern = re.compile(r'''AIA_fullhead_(\d{3}).fits.gz''')
+
+        SDO_surfaces = []
+        STEREO_surfaces = []
+        for nb in set(self.numbers):
+            SDO_hdul = fits.open(os.path.join(self.paths['SDO_fits'], f'AIA_fullhead_{nb:03d}.fits.gz'))
+            SDO_surfaces.append(np.sum(SDO_hdul[0].data) * SDO_hdul[0].header['CDELT1']**2)
+            SDO_hdul.close()
+
+            STEREO_path = os.path.join(self.paths['STEREO_masks'], f'frame{nb:04d}.png')
+            if os.path.exists(STEREO_path):
+                print(f'STEREO path nb{nb} found.')
+                image = np.mean(Image.open(STEREO_path), axis=2)  # as the png has 3 channels
+                all_white = image.size * 255  # image in uint8
+                STEREO_surfaces.append((all_white - np.sum(image)) / 255)  # as the mask is when image==0
+            else:
+                print(f'STEREO path nb{nb} not found.')
+                STEREO_surfaces.append(0)
+        return SDO_surfaces, STEREO_surfaces
+
+    def Saving(self):
+        """
+        To save the data in a csv file.
+        """
+
+        stereo_surface, sdo_surface = self.Downloads()
+
+        data = {'Image nb': self.numbers, 'STEREO mask': stereo_surface, 'SDO mask': sdo_surface}
+        df = pd.DataFrame(data)
+        df.to_csv(os.path.join(self.paths['STATS'], 'mask_surface.csv'), index=False)
+
+
+
 if __name__=='__main__':
-    Stats(time_interval='20min')
+    MaskStats()

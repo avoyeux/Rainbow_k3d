@@ -75,11 +75,11 @@ class Plotting:
 
         # Time evolution
         plt.figure(figsize=(16, 8))
-        plt.plot(self.dates, cubes_1, label=name[0], color='blue')
-        plt.plot(self.dates, cubes_2, label=name[1], color='orange')
+        plt.plot(self.dates/3600, cubes_1, label=name[0], color='blue')
+        plt.plot(self.dates/3600, cubes_2, label=name[1], color='orange')
 
         plt.title(f'Time evolution for {name[0][:-3]}')
-        plt.xlabel(f'Time in seconds')
+        plt.xlabel(f'Time in hours')
         plt.ylabel(f'Voxel count')
         plt.legend()
         plt.savefig(os.path.join(self.paths['Saving'],
@@ -89,11 +89,11 @@ class Plotting:
         norm_1 = cubes_1 / cubes_1.max()
         norm_2 = cubes_2 / cubes_2.max()
         plt.figure(figsize=(16, 8))
-        plt.plot(self.dates, norm_1, label=name[0], color='blue')
-        plt.plot(self.dates, norm_2, label=name[1], color='orange')
+        plt.plot(self.dates/3600, norm_1, label=name[0], color='blue')
+        plt.plot(self.dates/3600, norm_2, label=name[1], color='orange')
 
         plt.title(f'Normalised time evolution for {name[0][:-3]}')
-        plt.xlabel(f'Time in seconds')
+        plt.xlabel(f'Time in hours')
         plt.ylabel(f'Voxel count')
         plt.legend()
         plt.savefig(os.path.join(self.paths['Saving'], 
