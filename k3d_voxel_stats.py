@@ -80,7 +80,7 @@ class Stats(Data):
                      f'interval_{self.time_interval}_no_duplicates_kar': self.Calculations(self.time_cubes_no_duplicate_2)}
         
         df = pd.DataFrame(data_dict)
-        df.to_csv('../k3d_stats.csv', index=False)
+        df.to_csv('../STATS/k3d_volumes.csv', index=False)
 
 
     def Dates_sub(self):
@@ -151,12 +151,10 @@ class MaskStats:
         """
         To get the data from the corresponding masks.
         """
-        
-        SDO_pattern = re.compile(r'''AIA_fullhead_(\d{3}).fits.gz''')
 
         SDO_surfaces = []
         STEREO_surfaces = []
-        for nb in set(self.numbers):
+        for nb in self.numbers:
             SDO_hdul = fits.open(os.path.join(self.paths['SDO_fits'], f'AIA_fullhead_{nb:03d}.fits.gz'))
             SDO_surfaces.append(np.sum(SDO_hdul[0].data) * SDO_hdul[0].header['CDELT1']**2)
             SDO_hdul.close()
@@ -181,7 +179,7 @@ class MaskStats:
 
         data = {'Image nb': self.numbers, 'STEREO mask': stereo_surface, 'SDO mask': sdo_surface}
         df = pd.DataFrame(data)
-        df.to_csv(os.path.join(self.paths['STATS'], 'mask_surface.csv'), index=False)
+        df.to_csv(os.path.join(self.paths['STATS'], 'k3d_mask_area.csv'), index=False)
 
 
 
