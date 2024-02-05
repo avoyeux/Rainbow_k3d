@@ -124,7 +124,7 @@ class Plotting_v2:
         main_path = '../'
         self.paths = {'Main': main_path,
                       'STATS': os.path.join(main_path, 'STATS'),
-                      'Plots': os.path.join(main_path, 'STATS_plots')}
+                      'Plots': os.path.join(main_path, 'STATS', 'STATS_plots')}
         os.makedirs(self.paths['Plots'], exist_ok=True)
 
     def Download(self):
@@ -142,16 +142,55 @@ class Plotting_v2:
         self.area_sdo = df_area['SDO mask']
         self.area_stereo = df_area['STEREO mask']
 
+    def Preprocessing(self, array):
+        """
+        To preprocess the data.
+        For now it only changes the 0 values to np.nan.
+        """
+
+        array[array==0] = np.nan
+        return array
+
     def Plotting(self):
         """
         Creating the plot.
         """
 
-        pass
+        fig, ax1 = plt.subplots(figsize=(10, 5))
+        ax1.set_xlabel('Time (hours since 23-Jul-2012 00:00)')
+        ax1.set_xlim(-0.5, 60.5)
+
+        ax1kwargs = {'color': 'blue', 'marker': 'None', 'alpha': 0.5}
+        # ax1.plot(self.dates, self.Preprocessing(self.volumes_min), linestyle='--', label='Minimum total volume', **ax1kwargs)
+        # ax1.plot(self.dates, self.Preprocessing(self.volumes_max), linestyle='-', label='Maximum total volume', **ax1kwargs)
+        ax1.set_ylim(0, 1.7e14)
+        ax1.set_ylabel(r'Volume ($km^3$)', color=ax1kwargs['color'])
+        ax1.tick_params(axis='y', labelcolor=ax1kwargs['color'])
+        # Volume fill
+        plt.fill_between(self.dates, self.Preprocessing(self.volumes_max), self.Preprocessing(self.volumes_min), color='blue', alpha=0.55, label='Volume range')
+
+        ax2 = ax1.twinx()
+        ax2kwargs = {'color': 'red', 'marker': 'None', 'alpha': 0.8, 'linewidth': 1}
+        ax2.plot(self.dates, self.Preprocessing(self.area_sdo), dashes=(3, 3, 7, 1), label='Total SDO mask fov', **ax2kwargs) 
+        ax2.plot(self.dates, self.Preprocessing(self.area_stereo), linestyle='-', label='Total STEREO mask fov', **ax2kwargs)
+        ax2.set_ylim(0, 1.2e4)
+        ax2.tick_params(axis='y', labelcolor=ax2kwargs['color'])
+        ax2.set_ylabel(r'Total fov ($arsec^2$)', color=ax2kwargs['color'])
+
+        # Setting up the shared legend
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        handles = handles1 + handles2
+        labels = labels1 + labels2
+        fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(0.068, 0.95))
+
+        plt.tight_layout()
+        plt.savefig('test_normalplot.png', dpi=200)
+        plt.close()
 
 
 if __name__=='__main__':
-    Plotting(interval=1200)
+    Plotting_v2()
 
 
 

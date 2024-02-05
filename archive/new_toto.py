@@ -62,7 +62,7 @@ bin_stereo = 2 # TODO: need to ask where these values come from
 
 for i in range(nfiles):  # TODO: might be able to change this to a np.along_axis thingy
     png_path = list_png[i]
-    image = cv2.imread(png_path)  #TODO: will need to do some further treatment as the given image is in RGB values int8 
+    image = cv2.imread(png_path)  #TODO: will need to do some further treatment as the given image is in RGB values uint8 
     mask = np.any(image < 190, axis=-1).astype('bool')
     # TODO: IMPORTANT: I need to say that I changed how I read the mask as I felt the last method took the png interpolation
     # too much into account 

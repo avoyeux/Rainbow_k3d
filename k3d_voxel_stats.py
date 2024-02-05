@@ -29,7 +29,7 @@ class Stats(Data):
     @typechecked
     def __init__(self, everything: bool = True, **kwargs):
 
-        super().__init__(everything, both_cubes=True, **kwargs)
+        super().__init__(everything, both_cubes=True, make_screenshots=True, **kwargs)
         self.Structure()
 
     def Pre_processing(self, cubes):
@@ -102,6 +102,8 @@ class Stats(Data):
                 dates.append(self.Date_to_seconds(date))
             else:
                 raise ValueError(f"avg filename {path} didn't match")
+            
+        
         return np.array(dates)
 
     def Date_to_seconds(self, date):
@@ -175,7 +177,7 @@ class MaskStats:
         To save the data in a csv file.
         """
 
-        stereo_surface, sdo_surface = self.Downloads()
+        sdo_surface, stereo_surface = self.Downloads()
 
         data = {'Image nb': self.numbers, 'STEREO mask': stereo_surface, 'SDO mask': sdo_surface}
         df = pd.DataFrame(data)
@@ -184,4 +186,5 @@ class MaskStats:
 
 
 if __name__=='__main__':
+    # Stats(time_interval='20min')
     MaskStats()
