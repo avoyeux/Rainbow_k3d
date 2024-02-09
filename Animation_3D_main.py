@@ -29,40 +29,36 @@ class CustomDate:
     """
 
     @typechecked
-    def __init__(self, date_str: str | bytes | None, year: int = 0, month: int = 0, day: int = 0, hour: int = 0, minute: int = 0, second: int = 0):
-        self.year = year
-        self.month = month
-        self.day = day
-        self.hour = hour
-        self.minute = minute
-        self.second = second
+    def __init__(self, date_str: str | bytes):
+        self.year = None
+        self.month = None
+        self.day = None
+        self.hour = None
+        self.minute = None
+        self.second = None
 
         if isinstance(date_str, str):
             self.Parse_date_str(date_str=date_str)
         elif isinstance(date_str, bytes):
             self.Parse_date_bytes(date_str=date_str)
 
-    @classmethod
-    def Parse_date_str(cls, date_str):
+    def Parse_date_str(self, date_str: str):
         """
         Separating a string in the format YYYY-MM-DDThh-mm-ss to get the different time attributes.
         """
 
         date_part, time_part = date_str.split("T")
-        year, month, day = map(int, date_part.split("-"))
-        hour, minute, second = map(int, time_part.split("-"))
-        return cls(None, year, month, day, hour, minute, second)
+        self.year, self.month, self.day = map(int, date_part.split("-"))
+        self.hour, self.minute, self.second = map(int, time_part.split("-"))
     
-    @classmethod
-    def Parse_date_bytes(cls, date_str):
+    def Parse_date_bytes(self, date_str: bytes):
         """
         Separating a bytestring in the format YYYY/MM/DD hh:mm:ss to get the different date attributes.
         """
 
         date_part, time_part = date_str.split(b' ')
-        year, month, day = map(int, date_part.split(b"/"))
-        hour, minute, second = map(int, time_part.split(b':'))
-        return cls(None, year, month, day, hour, minute, second)
+        self.year, self.month, self.day = map(int, date_part.split(b"/"))
+        self.hour, self.minute, self.second = map(int, time_part.split(b':'))
 
 
 class Data:
@@ -1073,15 +1069,15 @@ class K3dAnimation(Data):
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
         elif version==1:
             kwargs = {'sun': True, 'fov_center': 'cubes', 'stereo_pov': True, 'up_vector': (0, 0, 1), 
-                      'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 3, 
+                      'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 1, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}        
         elif version==2:
             kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (-1, 0, 0), 'up_vector': (0, 0, 1),
-                      'make_screenshots': True, 'screenshot_version': 'vtest', 'screenshot_scale': 3,
+                      'make_screenshots': True, 'screenshot_version': 'v2', 'screenshot_scale': 1,
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
         elif version==3:
-            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (0, 0, -1) , 'up_vector': (-1, 0, 0), 
-                      'make_screenshots': True, 'screenshot_version': 'v3', 'screenshot_scale': 3, 
+            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (0, 0, 1) , 'up_vector': (-1, 0, 0), 
+                      'make_screenshots': True, 'screenshot_version': 'v3', 'screenshot_scale': 1, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}     
         else:
             raise ValueError(f"The integer 'version' needs to have value going from 0 to 3, not {version}.")
@@ -1410,7 +1406,7 @@ class K3dAnimation(Data):
             if self.second_cube:
                 data = self.Full_array(self.cubes_no_duplicate_2[0])
                 self.plot_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0xff6666], opacity=0.3, name='Set2: no duplicates')
+                                        color_map=[0xff6666], opacity=0.5, name='Set2: no duplicates')
                 self.plot += self.plot_dupli_set2
 
         if self.line_of_sight:

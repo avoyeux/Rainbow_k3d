@@ -12,6 +12,7 @@ import imageio.v3 as iio3
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+from PIL import Image
 
 from pathlib import Path
 from typeguard import typechecked
@@ -20,7 +21,7 @@ from typeguard import typechecked
 class ImageFinder:
 
     @typechecked
-    def __init__(self, ints: bool = True, avg: bool = False, interval: str = '1h'):
+    def __init__(self, ints: bool = True, avg: bool = False, interval: str | None = None):
         
         # Arguments
         self.ints = ints
@@ -34,7 +35,6 @@ class ImageFinder:
         self.Images()
         self.Patterns()
         self.Main_loop()
-        # self.SDO_loop()
         self.Multiprocessing()
 
     def Paths(self):
@@ -47,8 +47,8 @@ class ImageFinder:
             self.paths = {'Main': main_path,
                         'SDO': os.path.join(main_path, 'MP4_saves'),
                         'STEREO': os.path.join(main_path, 'STEREO', 'int'),
-                        'Screenshots': os.path.join(main_path, 'Screenshots_both'),
-                        'Save': os.path.join(main_path, 'texture_both_int')}
+                        'Screenshots': os.path.join(main_path, 'texture_screenshots'),
+                        'Save': os.path.join(main_path, 'texture_plots')}
         else:
             self.paths = {'Main': main_path,
                         'SDO': os.path.join(main_path, 'MP4_saves'),
@@ -81,7 +81,7 @@ class ImageFinder:
                                          (?P<hour>\d{2})-
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
-        if self.interval in 'noduplication':
+        if 'nodupli' in self.interval:
             self.screenshot_pattern = re.compile(r'''(?P<interval>nodupli)_
                                                  \d{3}_\d{4}-\d{2}-
                                                  (?P<day>\d{2})_
@@ -179,7 +179,7 @@ class ImageFinder:
         pool.close()
         pool.join()
         
-    def Plotting(self, group_str):
+    def Plotting2(self, group_str):
         """
         Plots the corresponding images together.
         """
@@ -188,32 +188,48 @@ class ImageFinder:
 
         self.Patterns()
         stereo_groups = self.stereo_pattern.match(stereo_str)
+        sdo_groups = self.sdo_pattern.match(sdo_str)
 
         print(f'screen str is {screen_str}')
-        sdo_screenshot = (mpimg.imread(os.path.join(self.paths['Screenshots'], screen_str)) * 255).astype('uint8')
-        stereo_screenshot = (mpimg.imread(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png')) * 255).astype('uint8')
-        screenshot = (mpimg.imread(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png')) * 255).astype('uint8')
+        sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
+        stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
+        screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
+        screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
 
-        full_image = (mpimg.imread(os.path.join(self.paths['SDO'], sdo_str)) * 255).astype('uint8')
-        stereo_image = (mpimg.imread(os.path.join(self.paths['STEREO'], stereo_str)) * 255).astype('uint8')
+        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
+        stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
 
-        full_image = np.split(full_image, 2, axis=1)
-        sdo_image = full_image[1]
+        full_image = np.split(np.array(full_image), 2, axis=1)
 
-        fig, axs = plt.subplots(2, 3, figsize=(4, 3))
+        sdo_image = Image.fromarray(full_image[1])
+
+        x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
+        sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
+        sdo_screenshot = Image.fromarray(sdo_screenshot)
+
+        sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
+        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
+
+        fig, axs = plt.subplots(2, 3, figsize=(8, 4), constrained_layout=True)
         
         axs[0, 0].imshow(sdo_screenshot, interpolation='none')
         axs[0, 0].axis('off')
         axs[0, 0].set_title('SDO', fontsize=7)
+        axs[0, 0].text(240, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
+                        fontsize=5, color='white', alpha=0.9)
 
         axs[0, 1].imshow(stereo_screenshot, interpolation='none')
         axs[0, 1].axis('off')
         axs[0, 1].set_title('STEREO', fontsize=7)
+        axs[0, 1].text(240, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
+                        fontsize=5, color='white', alpha=0.9)
 
-        axs[0, 2].imshow(screenshot, interpolation='none')
+        axs[0, 2].imshow(screenshot2, interpolation='none')
         axs[0, 2].axis('off')
-        axs[0, 2].set_title(f"Date=07-{stereo_groups.group('day')}_{stereo_groups.group('hour')}h{stereo_groups.group('minute')}",
-                            fontsize=7)
 
         axs[1, 0].imshow(sdo_image, interpolation='none')
         axs[1, 0].axis('off')
@@ -221,12 +237,96 @@ class ImageFinder:
         axs[1, 1].imshow(stereo_image, interpolation='none')
         axs[1, 1].axis('off')
 
+        axs[1, 2].imshow(screenshot3, interpolation='none')
         axs[1, 2].axis('off')
-        plt.tight_layout(pad=0.1, h_pad=0.1, w_pad=0.1)
+        # plt.tight_layout(constrained_layout=True)
+        # plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
 
-        figname = f"Fig_{self.interval}_{stereo_groups.group('number')}.png"
+        if 'nodu' in self.interval:
+            figname = f"nodupli_{stereo_groups.group('number')}.png"
+        else:
+            figname = f"Fig_{self.interval}_{stereo_groups.group('number')}.png"
         plt.savefig(os.path.join(self.paths['Save'], figname), dpi=250)
         plt.close()
+
+    def Plotting(self, group_str):
+        """
+        Plots the corresponding images together.
+        """
+        from matplotlib.gridspec import GridSpec
+
+        sdo_str, stereo_str, screen_str = group_str
+
+        self.Patterns()
+        stereo_groups = self.stereo_pattern.match(stereo_str)
+        sdo_groups = self.sdo_pattern.match(sdo_str)
+
+        print(f'screen str is {screen_str}')
+        sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
+        stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
+        screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
+        screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
+
+        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
+        stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
+
+        full_image = np.split(np.array(full_image), 2, axis=1)
+
+        sdo_image = Image.fromarray(full_image[1])
+
+        x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
+        sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
+        sdo_screenshot = Image.fromarray(sdo_screenshot)
+
+        sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
+        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
+
+        fig = plt.figure(figsize=(6, 4))
+        gs = GridSpec(2, 3)
+        
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax1.imshow(sdo_screenshot, interpolation='none')
+        ax1.axis('off')
+        ax1.set_title('SDO', fontsize=7)
+        ax1.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
+                        fontsize=6, color='white', alpha=1)
+
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax2.imshow(stereo_screenshot, interpolation='none')
+        ax2.axis('off')
+        ax2.set_title('STEREO', fontsize=7)
+        ax2.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
+                        fontsize=6, color='white', alpha=1)
+
+        ax3 = fig.add_subplot(gs[0, 2])
+        ax3.imshow(screenshot2, interpolation='none')
+        ax3.axis('off')
+
+        ax4 = fig.add_subplot(gs[1, 0])
+        ax4.imshow(sdo_image, interpolation='none')
+        ax4.axis('off')
+
+        ax5 = fig.add_subplot(gs[1, 1])
+        ax5.imshow(stereo_image, interpolation='none')
+        ax5.axis('off')
+
+        ax6 = fig.add_subplot(gs[1, 2])
+        ax6.imshow(screenshot3, interpolation='none')
+        ax6.axis('off')
+        # plt.tight_layout()
+        plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
+
+        if 'nodu' in self.interval:
+            figname = f"nodupli_{stereo_groups.group('number')}.png"
+        else:
+            figname = f"Fig_{self.interval}_{stereo_groups.group('number')}.png"
+        plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
+        plt.close()
+
 
 class GIF_making:
     """
@@ -270,6 +370,6 @@ class GIF_making:
 
 if __name__=='__main__':
     ImageFinder(interval='nodupli', ints=True)
-    GIF_making(interval='nodupli', stereo='int', fps=10)
+    # GIF_making(interval='nodupli', stereo='int', fps=10)
 
 
