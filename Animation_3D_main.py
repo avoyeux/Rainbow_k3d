@@ -28,7 +28,8 @@ class CustomDate:
     doesn't work in this case. 
     """
 
-    def __init__(self, year: int, month: int, day: int, hour: int, minute: int, second: int):
+    @typechecked
+    def __init__(self, date_str: str | bytes | None, year: int = 0, month: int = 0, day: int = 0, hour: int = 0, minute: int = 0, second: int = 0):
         self.year = year
         self.month = month
         self.day = day
@@ -36,19 +37,24 @@ class CustomDate:
         self.minute = minute
         self.second = second
 
+        if isinstance(date_str, str):
+            self.Parse_date_str(date_str=date_str)
+        elif isinstance(date_str, bytes):
+            self.Parse_date_bytes(date_str=date_str)
+
     @classmethod
-    def parse_date(cls, date_str):
+    def Parse_date_str(cls, date_str):
         """
-        Separating a tring in the format YYYY-MM-DDThh-mm-ss to get the different time attributes.
+        Separating a string in the format YYYY-MM-DDThh-mm-ss to get the different time attributes.
         """
 
         date_part, time_part = date_str.split("T")
         year, month, day = map(int, date_part.split("-"))
         hour, minute, second = map(int, time_part.split("-"))
-        return cls(year, month, day, hour, minute, second)
+        return cls(None, year, month, day, hour, minute, second)
     
     @classmethod
-    def parse_date2(cls, date_str):
+    def Parse_date_bytes(cls, date_str):
         """
         Separating a bytestring in the format YYYY/MM/DD hh:mm:ss to get the different date attributes.
         """
@@ -56,7 +62,7 @@ class CustomDate:
         date_part, time_part = date_str.split(b' ')
         year, month, day = map(int, date_part.split(b"/"))
         hour, minute, second = map(int, time_part.split(b':'))
-        return cls(year, month, day, hour, minute, second)
+        return cls(None, year, month, day, hour, minute, second)
 
 
 class Data:
@@ -66,7 +72,7 @@ class Data:
 
     @decorators.running_time  # gives the start and the end time of the function
     @typechecked  # checks the type for the inputs at runtime 
-    def __init__(self, everything: bool = False, both_cubes: str | bool = 'Alfred', sun: bool = False, stars: bool = False, 
+    def __init__(self, everything: bool = False, both_cubes: str | bool = 'Karine', sun: bool = False, stars: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
@@ -147,7 +153,7 @@ class Data:
         self._date_min = None  # minimum date in seconds for each time_chunk
         self._date_max = None  # maximum date in seconds for each time_chunk
         self.radius_index = None  # radius of the Sun in grid units
-        self._sun_center = None  # position of the Sun's center [x, y, z] in the grid
+        self.sun_center = None  # position of the Sun's center [x, y, z] in the grid
         self._texture_height = None  # height in pixels of the input texture image
         self._texture_width = None  # width in pixels of the input texture image 
         self._sun_texture = None  # Sun's texture image after some visualisation treatment
@@ -278,9 +284,9 @@ class Data:
                     if filename[:4] == f'{number:04d}':
                         filenames.append(filename)
                         break
-            self.dates_all = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
+            self.dates_all = [CustomDate(self._pattern_int.match(filename).group(1)) for filename in filenames]
         else:
-            self.dates_all = [CustomDate.parse_date(self._pattern_int.match(os.path.basename(filename)).group(1)) 
+            self.dates_all = [CustomDate(self._pattern_int.match(os.path.basename(filename)).group(1)) 
                             for filename in self._all_filenames]
 
     def Dates_n_times(self, cube_numbers):
@@ -297,7 +303,7 @@ class Data:
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        dates = [CustomDate.parse_date(self._pattern_int.match(filename).group(1)) for filename in filenames]
+        dates = [CustomDate(self._pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
     
     @decorators.running_time
@@ -751,7 +757,7 @@ class Data:
         x_index = x_min / self._length_dx 
         y_index = y_min / self._length_dy 
         z_index = z_min / self._length_dz 
-        self._sun_center = np.array([0 - x_index, 0 - y_index, 0 - z_index])
+        self.sun_center = np.array([0 - x_index, 0 - y_index, 0 - z_index])
 
     def Sun_texture(self):
         """
@@ -791,9 +797,9 @@ class Data:
         theta, phi = np.meshgrid(theta, phi)  # the subsequent meshgrid
 
         # Conversion to cartesian coordinates
-        x = self.radius_index * np.sin(theta) * np.cos(phi) + self._sun_center[0]
-        y = self.radius_index * np.sin(theta) * np.sin(phi) + self._sun_center[1]
-        z = self.radius_index * np.cos(theta) + self._sun_center[2] 
+        x = self.radius_index * np.sin(theta) * np.cos(phi) + self.sun_center[0]
+        y = self.radius_index * np.sin(theta) * np.sin(phi) + self.sun_center[1]
+        z = self.radius_index * np.cos(theta) + self.sun_center[2] 
 
         # Creation of the position of the spherical cloud of points
         self.sun_points = np.array([x, y, z], dtype='float32').T
@@ -828,9 +834,9 @@ class Data:
         stars_phi = np.random.uniform(0, 2 * np.pi, stars_N)
 
         # To cartesian
-        stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self._sun_center[0]
-        stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self._sun_center[1]
-        stars_z = stars_radius * np.cos(stars_theta) + self._sun_center[2]
+        stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self.sun_center[0]
+        stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self.sun_center[1]
+        stars_z = stars_radius * np.cos(stars_theta) + self.sun_center[2]
 
         # Cartesian positions
         self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
@@ -886,7 +892,7 @@ class Data:
             stereo_dsun = data[number].dist
             stereo_date = data[number].strdate
 
-            stereo_date = CustomDate.parse_date2(stereo_date)
+            stereo_date = CustomDate(stereo_date)
             stereo_date = f'{stereo_date.year}-{stereo_date.month}-{stereo_date.day}T{stereo_date.hour}:{stereo_date.minute}:{stereo_date.second}'
 
             hec_coords = HeliographicCarrington(stereo_lon * u.deg, stereo_lat * u.deg, stereo_dsun * u.km,
@@ -901,7 +907,7 @@ class Data:
             ypos_index = Yhec / self._length_dy
             zpos_index = Zhec / self._length_dz
 
-            stereo_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
+            stereo_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
         queue.put((i, np.array(stereo_pos)))       
     
     def SDO_stats(self):
@@ -967,7 +973,7 @@ class Data:
             ypos_index = Yhec / (1000 * self._length_dy)
             zpos_index = Zhec / (1000 * self._length_dz)
 
-            SDO_pos.append(self._sun_center + np.array([xpos_index, ypos_index, zpos_index]))
+            SDO_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index]))
             hdul.close()  
         queue.put((i, np.array(SDO_pos)))
 
@@ -978,7 +984,7 @@ class Data:
 
         # Private attributes 
         del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
-        del self._date_max, self._date_min, self._sun_center, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
+        del self._date_max, self._date_min, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
         del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz, self._cubes_dtype
 
 class K3dAnimation(Data):
@@ -987,10 +993,11 @@ class K3dAnimation(Data):
     """
 
     @typechecked
-    def __init__(self, compression_level: int = 9, plot_height: int = 1220, sleep_time: int | float = 2, 
+    def __init__(self, compression_level: int = 9, plot_height: int = 1260, sleep_time: int | float = 2, 
                  camera_fov: int | float = 1, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
                  make_screenshots: bool = False, screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5, 
-                 screenshot_version: str = 'v0', **kwargs):
+                 screenshot_version: str = 'vtest', fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', 
+                 camera_pos: tuple[int | float, int | float, int | float] | None = None, up_vector: tuple[int, int, int] = (0, 0, 1), **kwargs):
         
         super().__init__(make_screenshots=make_screenshots, **kwargs)
 
@@ -1004,6 +1011,19 @@ class K3dAnimation(Data):
         self.screenshot_scale = screenshot_scale  # the 'resolution' of the screenshot 
         self.screenshot_sleep = screenshot_sleep  # sleep time between each screenshot as synchronisation time is needed
         self.version = screenshot_version  # to save the screenshot with different names if multiple screenshots need to be saved
+        self.camera_pos = camera_pos
+        self.up_vector = up_vector
+
+        if isinstance(fov_center, tuple):
+            self.fov_center = fov_center
+        elif 'cub' in fov_center.lower():
+            self.fov_center = True  # using the cubes center as the fov_center
+            self.camera_fov = 0.23
+        elif 'sun' in fov_center.lower():
+            self.fov_center = False  # using the sun center as the fov center
+            self.camera_fov = self.Fov_for_sun_centered()
+        else:
+            raise ValueError("If 'fov_center' a string, needs to have 'cub' or 'sun' inside it.")
 
         # Instance attributes set when running the class
         self.plot = None  # k3d plot object
@@ -1040,15 +1060,66 @@ class K3dAnimation(Data):
         self.Date_strings()
         self.Animation()
 
+    @classmethod
+    @typechecked
+    def The_usual(cls, version: int, data: str = 'no_duplicate', time_interval: int | str = 1):
+        """
+        Gives the usual arguments used when making screenshots for a given point of view and data type.
+        """
+
+        if version==0:
+            kwargs = {'sun': True, 'fov_center': 'sun', 'sdo_pov': True, 'up_vector': (0, 0, 1), 
+                      'make_screenshots': True, 'screenshot_version': 'vtest', 'screenshot_scale': 3, 
+                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
+        elif version==1:
+            kwargs = {'sun': True, 'fov_center': 'cubes', 'stereo_pov': True, 'up_vector': (0, 0, 1), 
+                      'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 3, 
+                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}        
+        elif version==2:
+            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (-1, 0, 0), 'up_vector': (0, 0, 1),
+                      'make_screenshots': True, 'screenshot_version': 'vtest', 'screenshot_scale': 3,
+                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
+        elif version==3:
+            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (0, 0, -1) , 'up_vector': (-1, 0, 0), 
+                      'make_screenshots': True, 'screenshot_version': 'v3', 'screenshot_scale': 3, 
+                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}     
+        else:
+            raise ValueError(f"The integer 'version' needs to have value going from 0 to 3, not {version}.")
+
+        if 'intervals_no' in data:
+            kwargs['time_intervals_no_duplicate'] = True
+            kwargs['time_interval'] = time_interval
+        elif 'intervals_all' in data:
+            kwargs['time_intervals_all_data'] = True
+            kwargs['time_interval'] = time_interval
+        elif 'no_dupli' in data:
+            kwargs['no_duplicate'] =True
+        elif 'all' in data:
+            kwargs['all_data'] = True
+        else:
+            raise ValueError(f"String '{data}' is not yet supported for argument 'data'.")
+        return cls(**kwargs)
+    
     def Update_paths(self):
         """
         Updating the paths of the parent class to be able to save screenshots.
         """
 
         if self.make_screenshots:
-            self.paths['Screenshots'] = os.path.join(self.paths['Main'], 'Screenshots_both')
+            self.paths['Screenshots'] = os.path.join(self.paths['Main'], 'texture_screenshots')
             os.makedirs(self.paths['Screenshots'], exist_ok=True)
-   
+
+    def Fov_for_sun_centered(self):
+        """
+        To get the same FOV than SDO when the fov_center parameter is the Sun.
+        """
+
+        hdul = fits.open(os.path.join(self.paths['SDO'], 'AIA_fullhead_000.fits.gz'))
+        image_shape = np.array(hdul[0].data).shape
+        Total_fov_in_degrees = image_shape[0] * hdul[0].header['CDELT1'] / 3600
+        hdul.close()
+        return Total_fov_in_degrees
+
     def Full_array(self, sparse_cube):
         """
         To recreate a full 3D np.array from a sparse np.ndarray representing a 3D volume.
@@ -1071,23 +1142,33 @@ class K3dAnimation(Data):
         self.plot.camera_zoom_speed = self.camera_zoom_speed  # it was zooming too quickly (default=1.2)
         
         # Point to look at, i.e. initial rotational reference
-        self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
+        if isinstance(self.fov_center, tuple):
+            self._camera_reference = self.fov_center
+        elif self.fov_center:
+            self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
+        else:
+            self._camera_reference = self.sun_center
         
         if self.stereo_pov:
             self.plot.camera = [self.STEREO_pos[0, 0], self.STEREO_pos[0, 1], self.STEREO_pos[0, 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                                0, 0, 1]  # up vector
+                                self.up_vector[0], self.up_vector[1], self.up_vector[2]] # up vector
         elif self.sdo_pov:
             self.plot.camera = [self.SDO_pos[0, 0], self.SDO_pos[0, 1], self.SDO_pos[0, 2],
-                        self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                        0, 0, 1]  # up vector
+                                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
+                                self.up_vector[0], self.up_vector[1], self.up_vector[2]]  # up vector
         else:
             au_in_solar_r = 215  # 1 au in solar radii
             distance_to_sun = au_in_solar_r * self.radius_index 
 
-            self.plot.camera = [self._camera_reference[0] - distance_to_sun, self._camera_reference[1] - distance_to_sun / 2, 0,
-                        self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                        0, 0, 1]  # up vector
+            if not self.camera_pos:
+                print("no 'camera_pos', setting default values.")
+                self.camera_pos = (-1, -0.5, 0)
+            self.plot.camera = [self._camera_reference[0] + self.camera_pos[0] * distance_to_sun, 
+                                self._camera_reference[1] + self.camera_pos[1] * distance_to_sun,
+                                self._camera_reference[2] + self.camera_pos[2] * distance_to_sun,
+                                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
+                                self.up_vector[0], self.up_vector[1], self.up_vector[2]]  # up vector
 
     def Update_voxel(self, change):
         """
@@ -1202,10 +1283,17 @@ class K3dAnimation(Data):
         time.sleep(self.screenshot_sleep)
 
         screenshot_png = base64.b64decode(self.plot.screenshot)
-        if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-            screenshot_name = f'interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
-        else:
+        if self.time_intervals_no_duplicate:
+            screenshot_name = f'nodupli_interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
+        elif self.time_intervals_all_data:
+            screenshot_name = f'alldata_interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
+        elif self.no_duplicate:
             screenshot_name = f'nodupli_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
+        elif self.all_data:
+            screenshot_name = f'alldata_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
+        else:
+            raise ValueError("The screenshot name for that type of data still hasn't been created.")
+        
         screenshot_namewpath = os.path.join(self.paths['Screenshots'], screenshot_name)
         with open(screenshot_namewpath, 'wb') as f:
             f.write(screenshot_png)
@@ -1272,7 +1360,7 @@ class K3dAnimation(Data):
         
         # Adding the SUN!!!
         if self.sun:
-            self.plot += k3d.points(positions=self.sun_points, point_size=2.5, colors=self.hex_colours, shader='flat',
+            self.plot += k3d.points(positions=self.sun_points, point_size=3.5, colors=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
         
         # Adding the stars      
@@ -1322,7 +1410,7 @@ class K3dAnimation(Data):
             if self.second_cube:
                 data = self.Full_array(self.cubes_no_duplicate_2[0])
                 self.plot_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
-                                        color_map=[0xff6e00], opacity=0.15, name='Set2: no duplicates')
+                                        color_map=[0xff6666], opacity=0.3, name='Set2: no duplicates')
                 self.plot += self.plot_dupli_set2
 
         if self.line_of_sight:

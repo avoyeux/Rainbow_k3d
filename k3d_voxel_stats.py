@@ -156,6 +156,7 @@ class MaskStats:
 
         SDO_surfaces = []
         STEREO_surfaces = []
+        STEREO_dlon = 0.075
         for nb in self.numbers:
             SDO_hdul = fits.open(os.path.join(self.paths['SDO_fits'], f'AIA_fullhead_{nb:03d}.fits.gz'))
             SDO_surfaces.append(np.sum(SDO_hdul[0].data) * SDO_hdul[0].header['CDELT1']**2)
@@ -166,7 +167,7 @@ class MaskStats:
                 print(f'STEREO path nb{nb} found.')
                 image = np.mean(Image.open(STEREO_path), axis=2)  # as the png has 3 channels
                 all_white = image.size * 255  # image in uint8
-                STEREO_surfaces.append((all_white - np.sum(image)) / 255)  # as the mask is when image==0
+                STEREO_surfaces.append((all_white - np.sum(image)) / 255 * (STEREO_dlon**2))  # as the mask is when image==0
             else:
                 print(f'STEREO path nb{nb} not found.')
                 STEREO_surfaces.append(0)
