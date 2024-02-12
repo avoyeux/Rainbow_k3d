@@ -48,7 +48,7 @@ class ImageFinder:
                         'SDO': os.path.join(main_path, 'MP4_saves'),
                         'STEREO': os.path.join(main_path, 'STEREO', 'int'),
                         'Screenshots': os.path.join(main_path, 'texture_screenshots'),
-                        'Save': os.path.join(main_path, 'texture_plots')}
+                        'Save': os.path.join(main_path, 'texture_plots2')}
         else:
             self.paths = {'Main': main_path,
                         'SDO': os.path.join(main_path, 'MP4_saves'),
@@ -178,76 +178,6 @@ class ImageFinder:
         pool.starmap(self.Plotting, args)
         pool.close()
         pool.join()
-        
-    def Plotting2(self, group_str):
-        """
-        Plots the corresponding images together.
-        """
-
-        sdo_str, stereo_str, screen_str = group_str
-
-        self.Patterns()
-        stereo_groups = self.stereo_pattern.match(stereo_str)
-        sdo_groups = self.sdo_pattern.match(sdo_str)
-
-        print(f'screen str is {screen_str}')
-        sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
-        stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
-        screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
-        screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
-
-        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
-        stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
-
-        full_image = np.split(np.array(full_image), 2, axis=1)
-
-        sdo_image = Image.fromarray(full_image[1])
-
-        x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
-        sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
-        sdo_screenshot = Image.fromarray(sdo_screenshot)
-
-        sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
-        stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
-        screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
-        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
-        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
-        screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
-
-        fig, axs = plt.subplots(2, 3, figsize=(8, 4), constrained_layout=True)
-        
-        axs[0, 0].imshow(sdo_screenshot, interpolation='none')
-        axs[0, 0].axis('off')
-        axs[0, 0].set_title('SDO', fontsize=7)
-        axs[0, 0].text(240, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
-                        fontsize=5, color='white', alpha=0.9)
-
-        axs[0, 1].imshow(stereo_screenshot, interpolation='none')
-        axs[0, 1].axis('off')
-        axs[0, 1].set_title('STEREO', fontsize=7)
-        axs[0, 1].text(240, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
-                        fontsize=5, color='white', alpha=0.9)
-
-        axs[0, 2].imshow(screenshot2, interpolation='none')
-        axs[0, 2].axis('off')
-
-        axs[1, 0].imshow(sdo_image, interpolation='none')
-        axs[1, 0].axis('off')
-
-        axs[1, 1].imshow(stereo_image, interpolation='none')
-        axs[1, 1].axis('off')
-
-        axs[1, 2].imshow(screenshot3, interpolation='none')
-        axs[1, 2].axis('off')
-        # plt.tight_layout(constrained_layout=True)
-        # plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
-
-        if 'nodu' in self.interval:
-            figname = f"nodupli_{stereo_groups.group('number')}.png"
-        else:
-            figname = f"Fig_{self.interval}_{stereo_groups.group('number')}.png"
-        plt.savefig(os.path.join(self.paths['Save'], figname), dpi=250)
-        plt.close()
 
     def Plotting(self, group_str):
         """
@@ -339,7 +269,7 @@ class GIF_making:
         self.interval = interval
         self.stereo = stereo
         self.Paths()
-        self.GIF()
+        self.MP4()
 
     def Paths(self):
         """
@@ -349,27 +279,24 @@ class GIF_making:
         main_path = '../'
 
         self.paths = {'Main': main_path,
-                      'Figures': os.path.join(main_path, f'texture_both_{self.stereo}'),
-                      'GIF': os.path.join(main_path, 'GIF_both')}
-        os.makedirs(self.paths['GIF'], exist_ok=True)
+                      'Figures': os.path.join(main_path, f'texture_plots2'),
+                      'GIF': os.path.join(main_path, 'texture_mp4')}
+        os.makedirs(self.paths['MP4'], exist_ok=True)
 
-    def GIF(self):
+    def MP4(self):
         """
-        Making the GIF.
+        Making a corresponding mp4 file.
         """
 
-        images_path = sorted(Path(self.paths['Figures']).glob(f'*_{self.interval}_*.png'))
+        # writer = iio3.get_writer(os.path.join(self.paths['GIF'], f'MP4_test.mp4'), fps=self.fps)
 
-        images = [iio3.imread(image_path) for image_path in images_path]
-        print(f'the type of an image is {images[0].dtype}')
-        print(f'The total size of the images is {round(np.array(images).nbytes / 2**20, 1)}MB')
+        image_paths = sorted(Path(self.paths['Figures']).glob(f'*{self.interval}*.png'))
+        images = [iio3.imread(image_path) for image_path in image_paths]
 
-        iio3.imwrite(os.path.join(self.paths['GIF'], f'GIF_both_{self.stereo}_{self.interval}_fps{self.fps}.gif'),
-                      images, format='GIF', fps=self.fps)
-
+        iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
-    ImageFinder(interval='nodupli', ints=True)
-    # GIF_making(interval='nodupli', stereo='int', fps=10)
+    # ImageFinder(interval='nodupli', ints=True)
+    GIF_making(interval='nodupli', stereo='int', fps=10)
 
 

@@ -106,7 +106,7 @@ class Data:
         self._sun_texture_resolution = sun_texture_resolution  # choosing the Sun's texture resolution
         self.stereo_pov = stereo_pov  # following the STEREO pov
         self.sdo_pov = sdo_pov  # same for the SDO pov 
-        self.batch_number = batch_number  # number of batches for the I/O bound tasks
+        self._batch_number = batch_number  # number of batches for the I/O bound tasks
         self.make_screenshots = make_screenshots  # creating screenshots when clicking play
 
         # Instance attributes set when running the class
@@ -146,8 +146,6 @@ class Data:
         self.time_cubes_all_data_2 = None  # same for the second set
         self.time_cubes_no_duplicate_1 = None  # same for the no duplicate for the first set
         self.time_cubes_no_duplicate_2 = None  # same for the second set 
-        self._date_min = None  # minimum date in seconds for each time_chunk
-        self._date_max = None  # maximum date in seconds for each time_chunk
         self.radius_index = None  # radius of the Sun in grid units
         self.sun_center = None  # position of the Sun's center [x, y, z] in the grid
         self._texture_height = None  # height in pixels of the input texture image
@@ -313,22 +311,22 @@ class Data:
         manager = Manager()
         queue = manager.Queue()
         total_length = len(cube_names)
-        step = int(np.ceil(total_length / self.batch_number))
+        step = int(np.ceil(total_length / self._batch_number))
 
-        for i in range(self.batch_number):
-            if not (i==self.batch_number - 1):
+        for i in range(self._batch_number):
+            if not (i==self._batch_number - 1):
                 IO_processes.append(Process(target=self.Cubes, args=(queue, i, cubes_path, cube_names[step * i:step * (i + 1)])))
                 if self.line_of_sight:
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self.batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self.batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self._batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:step * (i + 1)])))
             else:
                 IO_processes.append(Process(target=self.Cubes, args=(queue, i, cubes_path, cube_names[step * i:])))
                 if self.line_of_sight:
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self.batch_number + i, cubes_path, cube_names[step * i:])))
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self.batch_number + i, cubes_path, cube_names[step * i:])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self._batch_number + i, cubes_path, cube_names[step * i:])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:])))
         # Ordering the results gotten from the I/O bound tasks
         results = []
-        for i in range(self.batch_number * 3):
+        for i in range(self._batch_number * 3):
             results.append(None)
         for p in IO_processes:
             p.start()
@@ -337,13 +335,12 @@ class Data:
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
-        cubes = concatenate(results[:self.batch_number], axis=0)
+        cubes = concatenate(results[:self._batch_number], axis=0)
         if self.line_of_sight:
-            STEREO = concatenate(results[self.batch_number:self.batch_number * 2], axis=0)
-            SDO = concatenate(results[self.batch_number * 2:], axis=0)
+            STEREO = concatenate(results[self._batch_number:self._batch_number * 2], axis=0)
+            SDO = concatenate(results[self._batch_number * 2:], axis=0)
 
         self.cubes_shape = cubes.shape
-        self._cubes_dtype = cubes.dtype
         print(f'CUBES - {round(cubes.nbytes/ 2**20,3)}Mb')
 
         # CPU bound processes 
@@ -788,14 +785,14 @@ class Data:
 
         # Initialisation
         N = self._sun_texture_resolution  # number of points in the theta direction
-        theta = np.linspace(0, np.pi, N)  # latitude of the points
-        phi = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
-        theta, phi = np.meshgrid(theta, phi)  # the subsequent meshgrid
+        phi = np.linspace(0, np.pi, N)  # latitude of the points
+        theta = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
+        phi, theta = np.meshgrid(phi, theta)  # the subsequent meshgrid
 
         # Conversion to cartesian coordinates
-        x = self.radius_index * np.sin(theta) * np.cos(phi) + self.sun_center[0]
-        y = self.radius_index * np.sin(theta) * np.sin(phi) + self.sun_center[1]
-        z = self.radius_index * np.cos(theta) + self.sun_center[2] 
+        x = self.radius_index * np.sin(phi) * np.cos(theta) + self.sun_center[0]
+        y = self.radius_index * np.sin(phi) * np.sin(theta) + self.sun_center[1]
+        z = self.radius_index * np.cos(phi) + self.sun_center[2] 
 
         # Creation of the position of the spherical cloud of points
         self.sun_points = np.array([x, y, z], dtype='float32').T
@@ -849,10 +846,10 @@ class Data:
         manager = Manager()
         queue = manager.Queue()
         total_length = len(self.cube_numbers_all)
-        step = int(np.ceil(total_length / self.batch_number))
+        step = int(np.ceil(total_length / self._batch_number))
         # Preping the processes
-        for i in range(self.batch_number):
-            if not (i==self.batch_number - 1):
+        for i in range(self._batch_number):
+            if not (i==self._batch_number - 1):
                 IO_processes.append(Process(target=self.STEREO_coords, args=(queue, i, data, self.cube_numbers_all[step * i:step * (i + 1)])))
             else:
                 IO_processes.append(Process(target=self.STEREO_coords, args=(queue, i, data, self.cube_numbers_all[step * i:])))
@@ -864,7 +861,7 @@ class Data:
 
         # Ordering the results
         results = []
-        for i in range(self.batch_number):
+        for i in range(self._batch_number):
             results.append(None)
         while not queue.empty():
             identifier, result = queue.get()
@@ -919,10 +916,10 @@ class Data:
         manager = Manager()
         queue = manager.Queue()
         total_length = len(SDO_fits_names)
-        step = int(np.ceil(total_length / self.batch_number))
+        step = int(np.ceil(total_length / self._batch_number))
         # Preping the processes
-        for i in range(self.batch_number):
-            if not (i==self.batch_number - 1):
+        for i in range(self._batch_number):
+            if not (i==self._batch_number - 1):
                 IO_processes.append(Process(target=self.SDO_coords, args=(queue, i, SDO_fits_names[step * i:step * (i + 1)])))
             else:
                 IO_processes.append(Process(target=self.SDO_coords, args=(queue, i, SDO_fits_names[step * i:])))
@@ -934,12 +931,21 @@ class Data:
 
         # Ordering the results
         results = []
-        for i in range(self.batch_number):
+        for i in range(self._batch_number):
             results.append(None)
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
         self.SDO_pos = np.concatenate(results, axis=0)
+
+        stereo_data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save'))
+        stereo_latcen = stereo_data.latcen
+        stereo_loncen = stereo_data.loncen
+
+        x = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.cos(stereo_loncen / 180 * np.pi) + self.sun_center[0]
+        y = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.sin(stereo_loncen / 180 * np.pi) + self.sun_center[1]
+        z = self.radius_index * np.cos(stereo_latcen / 180 * np.pi + np.pi / 2) + self.sun_center[2] 
+        self.stereo_pov_center = np.array([x, y, z])
 
     def SDO_coords(self, queue, i, paths):
         """
@@ -980,8 +986,9 @@ class Data:
 
         # Private attributes 
         del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
-        del self._date_max, self._date_min, self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y
-        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz, self._cubes_dtype
+        del self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y, self._batch_number
+        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz
+
 
 class K3dAnimation(Data):
     """
@@ -991,11 +998,11 @@ class K3dAnimation(Data):
     @typechecked
     def __init__(self, compression_level: int = 9, plot_height: int = 1260, sleep_time: int | float = 2, 
                  camera_fov: int | float = 1, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
-                 make_screenshots: bool = False, screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5, 
-                 screenshot_version: str = 'vtest', fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', 
+                 screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5,  screenshot_version: str = 'vtest',
+                 fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', 
                  camera_pos: tuple[int | float, int | float, int | float] | None = None, up_vector: tuple[int, int, int] = (0, 0, 1), **kwargs):
         
-        super().__init__(make_screenshots=make_screenshots, **kwargs)
+        super().__init__(**kwargs)
 
         # Arguments
         self.compression_level = compression_level  # the compression level of the data in the 3D visualisation
@@ -1007,17 +1014,17 @@ class K3dAnimation(Data):
         self.screenshot_scale = screenshot_scale  # the 'resolution' of the screenshot 
         self.screenshot_sleep = screenshot_sleep  # sleep time between each screenshot as synchronisation time is needed
         self.version = screenshot_version  # to save the screenshot with different names if multiple screenshots need to be saved
-        self.camera_pos = camera_pos
-        self.up_vector = up_vector
+        self.camera_pos = camera_pos  # position of the camera multiplied by 1au
+        self.up_vector = up_vector  # up vector for the camera
 
         if isinstance(fov_center, tuple):
-            self.fov_center = fov_center
+            self.fov_center = fov_center  # position the camera aims at
         elif 'cub' in fov_center.lower():
             self.fov_center = True  # using the cubes center as the fov_center
             self.camera_fov = 0.23
         elif 'sun' in fov_center.lower():
             self.fov_center = False  # using the sun center as the fov center
-            self.camera_fov = self.Fov_for_sun_centered()
+            self.camera_fov = self.Fov_for_sun_centered() / 3
         else:
             raise ValueError("If 'fov_center' a string, needs to have 'cub' or 'sun' inside it.")
 
@@ -1058,21 +1065,21 @@ class K3dAnimation(Data):
 
     @classmethod
     @typechecked
-    def The_usual(cls, version: int, data: str = 'no_duplicate', time_interval: int | str = 1):
+    def The_usual(cls, version: int, data: str = 'no_duplicate', **classkwargs):
         """
         Gives the usual arguments used when making screenshots for a given point of view and data type.
         """
 
         if version==0:
             kwargs = {'sun': True, 'fov_center': 'sun', 'sdo_pov': True, 'up_vector': (0, 0, 1), 
-                      'make_screenshots': True, 'screenshot_version': 'vtest', 'screenshot_scale': 3, 
+                      'make_screenshots': True, 'screenshot_version': 'v0', 'screenshot_scale': 2, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
         elif version==1:
             kwargs = {'sun': True, 'fov_center': 'cubes', 'stereo_pov': True, 'up_vector': (0, 0, 1), 
                       'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 1, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}        
         elif version==2:
-            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (-1, 0, 0), 'up_vector': (0, 0, 1),
+            kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (-0.7, 0.7, 0), 'up_vector': (0, 0, 1),
                       'make_screenshots': True, 'screenshot_version': 'v2', 'screenshot_scale': 1,
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
         elif version==3:
@@ -1084,17 +1091,16 @@ class K3dAnimation(Data):
 
         if 'intervals_no' in data:
             kwargs['time_intervals_no_duplicate'] = True
-            kwargs['time_interval'] = time_interval
         elif 'intervals_all' in data:
             kwargs['time_intervals_all_data'] = True
-            kwargs['time_interval'] = time_interval
         elif 'no_dupli' in data:
             kwargs['no_duplicate'] =True
         elif 'all' in data:
             kwargs['all_data'] = True
         else:
             raise ValueError(f"String '{data}' is not yet supported for argument 'data'.")
-        return cls(**kwargs)
+        combined_kwargs = {**kwargs, **classkwargs}  # so that the attributes can also be manually changed if needed be
+        return cls(**combined_kwargs)
     
     def Update_paths(self):
         """
@@ -1143,7 +1149,8 @@ class K3dAnimation(Data):
         elif self.fov_center:
             self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
         else:
-            self._camera_reference = self.sun_center
+            # self._camera_reference = self.sun_center
+            self._camera_reference = self.stereo_pov_center
         
         if self.stereo_pov:
             self.plot.camera = [self.STEREO_pos[0, 0], self.STEREO_pos[0, 1], self.STEREO_pos[0, 2],
@@ -1450,7 +1457,7 @@ class K3dAnimation(Data):
             if self.second_cube:
                 data = self.Full_array(self.time_cubes_no_duplicate_2[0])
                 self.plot_interv_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                        color_map=[0xff6e00], opacity=0.25, name=f'Set2: no duplicate for {self.time_interval}')
+                                        color_map=[0xff6666], opacity=0.4, name=f'Set2: no duplicate for {self.time_interval}')
                 self.plot += self.plot_interv_dupli_set2           
         
         if self.trace_data:
