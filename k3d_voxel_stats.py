@@ -29,7 +29,7 @@ class Stats(Data):
     @typechecked
     def __init__(self, everything: bool = True, **kwargs):
 
-        super().__init__(everything, both_cubes=True, make_screenshots=True, **kwargs)
+        super().__init__(everything, both_cubes=True, make_screenshots=True, cube_version='both', **kwargs)
         self.Structure()
 
     def Pre_processing(self, cubes):
@@ -68,12 +68,18 @@ class Stats(Data):
         data_dict = {'dates (seconds)': self.Dates_sub(),
                      'all_data_alf': self.Calculations(self.cubes_all_data_1),
                      'all_data_kar': self.Calculations(self.cubes_all_data_2),
-                     'no_duplicates_stereo_alf': self.Calculations(self.cubes_no_duplicates_STEREO_1),
-                     'no_duplicates_stereo_kar': self.Calculations(self.cubes_no_duplicates_STEREO_2),
-                     'no_duplicates_sdo_alf': self.Calculations(self.cubes_no_duplicates_SDO_1),
-                     'no_duplicates_sdo_kar': self.Calculations(self.cubes_no_duplicates_SDO_2),
-                     'no_duplicates_alf': self.Calculations(self.cubes_no_duplicate_1),
-                     'no_duplicates_kar': self.Calculations(self.cubes_no_duplicate_2),
+                     'no_duplicates_stereo_alf_old': self.Calculations(self.cubes_no_duplicates_init_STEREO_1),
+                     'no_duplicates_stereo_kar_old': self.Calculations(self.cubes_no_duplicates_init_STEREO_2),
+                     'no_duplicates_sdo_alf_old': self.Calculations(self.cubes_no_duplicates_init_SDO_1),
+                     'no_duplicates_sdo_kar_old': self.Calculations(self.cubes_no_duplicates_init_SDO_2),
+                     'no_duplicates_alf_old': self.Calculations(self.cubes_no_duplicate_init_1),
+                     'no_duplicates_kar_old': self.Calculations(self.cubes_no_duplicate_init_2),
+                     'no_duplicates_stereo_alf_new': self.Calculations(self.cubes_no_duplicates_new_STEREO_1),
+                     'no_duplicates_stereo_kar_new': self.Calculations(self.cubes_no_duplicates_new_STEREO_2),
+                     'no_duplicates_sdo_alf_new': self.Calculations(self.cubes_no_duplicates_new_SDO_1),
+                     'no_duplicates_sdo_kar_new': self.Calculations(self.cubes_no_duplicates_new_SDO_2),
+                     'no_duplicates_alf_new': self.Calculations(self.cubes_no_duplicate_new_1),
+                     'no_duplicates_kar_new': self.Calculations(self.cubes_no_duplicate_new_2),
                      f'interval_{self.time_interval}_all_data_alf': self.Calculations(self.time_cubes_all_data_1),
                      f'interval_{self.time_interval}_all_data_kar': self.Calculations(self.time_cubes_all_data_2),
                      f'interval_{self.time_interval}_no_duplicates_alf': self.Calculations(self.time_cubes_no_duplicate_1),
@@ -98,7 +104,7 @@ class Stats(Data):
             pattern = avg_pattern.match(os.path.basename(path))
 
             if pattern:
-                date = CustomDate.parse_date(pattern.group('date'))
+                date = CustomDate(pattern.group('date'))
                 dates.append(self.Date_to_seconds(date))
             else:
                 raise ValueError(f"avg filename {path} didn't match")
@@ -187,5 +193,5 @@ class MaskStats:
 
 
 if __name__=='__main__':
-    # Stats(time_interval='20min')
-    MaskStats()
+    Stats(time_interval='20min')
+    # MaskStats()

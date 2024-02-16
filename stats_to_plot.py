@@ -137,8 +137,9 @@ class Plotting_v2:
 
 
         self.dates = df_volumes['dates (seconds)'] / 3600
-        self.volumes_min = df_volumes['no_duplicates_kar'] * self.dx**3
+        self.volumes_min_old = df_volumes['no_duplicates_kar_old'] * self.dx**3
         self.volumes_max = df_volumes['all_data_kar'] * self.dx**3
+        self.volumes_min_new = df_volumes['no_duplicates_kar_new'] * self.dx**3
         self.area_sdo = df_area['SDO mask']
 
     def Preprocessing(self, array):
@@ -162,11 +163,12 @@ class Plotting_v2:
         ax1kwargs = {'color': 'blue', 'marker': 'None', 'alpha': 0.5}
         # ax1.plot(self.dates, self.Preprocessing(self.volumes_min), linestyle='--', label='Minimum total volume', **ax1kwargs)
         # ax1.plot(self.dates, self.Preprocessing(self.volumes_max), linestyle='-', label='Maximum total volume', **ax1kwargs)
-        ax1.set_ylim(0, 1.8e5)
+        # ax1.set_ylim(0, 1.8e5)
         ax1.set_ylabel(r'Volume ($Mm^3$)', color=ax1kwargs['color'])
         ax1.tick_params(axis='y', labelcolor=ax1kwargs['color'])
         # Volume fill
-        plt.fill_between(self.dates, self.Preprocessing(self.volumes_max) * 1e-9, self.Preprocessing(self.volumes_min) * 1e-9, color='blue', alpha=0.55, label='Volume range')
+        plt.fill_between(self.dates, self.Preprocessing(self.volumes_max) * 1e-9, self.Preprocessing(self.volumes_min_old) * 1e-9, color='blue', alpha=0.3, label='Volume range old')
+        plt.fill_between(self.dates, self.Preprocessing(self.volumes_max) * 1e-9, self.Preprocessing(self.volumes_min_new) * 1e-9, color='red', alpha=0.3, label='Volume range new')
 
         ax2 = ax1.twinx()
         ax2kwargs = {'color': 'red', 'marker': 'None', 'alpha': 0.8, 'linewidth': 1}
@@ -183,7 +185,7 @@ class Plotting_v2:
         fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(0.097, 0.97))
 
         plt.tight_layout()
-        plt.savefig('test_normalplot.png', dpi=200)
+        plt.savefig('new_test_normalplot.png', dpi=200)
         plt.close()
 
 

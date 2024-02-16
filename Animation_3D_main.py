@@ -75,11 +75,22 @@ class Data:
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
-                 sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 6, make_screenshots: bool = False):
+                 sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 6, make_screenshots: bool = False, cube_version: str = 'old'):
         
         # Arguments
         self.first_cube = False
         self.second_cube = False
+        self.cube_version_0 = False
+        self.cube_version_1 = False
+        if 'old' in cube_version:
+            self.cube_version_0 = True
+        elif 'new' in cube_version:
+            self.cube_version_1 = True
+        elif 'both' in cube_version:
+            self.cube_version_0 = True
+            self.cube_version_1 = True
+        else:
+            raise ValueError(f'"cube_version" needs to be "old", "new" or "both".')
 
         if isinstance(both_cubes, str):
             if 'alf' in both_cubes.lower():
@@ -215,14 +226,16 @@ class Data:
 
         if self.first_cube:
             self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
-            self.cubes_all_data_1, self.cubes_no_duplicate_1, self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, \
+            self.cubes_all_data_1, self.cubes_no_duplicate_init_1, self.cubes_no_duplicates_init_STEREO_1, self.cubes_no_duplicates_init_SDO_1, \
+            self.cubes_no_duplicate_new_1, self.cubes_no_duplicates_new_STEREO_1, self.cubes_no_duplicates_new_SDO_1, \
             self.trace_cubes_1, self.trace_cubes_no_duplicate_1, self.day_cubes_all_data_1, self.day_cubes_no_duplicate_1, \
             self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1 \
             = self.Processing_data(self.paths['Cubes'], self._cube_names_1, self.dates_1)
             
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
-            self.cubes_all_data_2, self.cubes_no_duplicate_2, self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, \
+            self.cubes_all_data_2, self.cubes_no_duplicate_init_2, self.cubes_no_duplicates_init_STEREO_2, self.cubes_no_duplicates_init_SDO_2, \
+            self.cubes_no_duplicate_new_2, self.cubes_no_duplicates_new_STEREO_2, self.cubes_no_duplicates_new_SDO_2, \
             self.trace_cubes_2, self.trace_cubes_no_duplicate_2, self.day_cubes_all_data_2, self.day_cubes_no_duplicate_2, \
             self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2 \
             = self.Processing_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2)
@@ -339,7 +352,7 @@ class Data:
                 IO_processes.append(Process(target=self.Cubes, args=(queue, i, cubes_path, cube_names[step * i:])))
                 if self.line_of_sight:
                     IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self._batch_number + i, cubes_path, cube_names[step * i:])))
-                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:])))
+                    IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:]))) 
         # Ordering the results gotten from the I/O bound tasks
         results = [None for _ in range(self._batch_number * 3)]
         for p in IO_processes:
@@ -359,10 +372,10 @@ class Data:
 
         # CPU bound processes 
         processes = []
-        results = [None, None, None, None, None, None, None, None, None, None, None, None]
+        results = [None for _ in range(15)]
         if self.line_of_sight:
-            results[10] = STEREO
-            results[11] = SDO
+            results[-2] = STEREO
+            results[-1] = SDO
         
         # Shared memory
         sparse_data = cubes.data
@@ -381,10 +394,17 @@ class Data:
         if self.all_data:
             processes.append(Process(target=self.Cubes_all_data, args=(queue,)))
         if self.no_duplicate:
-            processes.append(Process(target=self.Cubes_no_duplicate, args=(queue,)))
+            if self.cube_version_0:
+                processes.append(Process(target=self.Cubes_no_duplicate_init, args=(queue,)))
+            if self.cube_version_1:
+                processes.append(Process(target=self.Cubes_no_duplicate_new, args=(queue,)))
         if self.duplicates:
-            processes.append(Process(target=self.Cubes_duplicates_STEREO, args=(queue,)))
-            processes.append(Process(target=self.Cubes_duplicates_SDO, args=(queue,)))
+            if self.cube_version_0:
+                processes.append(Process(target=self.Cubes_STEREO_no_duplicate_init, args=(queue,)))
+                processes.append(Process(target=self.Cubes_SDO_no_duplicate_init, args=(queue,)))
+            if self.cube_version_1:
+                processes.append(Process(target=self.Cubes_STEREO_no_duplicate_new, args=(queue,)))
+                processes.append(Process(target=self.Cubes_SDO_no_duplicate_new, args=(queue,)))
         if self.trace_data:
             processes.append(Process(target=self.Cubes_trace, args=(queue,)))
         if self.trace_no_duplicate:
@@ -487,37 +507,62 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_all_data = self.Sparse_data(cubes != 0).astype('uint8')
+        cubes_all_data = self.Sparse_data(cubes & 0b00000001).astype('uint8')
         queue.put((0, cubes_all_data))
     
-    def Cubes_no_duplicate(self, queue):
+    def Cubes_no_duplicate_init(self, queue):
         """
         To create the cubes for the no duplicate data.
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data(cubes == 7).astype('uint8')  # no  duplicates 
+        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')  # no  duplicates 
         queue.put((1, cubes_no_duplicate))
 
-    def Cubes_duplicates_STEREO(self, queue):
+    def Cubes_STEREO_no_duplicate_init(self, queue):
         """
         To create the cubes for the no duplicate data from STEREO.
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicates_STEREO = (cubes == 5) | (cubes==7)  # no duplicates seen from STEREO
-        cubes_no_duplicates_STEREO = self.Sparse_data(cubes_no_duplicates_STEREO).astype('uint8')
+        cubes_no_duplicates_STEREO = self.Sparse_data((cubes & 0b00000010) > 0).astype('uint8')
         queue.put((2, cubes_no_duplicates_STEREO))
     
-    def Cubes_duplicates_SDO(self, queue):
+    def Cubes_SDO_no_duplicate_init(self, queue):
         """
         To create the cubes for the no duplicate data from SDO.
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicates_SDO = (cubes == 3) | (cubes==7)  # no duplicates seen from SDO
-        cubes_no_duplicates_SDO = self.Sparse_data(cubes_no_duplicates_SDO).astype('uint8')
+        cubes_no_duplicates_SDO = self.Sparse_data((cubes & 0b00000100) > 0).astype('uint8')
         queue.put((3, cubes_no_duplicates_SDO))
+        
+    def Cubes_no_duplicate_new(self, queue):
+        """
+        To create the cubes for the no duplicate data.
+        """
+
+        cubes = self.Shared_array_reconstruction()
+        cubes_no_duplicate = self.Sparse_data((cubes & 0b00011000) == 24).astype('uint8')  # no  duplicates 
+        queue.put((4, cubes_no_duplicate))
+
+    def Cubes_STEREO_no_duplicate_new(self, queue):
+        """
+        To create the cubes for the no duplicate data from STEREO.
+        """
+
+        cubes = self.Shared_array_reconstruction()
+        cubes_no_duplicates_STEREO = self.Sparse_data((cubes & 0b00001000) > 0).astype('uint8')
+        queue.put((5, cubes_no_duplicates_STEREO))
+    
+    def Cubes_SDO_no_duplicate_new(self, queue):
+        """
+        To create the cubes for the no duplicate data from SDO.
+        """
+
+        cubes = self.Shared_array_reconstruction()
+        cubes_no_duplicates_SDO = self.Sparse_data((cubes & 0b00010000) > 0).astype('uint8')
+        queue.put((6, cubes_no_duplicates_SDO))
 
     def Cubes_trace(self, queue):
         """
@@ -526,7 +571,7 @@ class Data:
 
         cubes = self.Shared_array_reconstruction()
         trace_cube = COO.any(cubes, axis=0).astype('uint8')
-        queue.put((4, trace_cube))
+        queue.put((7, trace_cube))
 
     def Cubes_trace_no_duplicate(self, queue):
         """
@@ -534,9 +579,9 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data(cubes == 7)
+        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')
         trace_cube_no_duplicate = COO.any(cubes_no_duplicate, axis=0).astype('uint8')
-        queue.put((5, trace_cube_no_duplicate))
+        queue.put((8, trace_cube_no_duplicate))
 
     def Cubes_day(self, queue, dates):
         """
@@ -546,7 +591,7 @@ class Data:
         cubes = self.Shared_array_reconstruction()
         day_cubes_all_data = self.Day_cubes(cubes, dates)
         day_cubes_all_data = self.Sparse_data(day_cubes_all_data)
-        queue.put((6, day_cubes_all_data))
+        queue.put((9, day_cubes_all_data))
 
     def Cubes_day_no_duplicate(self, queue, dates):
         """
@@ -554,10 +599,10 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data(cubes == 7)
+        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')
         day_cubes_no_duplicate = self.Day_cubes(cubes_no_duplicate, dates)
         day_cubes_no_duplicate = self.Sparse_data(day_cubes_no_duplicate)
-        queue.put((7, day_cubes_no_duplicate))
+        queue.put((10, day_cubes_no_duplicate))
 
     def Cubes_time_chunks(self, queue, dates):
         """
@@ -566,7 +611,7 @@ class Data:
 
         cubes = self.Shared_array_reconstruction()
         time_cubes_all_data = []
-        cubes_all_data = self.Sparse_data(cubes != 0)
+        cubes_all_data = self.Sparse_data(cubes & 0b00000001).astype('uint8')
         for date in self.dates_all:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
@@ -576,7 +621,7 @@ class Data:
         
         time_cubes_all_data = stack(time_cubes_all_data, axis=0)
         time_cubes_all_data = self.Sparse_data(time_cubes_all_data).astype('uint8')
-        queue.put((8, time_cubes_all_data))
+        queue.put((11, time_cubes_all_data))
 
     def Cubes_time_chunks_no_duplicate(self, queue, dates):
         """
@@ -585,7 +630,7 @@ class Data:
 
         cubes = self.Shared_array_reconstruction()
         time_cubes_no_duplicate = [] 
-        cubes_no_duplicate = self.Sparse_data(cubes == 7)
+        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')
         for date in self.dates_all:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
@@ -595,7 +640,7 @@ class Data:
         
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0)
         time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate).astype('uint8')
-        queue.put((9, time_cubes_no_duplicate))
+        queue.put((12, time_cubes_no_duplicate))
     
     def Day_indexes(self):
         """
@@ -679,9 +724,12 @@ class Data:
             cubes_lineofsight_STEREO_1 = []
             cubes_lineofsight_SDO_1 = []
             cubes_all_data_1 = []
-            cubes_no_duplicate_1 = []
-            cubes_no_duplicates_STEREO_1 = []
-            cubes_no_duplicates_SDO_1 = []
+            cubes_no_duplicate_init_1 = []
+            cubes_no_duplicates_init_STEREO_1 = []
+            cubes_no_duplicates_init_SDO_1 = []
+            cubes_no_duplicate_new_1 = []
+            cubes_no_duplicates_new_STEREO_1 = []
+            cubes_no_duplicates_new_SDO_1 = []
             index = -1
             for number in self.cube_numbers_all:
                 if number in self._cube_numbers_1:
@@ -689,30 +737,44 @@ class Data:
                     cubes_lineofsight_STEREO_1.append([self.cubes_lineofsight_STEREO_1[index] if self.line_of_sight else None][0])
                     cubes_lineofsight_SDO_1.append([self.cubes_lineofsight_SDO_1[index] if self.line_of_sight else None][0])
                     cubes_all_data_1.append([self.cubes_all_data_1[index] if self.all_data else None][0])
-                    cubes_no_duplicate_1.append([self.cubes_no_duplicate_1[index] if self.no_duplicate else None][0])
-                    cubes_no_duplicates_STEREO_1.append([self.cubes_no_duplicates_STEREO_1[index] if self.duplicates else None][0])
-                    cubes_no_duplicates_SDO_1.append([self.cubes_no_duplicates_SDO_1[index] if self.duplicates else None][0])
+                    if self.cube_version_0:
+                        cubes_no_duplicate_init_1.append([self.cubes_no_duplicate_init_1[index] if self.no_duplicate else None][0])
+                        cubes_no_duplicates_init_STEREO_1.append([self.cubes_no_duplicates_init_STEREO_1[index] if self.duplicates else None][0])
+                        cubes_no_duplicates_init_SDO_1.append([self.cubes_no_duplicates_init_SDO_1[index] if self.duplicates else None][0])
+                    if self.cube_version_1:
+                        cubes_no_duplicate_new_1.append([self.cubes_no_duplicate_new_1[index] if self.no_duplicate else None][0])
+                        cubes_no_duplicates_new_STEREO_1.append([self.cubes_no_duplicates_new_STEREO_1[index] if self.duplicates else None][0])
+                        cubes_no_duplicates_new_SDO_1.append([self.cubes_no_duplicates_new_SDO_1[index] if self.duplicates else None][0])
                 else:
                     cubes_lineofsight_STEREO_1.append(None)
                     cubes_lineofsight_SDO_1.append(None)
                     cubes_all_data_1.append(None)
-                    cubes_no_duplicate_1.append(None)
-                    cubes_no_duplicates_STEREO_1.append(None)
-                    cubes_no_duplicates_SDO_1.append(None)
+                    cubes_no_duplicate_init_1.append(None)
+                    cubes_no_duplicates_init_STEREO_1.append(None)
+                    cubes_no_duplicates_init_SDO_1.append(None)
+                    cubes_no_duplicate_new_1.append(None)
+                    cubes_no_duplicates_new_STEREO_1.append(None)
+                    cubes_no_duplicates_new_SDO_1.append(None)
             self.cubes_lineofsight_STEREO_1 = cubes_lineofsight_STEREO_1
             self.cubes_lineofsight_SDO_1 = cubes_lineofsight_SDO_1
             self.cubes_all_data_1 = cubes_all_data_1
-            self.cubes_no_duplicate_1 = cubes_no_duplicate_1
-            self.cubes_no_duplicates_STEREO_1 = cubes_no_duplicates_STEREO_1
-            self.cubes_no_duplicates_SDO_1 = cubes_no_duplicates_SDO_1
+            self.cubes_no_duplicate_init_1 = cubes_no_duplicate_init_1
+            self.cubes_no_duplicates_init_STEREO_1 = cubes_no_duplicates_init_STEREO_1
+            self.cubes_no_duplicates_init_SDO_1 = cubes_no_duplicates_init_SDO_1
+            self.cubes_no_duplicate_new_1 = cubes_no_duplicate_new_1
+            self.cubes_no_duplicates_new_STEREO_1 = cubes_no_duplicates_new_STEREO_1
+            self.cubes_no_duplicates_new_SDO_1 = cubes_no_duplicates_new_SDO_1
 
         if self.second_cube:
             cubes_lineofsight_STEREO_2 = []
             cubes_lineofsight_SDO_2 = []
             cubes_all_data_2 = []
-            cubes_no_duplicate_2 = []
-            cubes_no_duplicates_STEREO_2 = []
-            cubes_no_duplicates_SDO_2 = []
+            cubes_no_duplicate_init_2 = []
+            cubes_no_duplicates_init_STEREO_2 = []
+            cubes_no_duplicates_init_SDO_2 = []
+            cubes_no_duplicate_new_2 = []
+            cubes_no_duplicates_new_STEREO_2 = []
+            cubes_no_duplicates_new_SDO_2 = []
             index = -1
             for number in self.cube_numbers_all:
                 if number in self._cube_numbers_2:
@@ -720,22 +782,34 @@ class Data:
                     cubes_lineofsight_STEREO_2.append([self.cubes_lineofsight_STEREO_2[index] if self.line_of_sight else None][0])
                     cubes_lineofsight_SDO_2.append([self.cubes_lineofsight_SDO_2[index] if self.line_of_sight else None][0])
                     cubes_all_data_2.append([self.cubes_all_data_2[index] if self.all_data else None][0])
-                    cubes_no_duplicate_2.append([self.cubes_no_duplicate_2[index] if self.no_duplicate else None][0])
-                    cubes_no_duplicates_STEREO_2.append([self.cubes_no_duplicates_STEREO_2[index] if self.duplicates else None][0])
-                    cubes_no_duplicates_SDO_2.append([self.cubes_no_duplicates_SDO_2[index] if self.duplicates else None][0])
+                    if self.cube_version_0:
+                        cubes_no_duplicate_init_2.append([self.cubes_no_duplicate_init_2[index] if self.no_duplicate else None][0])
+                        cubes_no_duplicates_init_STEREO_2.append([self.cubes_no_duplicates_init_STEREO_2[index] if self.duplicates else None][0])
+                        cubes_no_duplicates_init_SDO_2.append([self.cubes_no_duplicates_init_SDO_2[index] if self.duplicates else None][0])
+                    if self.cube_version_1:
+                        cubes_no_duplicate_new_2.append([self.cubes_no_duplicate_new_2[index] if self.no_duplicate else None][0])
+                        cubes_no_duplicates_new_STEREO_2.append([self.cubes_no_duplicates_new_STEREO_2[index] if self.duplicates else None][0])
+                        cubes_no_duplicates_new_SDO_2.append([self.cubes_no_duplicates_new_SDO_2[index] if self.duplicates else None][0])
                 else:
                     cubes_lineofsight_STEREO_2.append(None)
                     cubes_lineofsight_SDO_2.append(None)
                     cubes_all_data_2.append(None)
-                    cubes_no_duplicate_2.append(None)
-                    cubes_no_duplicates_STEREO_2.append(None)
-                    cubes_no_duplicates_SDO_2.append(None)
+                    cubes_no_duplicate_init_2.append(None)
+                    cubes_no_duplicates_init_STEREO_2.append(None)
+                    cubes_no_duplicates_init_SDO_2.append(None)
+                    cubes_no_duplicate_new_2.append(None)
+                    cubes_no_duplicates_new_STEREO_2.append(None)
+                    cubes_no_duplicates_new_SDO_2.append(None)
             self.cubes_lineofsight_STEREO_2 = cubes_lineofsight_STEREO_2
             self.cubes_lineofsight_SDO_2 = cubes_lineofsight_SDO_2
             self.cubes_all_data_2 = cubes_all_data_2
-            self.cubes_no_duplicate_2 = cubes_no_duplicate_2
-            self.cubes_no_duplicates_STEREO_2 = cubes_no_duplicates_STEREO_2
-            self.cubes_no_duplicates_SDO_2 = cubes_no_duplicates_SDO_2
+            self.cubes_no_duplicate_init_2 = cubes_no_duplicate_init_2
+            self.cubes_no_duplicates_init_STEREO_2 = cubes_no_duplicates_init_STEREO_2
+            self.cubes_no_duplicates_init_SDO_2 = cubes_no_duplicates_init_SDO_2
+            self.cubes_no_duplicate_new_2 = cubes_no_duplicate_new_2
+            self.cubes_no_duplicates_new_STEREO_2 = cubes_no_duplicates_new_STEREO_2
+            self.cubes_no_duplicates_new_SDO_2 = cubes_no_duplicates_new_SDO_2
+
 
     def Sun_pos(self):
         """
@@ -888,9 +962,7 @@ class Data:
             p.join()
 
         # Ordering the results
-        results = []
-        for i in range(self._batch_number):
-            results.append(None)
+        results = [None for _ in range(self._batch_number)]
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
@@ -972,9 +1044,7 @@ class Data:
             p.join()
 
         # Ordering the results
-        results = []
-        for i in range(self._batch_number):
-            results.append(None)
+        results = [None for _ in range(self._batch_number)]
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
