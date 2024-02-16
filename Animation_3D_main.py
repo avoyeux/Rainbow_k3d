@@ -6,19 +6,20 @@ Imports of the data, preprocessing and creation of the 3D k3d visualisation clas
 import os
 import re
 import k3d
-import time
-import glob
 import threading
+
 import numpy as np
 import ipywidgets as widgets
 
+from glob import glob
+from time import sleep
 from astropy.io import fits
 from scipy.io import readsav
 from typeguard import typechecked
 from IPython.display import display
 from sparse import COO, stack, concatenate
 from multiprocessing import shared_memory, Process, Manager
- 
+# Personal imports
 from common_alf import decorators
 
 
@@ -72,7 +73,8 @@ class Data:
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
-                 time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, sun_texture_resolution: int = 960,
+                 time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
+                 fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 6, make_screenshots: bool = False):
         
         # Arguments
@@ -89,6 +91,15 @@ class Data:
         elif isinstance(both_cubes, bool):
             self.first_cube = True
             self.second_cube = (both_cubes or everything)
+
+        if isinstance(fov_center, tuple):
+            self.fov_center = fov_center  # position the camera aims at
+        elif 'cub' in fov_center.lower():
+            self.fov_center = True  # using the cubes center as the fov_center
+        elif 'stereo' in fov_center.lower():
+            self.fov_center = False  # using the stereo fov center as the fov center
+        else:
+            raise ValueError("If 'fov_center' a string, needs to have 'cub' or 'stereo' inside it.")
 
         self.sun = (sun or everything)  # choosing to plot the Sun
         self.stars = (stars or everything)  # choosing to plot the stars
@@ -108,6 +119,8 @@ class Data:
         self.sdo_pov = sdo_pov  # same for the SDO pov 
         self._batch_number = batch_number  # number of batches for the I/O bound tasks
         self.make_screenshots = make_screenshots  # creating screenshots when clicking play
+        self._heliographic_grid_degrees = heliographic_grid_degrees  # heliographic grid steps in degrees
+
 
         # Instance attributes set when running the class
         self.paths = None  # dictionary containing all the path names and the corresponding path
@@ -227,6 +240,9 @@ class Data:
         elif self.sdo_pov:
             self.SDO_stats()
 
+        if not self.fov_center:
+            self.STEREO_pov_center()
+
     def Names(self):
         """
         To get the filenames of all the cubes.
@@ -267,7 +283,7 @@ class Data:
         """
 
         self._pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-        self._all_filenames = sorted(glob.glob(os.path.join(self.paths['Intensities'], '*.png')))
+        self._all_filenames = sorted(glob(os.path.join(self.paths['Intensities'], '*.png')))
 
         if not self.make_screenshots:
             # Getting the corresponding filenames 
@@ -325,9 +341,7 @@ class Data:
                     IO_processes.append(Process(target=self.Cubes_lineofsight_STEREO, args=(queue, self._batch_number + i, cubes_path, cube_names[step * i:])))
                     IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:])))
         # Ordering the results gotten from the I/O bound tasks
-        results = []
-        for i in range(self._batch_number * 3):
-            results.append(None)
+        results = [None for _ in range(self._batch_number * 3)]
         for p in IO_processes:
             p.start()
         for p in IO_processes:
@@ -759,7 +773,7 @@ class Data:
         """
 
         # Importing AIA 33.5nm synoptics map
-        hdul = fits.open(os.path.join(self.paths['Textures'], 'syn_AIA_304_2012-07-23T00-00-00_a_V1.fits'))
+        hdul = fits.open(os.path.join(self.paths['Textures'], 'syn304_20120723.005959_20120723_010115_n5euA.fts_20120723_005845_n5euB.fts.fts'))
         image = hdul[0].data  # (960, 1920) monochromatic image
 
         # Image shape
@@ -770,6 +784,20 @@ class Data:
         upper_cut = np.nanpercentile(image, 99.99)
         image[image < lower_cut] = lower_cut
         image[image > upper_cut] = upper_cut
+
+        # Adding a white longitude latitude white grid each 15 degrees:
+        nb_of_grids_lat = np.arange(1, 180 / self._heliographic_grid_degrees, 1)
+        nb_of_grids_lon = np.arange(1, 360 / self._heliographic_grid_degrees + 1, 1)
+        # grid_index_lat = self._heliographic_grid_degrees * nb_of_grids_lat / hdul[0].header['CDELT1']
+        # grid_index_lon = self._heliographic_grid_degrees * nb_of_grids_lon / hdul[0].header['CDELT1']
+        grid_index_lat = self._heliographic_grid_degrees * nb_of_grids_lat / 0.25
+        grid_index_lon = self._heliographic_grid_degrees * nb_of_grids_lon / 0.25
+
+        print(f'{[lat for lat in grid_index_lat]}')
+        for lat in grid_index_lat:
+            image[int(lat) - 1, :] = np.nanmax(image) * 1.01
+        for lon in grid_index_lon:
+            image[:, int(lon) - 1] = np.nanmax(image) * 1.01
 
         # Replacing nan values to the lower_cut 
         nw_image = np.where(np.isnan(image), lower_cut, image)  # TODO: would need to change the nan values to the interpolation for the pole
@@ -811,7 +839,7 @@ class Data:
 
         colours = self._sun_texture[x_indices, y_indices].flatten()
         normalized_colours = (colours - np.min(colours)) / (np.max(colours) - np.min(colours))
-        blue_val = (normalized_colours * 255).astype('int')
+        blue_val = (normalized_colours * 255).astype('int')  # TODO: change to uint8, but might create problems if I remember correctly 
         self.hex_colours = (blue_val << 16) + (blue_val << 8) + blue_val
         self.hex_colours = self.hex_colours.astype('uint32')
 
@@ -903,6 +931,20 @@ class Data:
             stereo_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
         queue.put((i, np.array(stereo_pos)))       
     
+    def STEREO_pov_center(self):
+        """
+        To get the cartesian coordinates of the center of STEREO's field of view.        
+        """
+
+        stereo_data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save'))
+        stereo_latcen = stereo_data.latcen
+        stereo_loncen = stereo_data.loncen
+
+        x = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.cos(stereo_loncen / 180 * np.pi) + self.sun_center[0]
+        y = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.sin(stereo_loncen / 180 * np.pi) + self.sun_center[1]
+        z = self.radius_index * np.cos(stereo_latcen / 180 * np.pi + np.pi / 2) + self.sun_center[2] 
+        self.stereo_pov_center = np.array([x, y, z])
+
     def SDO_stats(self):
         """
         To save the information needed to find the position of SDO.
@@ -937,15 +979,6 @@ class Data:
             identifier, result = queue.get()
             results[identifier] = result
         self.SDO_pos = np.concatenate(results, axis=0)
-
-        stereo_data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save'))
-        stereo_latcen = stereo_data.latcen
-        stereo_loncen = stereo_data.loncen
-
-        x = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.cos(stereo_loncen / 180 * np.pi) + self.sun_center[0]
-        y = self.radius_index * np.sin(stereo_latcen / 180 * np.pi + np.pi / 2) * np.sin(stereo_loncen / 180 * np.pi) + self.sun_center[1]
-        z = self.radius_index * np.cos(stereo_latcen / 180 * np.pi + np.pi / 2) + self.sun_center[2] 
-        self.stereo_pov_center = np.array([x, y, z])
 
     def SDO_coords(self, queue, i, paths):
         """
@@ -997,9 +1030,8 @@ class K3dAnimation(Data):
 
     @typechecked
     def __init__(self, compression_level: int = 9, plot_height: int = 1260, sleep_time: int | float = 2, 
-                 camera_fov: int | float = 1, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
-                 screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5,  screenshot_version: str = 'vtest',
-                 fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', 
+                 camera_fov: int | float | str = 0.23, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
+                 screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5,  screenshot_version: str = 'vtest', 
                  camera_pos: tuple[int | float, int | float, int | float] | None = None, up_vector: tuple[int, int, int] = (0, 0, 1), **kwargs):
         
         super().__init__(**kwargs)
@@ -1008,7 +1040,6 @@ class K3dAnimation(Data):
         self.compression_level = compression_level  # the compression level of the data in the 3D visualisation
         self.plot_height = plot_height  # the height in pixels of the plot (initially it was 512)
         self.sleep_time = sleep_time  # sets the time between each frames (in seconds)
-        self.camera_fov = camera_fov  # the name speaks for itself
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
         self.trace_opacity = trace_opacity  # opacity factor for all the trace voxels
         self.screenshot_scale = screenshot_scale  # the 'resolution' of the screenshot 
@@ -1016,17 +1047,15 @@ class K3dAnimation(Data):
         self.version = screenshot_version  # to save the screenshot with different names if multiple screenshots need to be saved
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
         self.up_vector = up_vector  # up vector for the camera
-
-        if isinstance(fov_center, tuple):
-            self.fov_center = fov_center  # position the camera aims at
-        elif 'cub' in fov_center.lower():
-            self.fov_center = True  # using the cubes center as the fov_center
-            self.camera_fov = 0.23
-        elif 'sun' in fov_center.lower():
-            self.fov_center = False  # using the sun center as the fov center
-            self.camera_fov = self.Fov_for_sun_centered() / 3
+        
+        if camera_fov=='sdo':
+            self.camera_fov = self.Fov_for_SDO()
+        elif camera_fov=='stereo':
+            self.camera_fov = 0.26
+        elif isinstance(camera_fov, (int, float)):
+            self.camera_fov = camera_fov
         else:
-            raise ValueError("If 'fov_center' a string, needs to have 'cub' or 'sun' inside it.")
+            raise ValueError('When "camera_fov" a string, needs to be `sdo` or `stereo`.')
 
         # Instance attributes set when running the class
         self.plot = None  # k3d plot object
@@ -1071,11 +1100,11 @@ class K3dAnimation(Data):
         """
 
         if version==0:
-            kwargs = {'sun': True, 'fov_center': 'sun', 'sdo_pov': True, 'up_vector': (0, 0, 1), 
+            kwargs = {'sun': True, 'sdo_pov': True, 'fov_center':'stereo', 'camera_fov': 'sdo', 'up_vector': (0, 0, 1), 
                       'make_screenshots': True, 'screenshot_version': 'v0', 'screenshot_scale': 2, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
         elif version==1:
-            kwargs = {'sun': True, 'fov_center': 'cubes', 'stereo_pov': True, 'up_vector': (0, 0, 1), 
+            kwargs = {'sun': True, 'stereo_pov': True, 'fov_center': 'stereo', 'camera_fov': 'stereo', 'up_vector': (0, 0, 1), 
                       'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 1, 
                       'sun_texture_resolution': 1920, 'both_cubes': 'kar'}        
         elif version==2:
@@ -1111,7 +1140,7 @@ class K3dAnimation(Data):
             self.paths['Screenshots'] = os.path.join(self.paths['Main'], 'texture_screenshots')
             os.makedirs(self.paths['Screenshots'], exist_ok=True)
 
-    def Fov_for_sun_centered(self):
+    def Fov_for_SDO(self):
         """
         To get the same FOV than SDO when the fov_center parameter is the Sun.
         """
@@ -1120,7 +1149,7 @@ class K3dAnimation(Data):
         image_shape = np.array(hdul[0].data).shape
         Total_fov_in_degrees = image_shape[0] * hdul[0].header['CDELT1'] / 3600
         hdul.close()
-        return Total_fov_in_degrees
+        return Total_fov_in_degrees / 3
 
     def Full_array(self, sparse_cube):
         """
@@ -1149,7 +1178,6 @@ class K3dAnimation(Data):
         elif self.fov_center:
             self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2
         else:
-            # self._camera_reference = self.sun_center
             self._camera_reference = self.stereo_pov_center
         
         if self.stereo_pov:
@@ -1183,12 +1211,12 @@ class K3dAnimation(Data):
             self.plot.camera = [self.STEREO_pos[change['new'], 0], self.STEREO_pos[change['new'], 1], self.STEREO_pos[change['new'], 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]
-            time.sleep(0.2) 
+            sleep(0.2) 
         elif self.sdo_pov:
             self.plot.camera = [self.SDO_pos[change['new'], 0], self.SDO_pos[change['new'], 1], self.SDO_pos[change['new'], 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]
-            time.sleep(0.2)
+            sleep(0.2)
               
         if self.all_data:
             if self.first_cube:
@@ -1283,7 +1311,7 @@ class K3dAnimation(Data):
         import base64
 
         self.plot.fetch_screenshot()
-        time.sleep(self.screenshot_sleep)
+        sleep(self.screenshot_sleep)
 
         screenshot_png = base64.b64decode(self.plot.screenshot)
         if self.time_intervals_no_duplicate:
@@ -1456,8 +1484,8 @@ class K3dAnimation(Data):
                 self.plot += self.plot_interv_dupli_set1
             if self.second_cube:
                 data = self.Full_array(self.time_cubes_no_duplicate_2[0])
-                self.plot_interv_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                        color_map=[0xff6666], opacity=0.4, name=f'Set2: no duplicate for {self.time_interval}')
+                self.plot_interv_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True,
+                                        color_map=[0xff6666], opacity=1, name=f'Set2: no duplicate for {self.time_interval}')
                 self.plot += self.plot_interv_dupli_set2           
         
         if self.trace_data:

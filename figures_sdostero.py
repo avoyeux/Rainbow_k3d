@@ -11,17 +11,18 @@ import numpy as np
 import imageio.v3 as iio3
 import multiprocessing as mp
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from PIL import Image
 
+from PIL import Image
 from pathlib import Path
 from typeguard import typechecked
+from matplotlib.gridspec import GridSpec
+
 
 
 class ImageFinder:
 
     @typechecked
-    def __init__(self, ints: bool = True, avg: bool = False, interval: str | None = None):
+    def __init__(self, ints: bool = True, avg: bool = False, interval: str | None = None, testing: bool = False):
         
         # Arguments
         self.ints = ints
@@ -29,6 +30,7 @@ class ImageFinder:
         if avg:
             self.ints = False
         self.interval = interval
+        self.testing = testing  # choosing to test some stuff to then maybe incorporate it.
 
         # Functions
         self.Paths()
@@ -48,7 +50,7 @@ class ImageFinder:
                         'SDO': os.path.join(main_path, 'MP4_saves'),
                         'STEREO': os.path.join(main_path, 'STEREO', 'int'),
                         'Screenshots': os.path.join(main_path, 'texture_screenshots'),
-                        'Save': os.path.join(main_path, 'texture_plots2')}
+                        'Save': os.path.join(main_path, 'texture_plots4')}
         else:
             self.paths = {'Main': main_path,
                         'SDO': os.path.join(main_path, 'MP4_saves'),
@@ -89,7 +91,7 @@ class ImageFinder:
                                                  (?P<minute>\d{2})min_
                                                  v(?P<version>\d{1})\.png''', re.VERBOSE)
         else:
-            self.screenshot_pattern = re.compile(r'''interval(?P<interval>\d+h|\d+min|\d+days|nodupli)_
+            self.screenshot_pattern = re.compile(r'''nodupli_interval(?P<interval>\d+h|\d+min|\d+days|nodupli)_
                                                 \d{4}-\d{2}-
                                                 (?P<day>\d{2})_
                                                 (?P<hour>\d{2})h
@@ -173,17 +175,20 @@ class ImageFinder:
         self.screenshot_pattern = None
         self.stereo_ratio_pattern = None
 
-        pool = mp.Pool(processes=14)
-        args = [(group_str,) for group_str in self.groups]
-        pool.starmap(self.Plotting, args)
-        pool.close()
-        pool.join()
+        if self.testing:
+            args = self.groups[2:4]
+            [self.Testing(arg) for arg in args]
+        else:
+            pool = mp.Pool(processes=14)
+            args = [(group_str,) for group_str in self.groups]
+            pool.starmap(self.Plotting, args)
+            pool.close()
+            pool.join()
 
-    def Plotting(self, group_str):
+    def Plotting3(self, group_str):
         """
         Plots the corresponding images together.
         """
-        from matplotlib.gridspec import GridSpec
 
         sdo_str, stereo_str, screen_str = group_str
 
@@ -198,15 +203,16 @@ class ImageFinder:
         screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
 
         full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
-        stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
+        # stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
 
         full_image = np.split(np.array(full_image), 2, axis=1)
 
         sdo_image = Image.fromarray(full_image[1])
+        stereo_image = Image.fromarray(full_image[0])
 
-        x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
-        sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
-        sdo_screenshot = Image.fromarray(sdo_screenshot)
+        # x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
+        # sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
+        # sdo_screenshot = Image.fromarray(sdo_screenshot)
 
         sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
         stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
@@ -222,15 +228,11 @@ class ImageFinder:
         ax1.imshow(sdo_screenshot, interpolation='none')
         ax1.axis('off')
         ax1.set_title('SDO', fontsize=7)
-        ax1.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
-                        fontsize=6, color='white', alpha=1)
 
         ax2 = fig.add_subplot(gs[0, 1])
         ax2.imshow(stereo_screenshot, interpolation='none')
         ax2.axis('off')
         ax2.set_title('STEREO', fontsize=7)
-        ax2.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
-                        fontsize=6, color='white', alpha=1)
 
         ax3 = fig.add_subplot(gs[0, 2])
         ax3.imshow(screenshot2, interpolation='none')
@@ -239,10 +241,14 @@ class ImageFinder:
         ax4 = fig.add_subplot(gs[1, 0])
         ax4.imshow(sdo_image, interpolation='none')
         ax4.axis('off')
+        ax4.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
+                        fontsize=6, color='black', alpha=1, weight='bold')
 
         ax5 = fig.add_subplot(gs[1, 1])
         ax5.imshow(stereo_image, interpolation='none')
         ax5.axis('off')
+        ax5.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
+                        fontsize=6, color='black', alpha=1, weight='bold')
 
         ax6 = fig.add_subplot(gs[1, 2])
         ax6.imshow(screenshot3, interpolation='none')
@@ -257,8 +263,77 @@ class ImageFinder:
         plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
         plt.close()
 
+    def Plotting(self, group_str):
+        """
+        Created to test the possibilities for the plotting.
+        """
 
-class GIF_making:
+        sdo_str, stereo_str, screen_str = group_str
+        self.Patterns()
+        stereo_groups = self.stereo_pattern.match(stereo_str)
+        sdo_groups = self.sdo_pattern.match(sdo_str)
+
+        print(f'screen str is {screen_str}')
+
+        sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
+        stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
+        screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
+        screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
+
+        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
+
+        full_image = np.split(np.array(full_image), 2, axis=1)
+
+        sdo_image = Image.fromarray(full_image[1])
+        stereo_image = Image.fromarray(full_image[0])
+
+        sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
+        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
+
+        fig = plt.figure(figsize=(6, 4))
+        gs = GridSpec(2, 3)
+        
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax1.imshow(sdo_image, interpolation='none')
+        ax1.axis('off')
+        ax1.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
+                        fontsize=6, color='black', alpha=1, weight='bold')
+        
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax2.imshow(sdo_screenshot, interpolation='none')
+        ax2.axis('off')
+
+        ax3 = fig.add_subplot(gs[0, 2])
+        ax3.imshow(screenshot2, interpolation='none')
+        ax3.axis('off')
+
+        ax4 = fig.add_subplot(gs[1, 0])
+        ax4.imshow(stereo_image, interpolation='none')
+        ax4.axis('off')
+        ax4.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
+                        fontsize=6, color='black', alpha=1, weight='bold')
+
+        ax5 = fig.add_subplot(gs[1, 1])
+        ax5.imshow(stereo_screenshot, interpolation='none')
+        ax5.axis('off')
+
+        ax6 = fig.add_subplot(gs[1, 2])
+        ax6.imshow(screenshot3, interpolation='none')
+        ax6.axis('off')
+        plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
+
+        if 'nodu' in self.interval:
+            figname = f"testnodupli_{stereo_groups.group('number')}.png"
+        else:
+            figname = f"testFig_{self.interval}_{stereo_groups.group('number')}.png"
+        plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
+        plt.close()
+
+class MP4_making:
     """
     To create the corresponding GIF.
     """
@@ -296,7 +371,7 @@ class GIF_making:
         iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
-    # ImageFinder(interval='nodupli', ints=True)
-    GIF_making(interval='nodupli', stereo='int', fps=10)
+    ImageFinder(interval='1h', ints=True)
+    # MP4_making(interval='nodupli', stereo='int', fps=10)
 
 
