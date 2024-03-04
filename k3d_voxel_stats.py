@@ -176,7 +176,7 @@ class MaskStats:
                 STEREO_surfaces.append((all_white - np.sum(image)) / 255 * (STEREO_dlon**2))  # as the mask is when image==0
             else:
                 print(f'STEREO path nb{nb} not found.')
-                STEREO_surfaces.append(0)
+                STEREO_surfaces.append(np.nan)
         return SDO_surfaces, STEREO_surfaces
 
     def Saving(self):
