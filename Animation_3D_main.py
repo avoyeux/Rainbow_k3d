@@ -869,9 +869,9 @@ class Data:
 
         print(f'{[lat for lat in grid_index_lat]}')
         for lat in grid_index_lat:
-            image[int(lat) - 1, :] = np.nanmax(image) * 1.01
+            image[int(lat) - 1, :] = np.nanmax(image) * 1.0
         for lon in grid_index_lon:
-            image[:, int(lon) - 1] = np.nanmax(image) * 1.01
+            image[:, int(lon) - 1] = np.nanmax(image) * 1.0
 
         # Replacing nan values to the lower_cut 
         nw_image = np.where(np.isnan(image), lower_cut, image)  # TODO: would need to change the nan values to the interpolation for the pole
@@ -1090,7 +1090,7 @@ class Data:
         # Private attributes 
         del self._sun_texture_resolution, self._cube_names_all, self._cube_names_1, self._cube_names_2, self._cube_numbers_1, self._cube_numbers_2
         del self._texture_height, self._texture_width, self._sun_texture, self._sun_texture_x, self._sun_texture_y, self._batch_number
-        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dx, self._length_dy, self._length_dz
+        del self._pattern_int, self._all_filenames, self._days_per_month, self._length_dy, self._length_dz
 
 
 class K3dAnimation(Data):
@@ -1102,7 +1102,8 @@ class K3dAnimation(Data):
     def __init__(self, compression_level: int = 9, plot_height: int = 1260, sleep_time: int | float = 2, 
                  camera_fov: int | float | str = 0.23, camera_zoom_speed: int | float = 0.7, trace_opacity: int | float = 0.1, 
                  screenshot_scale: int | float = 2, screenshot_sleep: int | float = 5,  screenshot_version: str = 'vtest', 
-                 camera_pos: tuple[int | float, int | float, int | float] | None = None, up_vector: tuple[int, int, int] = (0, 0, 1), **kwargs):
+                 camera_pos: tuple[int | float, int | float, int | float] | None = None, up_vector: tuple[int, int, int] = (0, 0, 1), 
+                 visible_grid: bool = False, **kwargs):
         
         super().__init__(**kwargs)
 
@@ -1117,6 +1118,7 @@ class K3dAnimation(Data):
         self.version = screenshot_version  # to save the screenshot with different names if multiple screenshots need to be saved
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
         self.up_vector = up_vector  # up vector for the camera
+        self.visible_grid = visible_grid  # setting the grid to be visible or not
         
         if camera_fov=='sdo':
             self.camera_fov = self.Fov_for_SDO()
@@ -1509,7 +1511,7 @@ class K3dAnimation(Data):
         """
         
         # Initialisation of the plot
-        self.plot = k3d.plot(grid_visible=False)  # plot with no axes. If a dark background is needed then background_color=0x000000
+        self.plot = k3d.plot(grid_visible=self.visible_grid)  # plot with no axes. If a dark background is needed then background_color=0x000000
         self.plot.height = self.plot_height  
             
         # Adding the camera specific parameters

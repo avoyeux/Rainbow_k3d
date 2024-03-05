@@ -109,7 +109,7 @@ class Plotting_v2:
     def __init__(self):
 
         # Constants
-        self.dx = 0.003 * 6.96e5 * 0.7068
+        self.dx = 0.00169 * 6.96e5 
         
         # Functions
         self.Paths()
