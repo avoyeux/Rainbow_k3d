@@ -81,4 +81,5 @@ class Convolution3D(ParentClass):
 
 
 if __name__=='__main__':
-    test = Convolution3D(batch_size=15, kernel_size=30, gaussian_mean=30//2, gaussian_std=30/6)
+    test = Convolution3D(batch_size=15, kernel_size=30, gaussian_mean=30//2, gaussian_std=30/6,
+                         time_interval='24h', time_intervals_no_duplicate=True, cube_version = 'new')
