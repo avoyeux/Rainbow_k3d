@@ -157,26 +157,27 @@ class Plotting_v2:
         ax1.set_ylim(0, 1.8e5)
         ax1.set_ylabel(r'Volume ($Mm^3$)', color=ax1kwargs['color'])
         ax1.tick_params(axis='y', labelcolor=ax1kwargs['color'])
+        ax1.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
         # Volume fill
-        plt.fill_between(self.dates, self.volumes_max * 1e-9, self.volumes_min_old * 1e-9, color='blue', alpha=0.3, label='Volume range old')
-        plt.fill_between(self.dates, self.volumes_max * 1e-9, self.volumes_min_new * 1e-9, color='red', alpha=0.3, label='Volume range new')
+        plt.fill_between(self.dates, self.volumes_max * 1e-9, self.volumes_min_old * 1e-9, color='blue', alpha=0.3, label='Volume range gotten with the first method')
+        plt.fill_between(self.dates, self.volumes_min_old * 1e-9, self.volumes_min_new * 1e-9, color='red', alpha=0.3, label='Difference with the second method')
+        ax1.set_xlim(0, 60)
 
         ax2 = ax1.twinx()
         ax2kwargs = {'color': 'red', 'marker': 'None', 'alpha': 0.8, 'linewidth': 1}
-        ax2.plot(self.dates, self.area_sdo, dashes=(3, 3, 7, 1), label='Total SDO mask fov', **ax2kwargs) 
-        ax2.set_ylim(0, 1.3e4)
+        ax2.plot(self.dates, self.area_sdo / 3600, dashes=(3, 3, 7, 1), label='Protuberance surface seen by SDO', **ax2kwargs) 
         ax2.tick_params(axis='y', labelcolor=ax2kwargs['color'])
-        ax2.set_ylabel(r'Total fov ($arsec^2$)', color=ax2kwargs['color'])
+        ax2.set_ylabel(r'Total fov ($arcmin^2$)', color=ax2kwargs['color'])
 
         # Setting up the shared legend
         handles1, labels1 = ax1.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels()
         handles = handles1 + handles2
         labels = labels1 + labels2
-        fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(0.097, 0.97))
+        fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(0.067, 0.95))
 
         plt.tight_layout()
-        plt.savefig('new_test_normalplot.png', dpi=200)
+        plt.savefig(os.path.join(self.paths['Plots'], 'Volume_range.png'), dpi=500)
         plt.close()
 
 
