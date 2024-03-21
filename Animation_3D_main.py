@@ -24,6 +24,9 @@ from multiprocessing import shared_memory, Process, Manager
 # Personal imports
 from common_alf import decorators
 
+from skimage.morphology import skeletonize_3d
+from scipy.ndimage import binary_fill_holes
+
 
 class CustomDate:
     """
@@ -1184,18 +1187,16 @@ class Data:
         """
         testing something
         """
-
-        from skimage.morphology import skeletonize_3d
-        from scipy.ndimage import binary_fill_holes
         
-        skeletons = []
-        for loop in range(self.time_cubes_no_duplicate_new_2.shape[0]):
-            array = self.time_cubes_no_duplicate_new_2[loop].todense()
-            volume_filled = binary_fill_holes(array)
-            skeleton = skeletonize_3d(volume_filled)
-            skeletons.append(COO(skeleton))
-        skeletons = stack(skeletons, axis=0)
-        self.cubes_barycenter = skeletons
+        # skeletons = []
+        # for loop in range(self.time_cubes_no_duplicate_new_2.shape[0]):
+        #     array = self.time_cubes_no_duplicate_new_2[loop].todense()
+        #     volume_filled = binary_fill_holes(array)
+        #     skeleton = skeletonize_3d(volume_filled)
+        #     skeletons.append(COO(skeleton))
+        # skeletons = stack(skeletons, axis=0)
+        # self.cubes_barycenter = skeletons
+        pass
         
     def Testing_conv3d_results(self):
         """
@@ -1206,6 +1207,13 @@ class Data:
 
         binary_data = data > self.conv_treshold
         self.cubes_test_conv = self.Sparse_data(binary_data)
+        skeletons = []
+        for cube in binary_data:
+            skeleton = skeletonize_3d(cube)
+            skeletons.append(skeleton)
+        skeletons = stack(skeletons, axis=0)
+        self.cubes_barycenter = skeletons
+
 
 
     def Attribute_deletion(self):

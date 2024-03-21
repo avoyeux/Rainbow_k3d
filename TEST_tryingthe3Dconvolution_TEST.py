@@ -80,6 +80,14 @@ class Convolution3D(ParentClass):
             min_val = output.min()
             max_val = output.max()
             normalized_output = (output - min_val) / (max_val - min_val)
+            output = torch.nn.functional.conv3d(input=normalized_output, weight=gaussian_kernel, padding=self.kernel_size//2)
+            min_val = output.min()
+            max_val = output.max()
+            normalized_output = (output - min_val) / (max_val - min_val)
+            output = torch.nn.functional.conv3d(input=normalized_output, weight=gaussian_kernel, padding=self.kernel_size//2)
+            min_val = output.min()
+            max_val = output.max()
+            normalized_output = (output - min_val) / (max_val - min_val)
             conv_outputs.append(normalized_output.cpu())
             print(f'batch nb {loop} done.', flush=True)
 
@@ -88,9 +96,7 @@ class Convolution3D(ParentClass):
         output_cpu = np.squeeze(output_cpu, axis=1)
         output_cpu = (output_cpu * 255).astype('uint8')
 
-        sparse_output = COO.from_numpy(output_cpu)
-        np.savez(os.path.join(os.getcwd(), 'barycenter_sparse_array.npz'), coords=sparse_output.coords, values=sparse_output.data)
-        np.save(os.path.join(os.getcwd(), 'barycenter_array.npy'), output_cpu)
+        np.save(os.path.join(os.getcwd(), 'barycenter_array_4.npy'), output_cpu)
         print('Saving of files finished', flush=True)
 
 
