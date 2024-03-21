@@ -1202,16 +1202,47 @@ class Data:
         just testing the result gotten from the convolution
         """
 
-        data = np.load(os.path.join('..', 'test_conv3d_array', 'barycenter_array.npy')).astype('uint8')
+        data = np.load(os.path.join('..', 'test_conv3d_array', 'barycenter_array_4.npy')).astype('uint8')
 
         binary_data = data > self.conv_treshold
         self.cubes_test_conv = self.Sparse_data(binary_data)
+        print(f"cubes_test_conv has shape {self.cubes_test_conv.shape}")
+
+        # Multiprocessing initial I/O bound tasks
+        nb_of_batches = 6
+        IO_processes = []
+        manager = Manager()
+        queue = manager.Queue()
+
+        step = int(np.ceil(self.cubes_shape[0] / nb_of_batches))
+        # Preping the processes
+        for i in range(nb_of_batches):
+            if not (i==nb_of_batches - 1):
+                IO_processes.append(Process(target=self.Testing_loop, args=(queue, i, binary_data[step * i:step * (i + 1)])))
+            else:
+                IO_processes.append(Process(target=self.Testing_loop, args=(queue, i, binary_data[step * i:])))
+        
+        # Running the processes
+        for p in IO_processes:
+            p.start()
+        for p in IO_processes:
+            p.join()
+
+        # Ordering the results
+        results = [None for _ in range(nb_of_batches)]
+        while not queue.empty():
+            identifier, result = queue.get()
+            results[identifier] = result
+        cubes_barycenter = np.concatenate(results, axis=0)
+        self.cubes_barycenter = self.Sparse_data(cubes_barycenter)
+
+    def Testing_loop(self, queue, i, data):
         skeletons = []
-        for cube in binary_data:
+        for cube in data:
             skeleton = skeletonize_3d(cube)
-            skeletons.append(COO(skeleton))
-        skeletons = stack(skeletons, axis=0)
-        self.cubes_barycenter = skeletons
+            skeletons.append(skeleton)
+        skeletons = np.array(skeletons)
+        queue.put((i, skeletons))
 
     def Attribute_deletion(self):
         """
