@@ -1204,7 +1204,7 @@ class Data:
 
         data = np.load(os.path.join('..', 'test_conv3d_array', 'barycenter_array.npy')).astype('uint8')
 
-        binary_data = data[data > self.conv_treshold]
+        binary_data = data > self.conv_treshold
         self.cubes_test_conv = self.Sparse_data(binary_data)
 
 
