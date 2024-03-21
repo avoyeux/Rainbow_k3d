@@ -78,7 +78,7 @@ class Data:
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 10, make_screenshots: bool = False, cube_version: str = 'old',
-                 barycenter: bool = False):
+                 barycenter: bool = False, test_conv: bool = False, conv_treshold: int = 125):
         
         # Arguments
         self.first_cube = False
@@ -135,6 +135,8 @@ class Data:
         self.make_screenshots = make_screenshots  # creating screenshots when clicking play
         self._heliographic_grid_degrees = heliographic_grid_degrees  # heliographic grid steps in degrees
         self.barycenter = barycenter
+        self.test_conv = test_conv
+        self.conv_treshold = conv_treshold
 
 
         # Instance attributes set when running the class
@@ -263,6 +265,9 @@ class Data:
         if self.barycenter:
             self.Regions_preprocessing2()
             print(f'the skeleton shape is {self.cubes_barycenter.shape}')
+
+        if self.test_conv:
+            self.Testing_conv3d_results()
 
     def Names(self):
         """
@@ -1192,6 +1197,17 @@ class Data:
         skeletons = stack(skeletons, axis=0)
         self.cubes_barycenter = skeletons
         
+    def Testing_conv3d_results(self):
+        """
+        just testing the result gotten from the convolution
+        """
+
+        data = np.load(os.path.join('..', 'test_conv3d_array', 'barycenter_array.npy')).astype('uint8')
+
+        binary_data = data[data > self.conv_treshold]
+        self.cubes_test_conv = self.Sparse_data(binary_data)
+
+
     def Attribute_deletion(self):
         """
         To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
@@ -1522,6 +1538,9 @@ class K3dAnimation(Data):
         if self.barycenter:
             data = self.Full_array(self.cubes_barycenter[change['new']])
             self.plot_barycenter.voxels = data 
+        if self.test_conv:
+            data = self.Full_array(self.cubes_test_conv[change['new']])
+            self.plot_conv.voxels = data
         if self.make_screenshots:
             self.Screenshot_making()
 
@@ -1832,6 +1851,12 @@ class K3dAnimation(Data):
             self.plot_barycenter = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=1,
                                               name='barycenter for new no dupliactes' )
             self.plot += self.plot_barycenter
+
+        if self.test_conv:
+            data = self.Full_array(self.cubes_test_conv[0])
+            self.plot_conv = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=0.5,
+                                        name='conv3d')
+            self.plot += self.plot_conv
 
         # Adding a play/pause button
         self.play_pause_button = widgets.ToggleButton(value=False, description='Play', icon='play')

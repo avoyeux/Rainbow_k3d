@@ -31,7 +31,7 @@ class Convolution3D(ParentClass):
         super().__init__(**kwargs)
 
         self.Data_prepocessing()
-        print(f'Data preprocessing done')
+        print(f'Data preprocessing done', flush=True)
         self.Structure()
         print(f'3D convolution finished.')
 
@@ -64,22 +64,34 @@ class Convolution3D(ParentClass):
 
         # Checking if the GPU was set up properly
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print('Using device: ', device)
+        print('Using device: ', device, flush=True)
         
         gaussian_kernel = self.Gaussian_kernel(self.kernel_size, self.mean, self.std).to(device)
         gaussian_kernel = gaussian_kernel.unsqueeze(0).expand(1, 1, self.kernel_size, self.kernel_size, self.kernel_size)
 
         conv_outputs = []
-        for batch in self.batches:
+        for loop, batch in enumerate(self.batches):
             input_tensor = batch.to(device)
             output = torch.nn.functional.conv3d(input=input_tensor, weight=gaussian_kernel, padding=self.kernel_size//2)
-            conv_outputs.append(output.cpu())
+            min_val = output.min()
+            max_val = output.max()
+            normalized_output = (output - min_val) / (max_val - min_val)
+            output = torch.nn.functional.conv3d(input=normalized_output, weight=gaussian_kernel, padding=self.kernel_size//2)
+            min_val = output.min()
+            max_val = output.max()
+            normalized_output = (output - min_val) / (max_val - min_val)
+            conv_outputs.append(normalized_output.cpu())
+            print(f'batch nb {loop} done.', flush=True)
 
         concatenated_output = torch.cat(conv_outputs, dim=0)
         output_cpu = concatenated_output.numpy()
+        output_cpu = np.squeeze(output_cpu, axis=1)
+        output_cpu = (output_cpu * 255).astype('uint8')
 
         sparse_output = COO.from_numpy(output_cpu)
-        np.save(os.path.join(os.getcwd(), 'barycenter_sparse_array.npy'), output_cpu)
+        np.savez(os.path.join(os.getcwd(), 'barycenter_sparse_array.npz'), coords=sparse_output.coords, values=sparse_output.data)
+        np.save(os.path.join(os.getcwd(), 'barycenter_array.npy'), output_cpu)
+        print('Saving of files finished', flush=True)
 
 
 if __name__=='__main__':
