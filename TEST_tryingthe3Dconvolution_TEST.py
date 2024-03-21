@@ -10,6 +10,7 @@ import torch
 import numpy as np
 
 from sparse import COO
+from typeguard import typechecked
 from Animation_3D_main import Data as ParentClass
 
 
@@ -19,6 +20,7 @@ class Convolution3D(ParentClass):
     To do the 3D convolution with PyTorch.
     """
 
+    @typechecked
     def __init__(self, gaussian_mean: int | float, gaussian_std: int | float,
                  batch_size: int = 15, kernel_size: int = 20, **kwargs):
 
@@ -41,11 +43,11 @@ class Convolution3D(ParentClass):
         cubes = self.time_cubes_no_duplicate_new_2.todense()
 
         self.batches = [
-            torch.tensor(cubes[i:i + self.batch_size]).float()
+            torch.tensor(cubes[i:i + self.batch_size]).float().unsqueeze(1)
             for i in range(0, cubes.shape[0], self.batch_size)
         ]
     
-    def Gaussian_kernel(size: int, mean: int | float, std: int | float): 
+    def Gaussian_kernel(self, size: int, mean: int | float, std: int | float): 
         """
         Generating a 3D gaussian kernel.
         """
@@ -65,7 +67,7 @@ class Convolution3D(ParentClass):
         print('Using device: ', device)
         
         gaussian_kernel = self.Gaussian_kernel(self.kernel_size, self.mean, self.std).to(device)
-        gaussian_kernel = gaussian_kernel.expand(self.cubes_shape[1], 1, self.kernel_size, self.kernel_size, self.kernel_size)
+        gaussian_kernel = gaussian_kernel.unsqueeze(0).expand(1, 1, self.kernel_size, self.kernel_size, self.kernel_size)
 
         conv_outputs = []
         for batch in self.batches:
@@ -77,7 +79,7 @@ class Convolution3D(ParentClass):
         output_cpu = concatenated_output.numpy()
 
         sparse_output = COO.from_numpy(output_cpu)
-        np.save('barycenter_sparse_array.npy', output_cpu)
+        np.save(os.path.join(os.getcwd(), 'barycenter_sparse_array.npy'), output_cpu)
 
 
 if __name__=='__main__':
