@@ -22,7 +22,7 @@ class Convolution3D(ParentClass):
 
     @typechecked
     def __init__(self, gaussian_mean: int | float, gaussian_std: int | float,
-                 batch_size: int = 15, kernel_size: int = 20, **kwargs):
+                 batch_size: int = 15, kernel_size: int = 21, **kwargs):
 
         self.batch_size = batch_size
         self.kernel_size = kernel_size

@@ -267,7 +267,6 @@ class Data:
 
         if self.barycenter:
             self.Regions_preprocessing2()
-            print(f'the skeleton shape is {self.cubes_barycenter.shape}')
 
         if self.test_conv:
             self.Testing_conv3d_results()
@@ -1210,11 +1209,9 @@ class Data:
         skeletons = []
         for cube in binary_data:
             skeleton = skeletonize_3d(cube)
-            skeletons.append(skeleton)
+            skeletons.append(COO(skeleton))
         skeletons = stack(skeletons, axis=0)
         self.cubes_barycenter = skeletons
-
-
 
     def Attribute_deletion(self):
         """
@@ -1799,7 +1796,7 @@ class K3dAnimation(Data):
                 if self.cube_version_1:
                     data = self.Full_array(self.time_cubes_no_duplicate_new_2[0])
                     self.plot_interv_dupli_new_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True,
-                                            color_map=[0xff0000], opacity=0.05, name=f'Set2: no duplicate for {self.time_interval}')
+                                            color_map=[0xff0000], opacity=0.2, name=f'Set2: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_new_set2           
         
         if self.trace_data:
