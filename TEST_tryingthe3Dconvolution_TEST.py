@@ -22,7 +22,7 @@ class Convolution3D(ParentClass):
 
     @typechecked
     def __init__(self, gaussian_mean: int | float, gaussian_std: int | float,
-                 batch_size: int = 15, kernel_size: int = 21, **kwargs):
+                 batch_size: int = 15, kernel_size: int = 31, **kwargs):
 
         self.batch_size = batch_size
         self.kernel_size = kernel_size
@@ -80,14 +80,6 @@ class Convolution3D(ParentClass):
             min_val = output.min()
             max_val = output.max()
             normalized_output = (output - min_val) / (max_val - min_val)
-            output = torch.nn.functional.conv3d(input=normalized_output, weight=gaussian_kernel, padding=self.kernel_size//2)
-            min_val = output.min()
-            max_val = output.max()
-            normalized_output = (output - min_val) / (max_val - min_val)
-            output = torch.nn.functional.conv3d(input=normalized_output, weight=gaussian_kernel, padding=self.kernel_size//2)
-            min_val = output.min()
-            max_val = output.max()
-            normalized_output = (output - min_val) / (max_val - min_val)
             conv_outputs.append(normalized_output.cpu())
             print(f'batch nb {loop} done.', flush=True)
 
@@ -96,10 +88,10 @@ class Convolution3D(ParentClass):
         output_cpu = np.squeeze(output_cpu, axis=1)
         output_cpu = (output_cpu * 255).astype('uint8')
 
-        np.save(os.path.join(os.getcwd(), 'barycenter_array_4.npy'), output_cpu)
+        np.save(os.path.join(os.getcwd(), f'barycenterarray_mean{self.mean}_std{self.std}_kernel{self.kernel_size}.npy'), output_cpu)
         print('Saving of files finished', flush=True)
 
 
 if __name__=='__main__':
-    test = Convolution3D(batch_size=15, kernel_size=30, gaussian_mean=30//2, gaussian_std=30/6,
+    test = Convolution3D(batch_size=15, kernel_size=31, gaussian_mean=31//2, gaussian_std=31/18,
                          time_interval='24h', time_intervals_no_duplicate=True, cube_version = 'new')
