@@ -115,6 +115,7 @@ class FirstFigure:
         # Initialisation 
         self.Patterns()
         self.Paths()
+        self.SDO_image_finder()
         self.Data_fullnames()
 
     def Paths(self):
@@ -154,7 +155,7 @@ class FirstFigure:
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
     
-    def SDO_image_founder(self):
+    def SDO_image_finder(self):
         """
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
         """
@@ -166,7 +167,7 @@ class FirstFigure:
         timestamp_to_path = {}
         for s in tuple_list:
             path, timestamp = s
-            timestamp_to_path[timestamp[:-3]] = path + '/image_lev1.fits'
+            timestamp_to_path[timestamp[:-3]] = path + '/S00000/image_lev1.fits'
         
         self.sdo_timestamp = timestamp_to_path
 
@@ -207,7 +208,8 @@ class FirstFigure:
                 # Changing to gray_scale and getting the mask contours
                 gray_mask = np.mean(rgb_mask, axis=2)
                 normalised_mask = 1 - gray_mask 
-                normalised_mask /= np.max(normalised_mask) 
+                maximum = np.max(normalised_mask)
+                normalised_mask /= maximum if maximum > 0 else 1 
                 filters = (normalised_mask == 0)
                 normalised_mask[filters] = np.nan # to be used with the 'Reds' cmap
 
@@ -217,7 +219,7 @@ class FirstFigure:
                 lines_sdo = ForPlotting.Contours(sdo_mask)
 
                 self.Plotting_func_new(number, stereo_image, avg_image, sdo_image, lines, lines_sdo)
-                print(f'Plotting for image nb {number} done.')
+                print(f'Plotting for image nb {number} done.', flush=True)
 
             else:
                 raise ValueError(f'The string {os.path.basename(stereo_name)} has the wrong format.')
@@ -239,14 +241,15 @@ class FirstFigure:
 
         sdo_mask = sdo_mask.resize((2048, 2048), Image.Resampling.LANCZOS)
         sdo_mask = np.array(sdo_mask)
+        sdo_mask[sdo_mask < 0.5] = 0
         sdo_mask[sdo_mask > 0] = 1
         sdo_mask = np.flip(sdo_mask, axis=0)
 
-        for path in self.sdo_timestamp:
-            if path[1] == sdo_header['DATE-OBS'][:-3]:
-                print(f"sdo file found for date {path[1]}")
-                hdul_image = fits.open(path[0])
-                image = np.array(hdul_image[0].data)
+        for date in self.sdo_timestamp.keys():
+            if date == sdo_header['DATE-OBS'][:-3]:
+                print(f"sdo file found for date {date}", flush=True)
+                hdul_image = fits.open(self.sdo_timestamp[date])
+                image = np.array(hdul_image[1].data)
                 index = round(image.shape[0] / 3)
                 image = image[index: index * 2 + 1, :]
                 index = round(image.shape[1] / 3)
@@ -422,7 +425,5 @@ if __name__ == '__main__':
     # gif.Main_structure()
     # gif.Creating_gif()
 
-    # plot = FirstFigure()
-    # plot.Main_structure()
-
-    FirstFigure.SDO_image_founder()
+    plot = FirstFigure()
+    plot.Main_structure()
