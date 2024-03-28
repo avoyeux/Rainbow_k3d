@@ -168,7 +168,6 @@ class FirstFigure:
         for s in tuple_list:
             path, timestamp = s
             timestamp_to_path[timestamp[:-3]] = path + '/S00000/image_lev1.fits'
-        
         self.sdo_timestamp = timestamp_to_path
 
     def Data_fullnames(self):
@@ -264,18 +263,6 @@ class FirstFigure:
         sdo_hdul.close()
         hdul_image.close()
         return sdo_mask, image
-    
-    def SDO_image(self, sdo_name):
-        """
-        To choose the right section of the initial image and resize it to then match the contours.
-        """
-
-        sdo_image = np.array(Image.open(sdo_name))
-        sdo_image = np.split(sdo_image, 2, axis=1)
-        sdo_image = sdo_image[1]
-
-        sdo_image = Image.fromarray(sdo_image)
-        return sdo_image.resize((2048, 2048), Image.Resampling.LANCZOS)
 
     def Plotting_func(self, number, stereo_image, avg_image,  lines, loop):
         """
