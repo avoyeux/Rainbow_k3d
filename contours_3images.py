@@ -7,12 +7,14 @@ It's quite an old code so needs a lot of improvements. Will change it when I use
 # Imports
 import os
 import re
-import numpy as np
-import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
+import glob
 
-from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+
 from PIL import Image
+from pathlib import Path
 from astropy.io import fits
 
 
@@ -128,7 +130,6 @@ class FirstFigure:
             'Stereo init image': os.path.join(main_path, 'STEREO', 'int'),
             'Stereo avg image': os.path.join(main_path, 'STEREO', 'avg'),
             'Stereo mask': os.path.join(main_path, 'STEREO', 'masque_karine'),
-            'Sdo_init_image': os.path.join(main_path, 'MP4_saves'),
             'Sdo_mask': os.path.join(main_path, 'sdo'),
 
             # Path to upload results
@@ -152,6 +153,22 @@ class FirstFigure:
                                          (?P<hour>\d{2})-
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
+    
+    def SDO_image_founder(self):
+        """
+        To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
+        """
+
+        with open('SDO_timestamps.txt', 'r') as files:
+            strings = files.read().splitlines()
+        tuple_list = [s.split(" ; ") for s in strings]
+        
+        timestamp_to_path = {}
+        for s in tuple_list:
+            path, timestamp = s
+            timestamp_to_path[timestamp[:-3]] = path + '/image_lev1.fits'
+        
+        self.sdo_timestamp = timestamp_to_path
 
     def Data_fullnames(self):
         """
@@ -163,7 +180,6 @@ class FirstFigure:
         self.image_names = sorted(Path(self.paths['Stereo init image']).glob('*.png'))
         self.avg_names = sorted(Path(self.paths['Stereo avg image']).glob('*.png'))
         self.mask_names = sorted(Path(self.paths['Stereo mask']).glob('*.png'))
-        self.sdo_names = sorted(Path(self.paths['Sdo_init_image']).glob('*.png'))
         self.sdo_mask_names = sorted(Path(self.paths['Sdo_mask']).glob('*.fits.gz'))
 
         # Getting the corresponding image and mask numbers 
@@ -180,51 +196,29 @@ class FirstFigure:
         for loop, number in enumerate(self.mask_numbers):
             # Uploads and initialisation
             stereo_name = self.image_names[number]
-
             stereo_group = self.stereo_pattern.match(os.path.basename(stereo_name))
+
             if stereo_group:
-                for sdo_name in self.sdo_names:
-                    sdo_group = self.sdo_pattern.match(os.path.basename(sdo_name))
+                stereo_image = mpimg.imread(stereo_name)
+                avg_image = mpimg.imread(self.avg_names[number])
+                rgb_mask = mpimg.imread(self.mask_names[loop])
+                sdo_mask, sdo_image = self.SDO_mask(number)
 
-                    if sdo_group:
-                        day = int(stereo_group.group('day'))
-                        hour = int(stereo_group.group('hour'))
-                        minute = round(int(stereo_group.group('minute')) / 10) * 10
-                        sdo_day = int(sdo_group.group('day'))
-                        sdo_hour = int(sdo_group.group('hour'))
-                        sdo_minute = int(sdo_group.group('minute'))
-                        if minute==60:
-                            hour += 1
-                            minute = 0
-                            if hour==24:
-                                day += 1
-                                hour = 0
-                        
-                        if (day==sdo_day) and (hour==sdo_hour) and (minute==sdo_minute):
-                            stereo_image = mpimg.imread(stereo_name)
-                            avg_image = mpimg.imread(self.avg_names[number])
-                            rgb_mask = mpimg.imread(self.mask_names[loop])
-                            sdo_image = self.SDO_image(sdo_name)
-                            sdo_mask = self.SDO_mask(number)
-            
-                            # Changing to gray_scale and getting the mask contours
-                            gray_mask = np.mean(rgb_mask, axis=2)
-                            normalised_mask = 1 - gray_mask 
-                            normalised_mask /= np.max(normalised_mask) 
-                            filters = (normalised_mask == 0)
-                            normalised_mask[filters] = np.nan # to be used with the 'Reds' cmap
+                # Changing to gray_scale and getting the mask contours
+                gray_mask = np.mean(rgb_mask, axis=2)
+                normalised_mask = 1 - gray_mask 
+                normalised_mask /= np.max(normalised_mask) 
+                filters = (normalised_mask == 0)
+                normalised_mask[filters] = np.nan # to be used with the 'Reds' cmap
 
-                            # Creating a bool array to get the contours 
-                            bool_array = ~np.isnan(normalised_mask)
-                            lines = ForPlotting.Contours(bool_array)
-                            lines_sdo = ForPlotting.Contours(sdo_mask)
-        
-                            self.Plotting_func_new(number, stereo_image, avg_image, sdo_image, lines, lines_sdo)
-                            print(f'Plotting for image nb {number} done.')
-                            break
+                # Creating a bool array to get the contours 
+                bool_array = ~np.isnan(normalised_mask)
+                lines = ForPlotting.Contours(bool_array)
+                lines_sdo = ForPlotting.Contours(sdo_mask)
 
-                    else:
-                        raise ValueError(f'The string {os.path.basename(sdo_name)} has the wrong format.')
+                self.Plotting_func_new(number, stereo_image, avg_image, sdo_image, lines, lines_sdo)
+                print(f'Plotting for image nb {number} done.')
+
             else:
                 raise ValueError(f'The string {os.path.basename(stereo_name)} has the wrong format.')
 
@@ -234,19 +228,39 @@ class FirstFigure:
         """
 
         sdo_hdul = fits.open(self.sdo_mask_names[number])
+        sdo_header = sdo_hdul[0].header
         sdo_mask = np.array(sdo_hdul[0].data)
 
-        index = round(sdo_mask.shape[0] / 3) + 27
+        index = round(sdo_mask.shape[0] / 3)
         sdo_mask = sdo_mask[index:index * 2 + 1, :]
         index = round(sdo_mask.shape[1] / 3)
-        sdo_mask = sdo_mask[:, :index + 1 - 335]        
+        sdo_mask = sdo_mask[:, :index + 1]        
         sdo_mask = Image.fromarray(sdo_mask)
 
         sdo_mask = sdo_mask.resize((2048, 2048), Image.Resampling.LANCZOS)
         sdo_mask = np.array(sdo_mask)
         sdo_mask[sdo_mask > 0] = 1
         sdo_mask = np.flip(sdo_mask, axis=0)
-        return sdo_mask
+
+        for path in self.sdo_timestamp:
+            if path[1] == sdo_header['DATE-OBS'][:-3]:
+                print(f"sdo file found for date {path[1]}")
+                hdul_image = fits.open(path[0])
+                image = np.array(hdul_image[0].data)
+                index = round(image.shape[0] / 3)
+                image = image[index: index * 2 + 1, :]
+                index = round(image.shape[1] / 3)
+                image = image[:, index + 1]
+
+                image = Image.fromarray(image)
+                image = image.resize((2048, 2048), Image.Resampling.LANCZOS)
+                image = np.array(image)
+                image = np.flip(image, axis=0)
+                break
+
+        sdo_hdul.close()
+        hdul_image.close()
+        return sdo_mask, image
     
     def SDO_image(self, sdo_name):
         """
@@ -369,7 +383,6 @@ class FirstFigure:
         plt.close()
 
 
-
 class GifMaker(FirstFigure):
     """
     Making the Gif using the created plots
@@ -409,5 +422,7 @@ if __name__ == '__main__':
     # gif.Main_structure()
     # gif.Creating_gif()
 
-    plot = FirstFigure()
-    plot.Main_structure()
+    # plot = FirstFigure()
+    # plot.Main_structure()
+
+    FirstFigure.SDO_image_founder()
