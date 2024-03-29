@@ -252,12 +252,17 @@ class FirstFigure:
                 index = round(image.shape[0] / 3)
                 image = image[index: index * 2 + 1, :]
                 index = round(image.shape[1] / 3)
-                image = image[:, index + 1]
+                image = image[:, :index + 1]
 
                 image = Image.fromarray(image)
                 image = image.resize((2048, 2048), Image.Resampling.LANCZOS)
                 image = np.array(image)
+                lower_cut = np.nanpercentile(image, 0.5)
+                upper_cut = np.nanpercentile(image, 99.99)
+                image[image < lower_cut] = lower_cut
+                image[image > upper_cut] = upper_cut
                 image = np.flip(image, axis=0)
+                image = np.log(image)
                 break
 
         sdo_hdul.close()
