@@ -236,10 +236,6 @@ class FirstFigure:
         sdo_mask = sdo_mask[index:index * 2 + 1, :]
         index = round(sdo_mask.shape[1] / 3)
         sdo_mask = sdo_mask[:, :index + 1]        
-        sdo_mask = Image.fromarray(sdo_mask)
-
-        sdo_mask = sdo_mask.resize((2048, 2048), Image.Resampling.LANCZOS)
-        sdo_mask = np.array(sdo_mask)
         sdo_mask[sdo_mask < 0.5] = 0
         sdo_mask[sdo_mask > 0] = 1
         sdo_mask = np.flip(sdo_mask, axis=0)
@@ -254,13 +250,11 @@ class FirstFigure:
                 index = round(image.shape[1] / 3)
                 image = image[:, :index + 1]
 
-                image = Image.fromarray(image)
-                image = image.resize((2048, 2048), Image.Resampling.LANCZOS)
-                image = np.array(image)
-                lower_cut = np.nanpercentile(image, 0.5)
+                lower_cut = np.nanpercentile(image, 1)
                 upper_cut = np.nanpercentile(image, 99.99)
                 image[image < lower_cut] = lower_cut
                 image[image > upper_cut] = upper_cut
+                image = np.where(np.isnan(image), lower_cut, image)
                 image = np.flip(image, axis=0)
                 image = np.log(image)
                 break
