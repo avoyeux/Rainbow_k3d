@@ -7,15 +7,16 @@ It's quite an old code so needs a lot of improvements. Will change it when I use
 # Imports
 import os
 import re
-import glob
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 from PIL import Image
-from pathlib import Path
+from glob import glob
 from astropy.io import fits
+
+from common_alf import PlotFunctions
 
 
 class ForPlotting:
@@ -134,7 +135,7 @@ class FirstFigure:
             'Sdo_mask': os.path.join(main_path, 'sdo'),
 
             # Path to upload results
-            'Plots': os.path.join(main_path, 'contours_3images')}
+            'Plots': os.path.join(main_path, 'contours_3images_new')}
         
         # Creating the upload path
         os.makedirs(self.paths['Plots'], exist_ok=True)
@@ -177,10 +178,10 @@ class FirstFigure:
         """
 
         # Each data paths
-        self.image_names = sorted(Path(self.paths['Stereo init image']).glob('*.png'))
-        self.avg_names = sorted(Path(self.paths['Stereo avg image']).glob('*.png'))
-        self.mask_names = sorted(Path(self.paths['Stereo mask']).glob('*.png'))
-        self.sdo_mask_names = sorted(Path(self.paths['Sdo_mask']).glob('*.fits.gz'))
+        self.image_names = sorted(glob(os.path.join(self.paths['Stereo init image'], '*.png')))
+        self.avg_names = sorted(glob(os.path.join(self.paths['Stereo avg image'], '*.png')))
+        self.mask_names = sorted(glob(os.path.join(self.paths['Stereo mask'], '*.png')))
+        self.sdo_mask_names = sorted(glob(os.path.join(self.paths['Sdo_mask'], '*.fits.gz')))
 
         # Getting the corresponding image and mask numbers 
         mask_pattern = re.compile(r'frame(\d{4})\.png')
@@ -214,8 +215,8 @@ class FirstFigure:
 
                 # Creating a bool array to get the contours 
                 bool_array = ~np.isnan(normalised_mask)
-                lines = ForPlotting.Contours(bool_array)
-                lines_sdo = ForPlotting.Contours(sdo_mask)
+                lines = PlotFunctions.Contours(bool_array)
+                lines_sdo = PlotFunctions.Contours(sdo_mask)
 
                 self.Plotting_func_new(number, stereo_image, avg_image, sdo_image, lines, lines_sdo)
                 print(f'Plotting for image nb {number} done.', flush=True)
@@ -261,7 +262,19 @@ class FirstFigure:
 
         sdo_hdul.close()
         hdul_image.close()
+
+        sdo_mask = self.Resizing(sdo_mask)
+        image = self.Resizing(image)
         return sdo_mask, image
+
+    def Resizing(self, image: np.ndarray, size: tuple[int, int] = (1200, 1200)) -> np.ndarray:
+        """
+        Function to resize a given 2D np.ndarray.
+        """
+
+        image = Image.fromarray(image)
+        image.resize(size, Image.Resampling.LANCZOS)
+        return np.array(image)
 
     def Plotting_func(self, number, stereo_image, avg_image,  lines, loop):
         """
@@ -316,6 +329,8 @@ class FirstFigure:
             'labelsize': 3 
         }
 
+        print('the shapes are:')
+        print(stereo_image.shape, avg_image.shape, sdo_image.shape)
 
         # For the first image
         axs[0, 0].imshow(stereo_image, interpolation='none')
@@ -342,7 +357,7 @@ class FirstFigure:
         # For the contrast with the mask lines
         axs[1, 0].imshow(stereo_image, interpolation='none')
         for line in lines:
-            axs[1, 0].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.3)
+            axs[1, 0].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
         axs[1, 0].set_xticks(lon_positions)
         axs[1, 0].set_yticks(lat_positions)
         axs[1, 0].set_xticklabels(lon_text)
@@ -353,7 +368,7 @@ class FirstFigure:
         # For the contrast with the mask lines
         axs[1, 1].imshow(avg_image, interpolation='none')
         for line in lines:
-            axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.3)
+            axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
         axs[1, 1].set_xticks(lon_positions)
         axs[1, 1].set_yticks(lat_positions)
         axs[1, 1].set_xticklabels(lon_text)
@@ -363,9 +378,9 @@ class FirstFigure:
         axs[1, 2].imshow(sdo_image, interpolation='none')
         axs[1, 2].axis('off')
         for line in lines_sdo:
-            axs[1, 2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.3)
+            axs[1, 2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
 
-        plt.subplots_adjust(left=0.1, right=0.9, bottom=0.1, top=0.9, wspace=0.17, hspace=0.15)
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
         # Saving the plot
         fig_name = f'final_plot_{number:04d}.png'
         plt.savefig(os.path.join(self.paths['Plots'], fig_name), bbox_inches='tight', pad_inches=0.05, dpi=800)

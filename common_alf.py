@@ -6,6 +6,50 @@ import time
 import numpy as np
 
 from functools import wraps
+from typeguard import typechecked
+from typing import Callable, TypeVar, Any 
+
+# General function and decorator types
+F = TypeVar('F', bound=Callable[..., Any])
+D = Callable[[F], Any]
+
+@typechecked
+def Decorator_to_all(decorator: D, functiontype: F | str = 'all'):
+    """
+    Class decorator that applies a given decorator to class functions with the specified function type
+    (i.e. classmethod, staticmethod, 'regular' or 'instance' -- for an instance method, 
+    'all' for all the class functions).
+    """
+
+    if isinstance(functiontype, str):
+        if functiontype not in ['all', 'regular', 'instance']:
+            raise ValueError(f"The string value '{functiontype}' for functiontype is not supported. Choose 'regular', 'instance', or 'all'")
+
+    def Class_rebuilder(cls):
+        """
+        Rebuilds the class adding the new decorators.
+        """
+
+        class NewClass(cls):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+
+        for name, obj in cls.__dict__.items():
+            if callable(obj):
+                if not isinstance(functiontype, str):
+                    if isinstance(obj, functiontype):
+                        original_func = obj
+                        method = functiontype(decorator(original_func))
+                        setattr(NewClass, name, method)
+                elif functiontype=='all':
+                    method = decorator(obj)
+                    setattr(NewClass, name, method)
+                elif not isinstance(obj, (staticmethod, classmethod)):
+                    method = decorator(obj)
+                    setattr(NewClass, name, method)
+        return NewClass
+    return Class_rebuilder
+                
 
 
 class decorators:
@@ -53,14 +97,14 @@ class decorators:
             return wrapper
         return decorator
 
-
+@Decorator_to_all(staticmethod, 'all')
+@Decorator_to_all(typechecked, 'all')
 class PlotFunctions:
     """
     To store regularly used plotting functions
     """
 
-    @staticmethod
-    def Contours(mask):
+    def Contours(mask: np.ndarray) -> list:
         """
         To plot the contours given a mask
         Source: https://stackoverflow.com/questions/40892203/can-matplotlib-contours-match-pixel-edges
@@ -76,3 +120,27 @@ class PlotFunctions:
             if im1[ii, jj] == 1:
                 lines += [([ii - .5, ii + .5], [jj - .5, jj - .5])]
         return lines
+
+
+class ArrayManipulation:
+    """
+    To store functions related to resampling and resizing arrays.
+    """
+
+    @staticmethod
+    @typechecked
+    def Downsampling(array2D: np.ndarray, downsampling_size: tuple[int, int], return_npndarray: bool = True) -> np.ndarray:
+        """
+        To Downsample and image using PIL with the high quality Lanczos method.
+        """
+
+        # Import
+        from PIL import Image
+
+        array2D = Image.fromarray(array2D)
+        array2D = array2D.resize(downsampling_size, Image.Resampling.LANCZOS)
+        
+        if return_npndarray:
+            return np.array(array2D)
+        else:
+            return array2D
