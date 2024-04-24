@@ -14,15 +14,17 @@ F = TypeVar('F', bound=Callable[..., Any])
 D = Callable[[F], Any]
 
 @typechecked
-def Decorator_to_all(decorator: D, functiontype: F | str = 'all'):
+def ClassDecorator(decorator: D, functiontype: F | str = 'all'):
     """
     Class decorator that applies a given decorator to class functions with the specified function type
-    (i.e. classmethod, staticmethod, 'regular' or 'instance' -- for an instance method, 
+    (i.e. classmethod, staticmethod, property, 'regular' or 'instance' -- for an instance method, 
     'all' for all the class functions).
     """
 
+    if functiontype == 'all':
+        functiontype = object
     if isinstance(functiontype, str):
-        if functiontype not in ['all', 'regular', 'instance']:
+        if functiontype not in ['regular', 'instance']:
             raise ValueError(f"The string value '{functiontype}' for functiontype is not supported. Choose 'regular', 'instance', or 'all'")
 
     def Class_rebuilder(cls):
@@ -38,26 +40,22 @@ def Decorator_to_all(decorator: D, functiontype: F | str = 'all'):
             if callable(obj):
                 if not isinstance(functiontype, str):
                     if isinstance(obj, functiontype):
-                        original_func = obj
-                        method = functiontype(decorator(original_func))
+                        method = decorator(obj)
                         setattr(NewClass, name, method)
-                elif functiontype=='all':
-                    method = decorator(obj)
-                    setattr(NewClass, name, method)
-                elif not isinstance(obj, (staticmethod, classmethod)):
+                elif not isinstance(obj, (staticmethod, classmethod, property)):
                     method = decorator(obj)
                     setattr(NewClass, name, method)
         return NewClass
     return Class_rebuilder
                 
 
-
+@ClassDecorator(typechecked, functiontype=staticmethod)
+@ClassDecorator(staticmethod)
 class decorators:
     """
     To store decorators that I use.
     """
     
-    @staticmethod
     def running_time(func):
         """
         Gives the starting time (in blue) and ending time (in green) of a given function.
@@ -75,7 +73,6 @@ class decorators:
             return result
         return wrapper
 
-    @staticmethod
     def batch_processor(batch_size):
         """
         For RAM management. If the number of files, given by their path is too large, then you can use this to split the paths in
@@ -97,8 +94,9 @@ class decorators:
             return wrapper
         return decorator
 
-@Decorator_to_all(staticmethod, 'all')
-@Decorator_to_all(typechecked, 'all')
+
+@ClassDecorator(typechecked, functiontype=staticmethod)
+@ClassDecorator(staticmethod)
 class PlotFunctions:
     """
     To store regularly used plotting functions
@@ -122,13 +120,13 @@ class PlotFunctions:
         return lines
 
 
+@ClassDecorator(typechecked, functiontype=staticmethod)
+@ClassDecorator(staticmethod)
 class ArrayManipulation:
     """
     To store functions related to resampling and resizing arrays.
     """
 
-    @staticmethod
-    @typechecked
     def Downsampling(array2D: np.ndarray, downsampling_size: tuple[int, int], return_npndarray: bool = True) -> np.ndarray:
         """
         To Downsample and image using PIL with the high quality Lanczos method.
