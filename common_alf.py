@@ -14,7 +14,7 @@ F = TypeVar('F', bound=Callable[..., Any])
 D = Callable[[F], Any]
 
 @typechecked
-def ClassDecorator(decorator: D, functiontype: F | str = 'all'):
+def ClassDecorator(decorator: D, functiontype: F | str = 'all') -> F:
     """
     Class decorator that applies a given decorator to class functions with the specified function type
     (i.e. classmethod, staticmethod, property, 'regular' or 'instance' -- for an instance method, 
@@ -23,9 +23,8 @@ def ClassDecorator(decorator: D, functiontype: F | str = 'all'):
 
     if functiontype == 'all':
         functiontype = object
-    if isinstance(functiontype, str):
-        if functiontype not in ['regular', 'instance']:
-            raise ValueError(f"The string value '{functiontype}' for functiontype is not supported. Choose 'regular', 'instance', or 'all'")
+    if isinstance(functiontype, str) and (functiontype not in ['regular', 'instance']):
+        raise ValueError(f"The string value '{functiontype}' for functiontype is not supported. Choose 'regular', 'instance', or 'all'")
 
     def Class_rebuilder(cls):
         """
@@ -56,7 +55,7 @@ class decorators:
     To store decorators that I use.
     """
     
-    def running_time(func):
+    def running_time(func: F):
         """
         Gives the starting time (in blue) and ending time (in green) of a given function.
         The name of said function is also printed out.
@@ -73,7 +72,7 @@ class decorators:
             return result
         return wrapper
 
-    def batch_processor(batch_size):
+    def batch_processor(batch_size: int):
         """
         For RAM management. If the number of files, given by their path is too large, then you can use this to split the paths in
         batches and adds the output together to use less RAM. STill a draft
