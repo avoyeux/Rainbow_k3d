@@ -317,8 +317,8 @@ class FirstFigure:
         """
 
         # Figure setup
-        fig, axs = plt.subplots(2, 3, figsize=(7, 5))
-        tick_params_kwargs = {
+        fig, axs = plt.subplots(2, 3, figsize=(7, 4.5))
+        tick_params_kwargs_top = {
             'direction': 'out',
             'length': 2,
             'width': 0.7,
@@ -326,65 +326,93 @@ class FirstFigure:
             'labelcolor': 'black',
             'axis': 'both',
             'which': 'major',
-            'labelsize': 3 
+            'labelsize': 3,
+            'top': False,
+            'bottom': True,
+            'labeltop': False,
+            'labelbottom': True,
         }
+        tick_params_kwargs_bottom = tick_params_kwargs_top.copy()
+        tick_params_kwargs_bottom['top'] = True
+        tick_params_kwargs_bottom['bottom'] = False
+        tick_params_kwargs_bottom['labelbottom'] = False
 
         print('the shapes are:')
         print(stereo_image.shape, avg_image.shape, sdo_image.shape)
 
-        # For the first image
-        axs[0, 0].imshow(stereo_image, interpolation='none')
         lon_positions, lon_text = ForPlotting.Grid_line_positions(self.loncen, self.lonwidth, stereo_image.shape, 1)
         lat_positions, lat_text = ForPlotting.Grid_line_positions(self.latcen, self.latwidth, stereo_image.shape, 0)
-        axs[0, 0].set_xticks(lon_positions)
-        axs[0, 0].set_yticks(lat_positions)
-        axs[0, 0].set_xticklabels(lon_text)
-        axs[0, 0].set_yticklabels([])
-        axs[0, 0].yaxis.tick_right()
-        axs[0, 0].tick_params(**tick_params_kwargs)
 
-        # The contrast image 
+        # Plotting the images
+        axs[0, 0].imshow(stereo_image, interpolation='none')
         axs[0, 1].imshow(avg_image, interpolation='none')
-        axs[0, 1].set_xticks(lon_positions)
-        axs[0, 1].set_yticks(lat_positions)
-        axs[0, 1].set_xticklabels(lon_text)
-        axs[0, 1].set_yticklabels(lat_text[::-1])
-        axs[0, 1].tick_params(**tick_params_kwargs)
-
         axs[0, 2].imshow(sdo_image, interpolation='none')
+        axs[1, 0].imshow(stereo_image, interpolation='none')
+        axs[1, 1].imshow(avg_image, interpolation='none')
+        axs[1, 2].imshow(sdo_image, interpolation='none')
+
+        # Labels and stuff for [...]
+        ## [...] the first image
+        axs[0, 0] = self.Subplot_params(axs[0, 0], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_top)
+        axs[0, 0].yaxis.tick_right()
+
+        ## [...] the contrast image 
+        axs[0, 1] = self.Subplot_params(axs[0, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_top)
+
+        ## [...] the sdo image
         axs[0, 2].axis('off')
 
-        # For the contrast with the mask lines
-        axs[1, 0].imshow(stereo_image, interpolation='none')
+
+        ## [...] the first image with the mask lines
         for line in lines:
             axs[1, 0].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
-        axs[1, 0].set_xticks(lon_positions)
-        axs[1, 0].set_yticks(lat_positions)
-        axs[1, 0].set_xticklabels(lon_text)
-        axs[1, 0].set_yticklabels([])
+        axs[1, 0] = self.Subplot_params(axs[1, 0], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom)
         axs[1, 0].yaxis.tick_right()
-        axs[1, 0].tick_params(**tick_params_kwargs)
 
-        # For the contrast with the mask lines
-        axs[1, 1].imshow(avg_image, interpolation='none')
+        ## [...] the contrast with the mask lines
         for line in lines:
             axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
-        axs[1, 1].set_xticks(lon_positions)
-        axs[1, 1].set_yticks(lat_positions)
-        axs[1, 1].set_xticklabels(lon_text)
-        axs[1, 1].set_yticklabels(lat_text[::-1])
-        axs[1, 1].tick_params(**tick_params_kwargs)
+        axs[1, 1] = self.Subplot_params(axs[1, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom)
 
-        axs[1, 2].imshow(sdo_image, interpolation='none')
+        ## [...] the sdo image with the mask lines
         axs[1, 2].axis('off')
         for line in lines_sdo:
             axs[1, 2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
 
-        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
+        # Taking out the black spine around each plot
+        a = 10
+        for ax in axs.flat:
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            for t in ax.yaxis.get_ticklabels():
+                a -= 1
+                t.set_zorder(a)
+                t.set_bbox({
+                    'facecolor': 'white',
+                    'alpha': 0.4,
+                    'edgecolor': 'none',
+                    'pad': 1,
+                })
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.13, hspace=0.08)
         # Saving the plot
         fig_name = f'final_plot_{number:04d}.png'
-        plt.savefig(os.path.join(self.paths['Plots'], fig_name), bbox_inches='tight', pad_inches=0.05, dpi=800)
+        plt.savefig(os.path.join(self.paths['Plots'], fig_name), bbox_inches='tight', pad_inches=0.0, dpi=800)
         plt.close()
+
+    def Subplot_params(self, ax, lon_pos, lat_pos, lon_text, lat_text, tick_params):
+        """
+        Function that set ups the params and text for the labels/ticks of a subplot.
+        """
+
+        ax.set_xticks(lon_pos)
+        ax.set_yticks(lat_pos)
+        ax.set_xticklabels(lon_text)
+        ax.set_yticklabels(lat_text[::-1])
+        ax.tick_params(**tick_params)
+
+        ax.set_facecolor('none')
+        return ax
+
 
 
 class GifMaker(FirstFigure):
