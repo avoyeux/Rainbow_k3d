@@ -50,7 +50,7 @@ def ClassDecorator(decorator: D, functiontype: F | str = 'all') -> F:
 
 @ClassDecorator(typechecked, functiontype=staticmethod)
 @ClassDecorator(staticmethod)
-class decorators:
+class Decorators:
     """
     To store decorators that I use.
     """

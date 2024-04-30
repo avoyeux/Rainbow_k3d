@@ -1119,7 +1119,7 @@ class Data:
 
     def Regions_preprocessing(self):
         """
-        Function to get the baricenter of the time chunks
+        Function to get the barycentre of the time chunks.
         """
 
         start = time.time()

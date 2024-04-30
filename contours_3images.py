@@ -16,7 +16,7 @@ from PIL import Image
 from glob import glob
 from astropy.io import fits
 
-from common_alf import PlotFunctions
+from common_alf import PlotFunctions, Decorators
 
 
 class ForPlotting:
@@ -104,6 +104,7 @@ class FirstFigure:
     To plot the first figure. It is still in the preparation phase.
     """
 
+    @Decorators.running_time
     def __init__(self, loncen=195, latcen=0, lonwidth=45, latwidth=45, dlon=0.075, dlat=0.075):
         # Image stats
         self.loncen = loncen
@@ -135,7 +136,7 @@ class FirstFigure:
             'Sdo_mask': os.path.join(main_path, 'sdo'),
 
             # Path to upload results
-            'Plots': os.path.join(main_path, 'contours_3images_new')}
+            'Plots': os.path.join(main_path, 'contours_3images_final')}
         
         # Creating the upload path
         os.makedirs(self.paths['Plots'], exist_ok=True)
@@ -337,9 +338,6 @@ class FirstFigure:
         tick_params_kwargs_bottom['bottom'] = False
         tick_params_kwargs_bottom['labelbottom'] = False
 
-        print('the shapes are:')
-        print(stereo_image.shape, avg_image.shape, sdo_image.shape)
-
         lon_positions, lon_text = ForPlotting.Grid_line_positions(self.loncen, self.lonwidth, stereo_image.shape, 1)
         lat_positions, lat_text = ForPlotting.Grid_line_positions(self.latcen, self.latwidth, stereo_image.shape, 0)
 
@@ -357,11 +355,10 @@ class FirstFigure:
         axs[0, 0].yaxis.tick_right()
 
         ## [...] the contrast image 
-        axs[0, 1] = self.Subplot_params(axs[0, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_top)
+        axs[0, 1] = self.Subplot_params(axs[0, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_top, second=True)
 
         ## [...] the sdo image
         axs[0, 2].axis('off')
-
 
         ## [...] the first image with the mask lines
         for line in lines:
@@ -372,7 +369,7 @@ class FirstFigure:
         ## [...] the contrast with the mask lines
         for line in lines:
             axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
-        axs[1, 1] = self.Subplot_params(axs[1, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom)
+        axs[1, 1] = self.Subplot_params(axs[1, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom, second=True)
 
         ## [...] the sdo image with the mask lines
         axs[1, 2].axis('off')
@@ -399,7 +396,7 @@ class FirstFigure:
         plt.savefig(os.path.join(self.paths['Plots'], fig_name), bbox_inches='tight', pad_inches=0.0, dpi=800)
         plt.close()
 
-    def Subplot_params(self, ax, lon_pos, lat_pos, lon_text, lat_text, tick_params):
+    def Subplot_params(self, ax, lon_pos, lat_pos, lon_text, lat_text, tick_params, second: bool = False):
         """
         Function that set ups the params and text for the labels/ticks of a subplot.
         """
@@ -407,12 +404,11 @@ class FirstFigure:
         ax.set_xticks(lon_pos)
         ax.set_yticks(lat_pos)
         ax.set_xticklabels(lon_text)
-        ax.set_yticklabels(lat_text[::-1])
+        ax.set_yticklabels(lat_text[::-1] if not second else [])
         ax.tick_params(**tick_params)
 
         ax.set_facecolor('none')
         return ax
-
 
 
 class GifMaker(FirstFigure):
