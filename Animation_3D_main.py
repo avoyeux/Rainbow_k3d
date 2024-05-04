@@ -22,7 +22,7 @@ from IPython.display import display
 from sparse import COO, stack, concatenate
 from multiprocessing import shared_memory, Process, Manager
 # Personal imports
-from common_alf import decorators
+from common_alf import Decorators
 
 from skimage.morphology import skeletonize_3d
 from scipy.ndimage import binary_fill_holes
@@ -72,16 +72,16 @@ class Data:
     To upload and manipulate the data to then be inputted in the k3d library for 3D animations.
     """
 
-    @decorators.running_time  # gives the start and the end time of the function
+    @Decorators.running_time  # gives the start and the end time of the function
     @typechecked  # checks the type for the inputs at runtime 
-    def __init__(self, everything: bool = False, both_cubes: str | bool = 'Karine', sun: bool = False, stars: bool = False, 
+    def __init__(self, everything: bool = False, both_cubes: str | bool = 'Karine', sun: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
                  day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 10, make_screenshots: bool = False, cube_version: str = 'old',
-                 barycenter: bool = False, test_conv: bool = False, conv_treshold: int = 125):
+                 barycenter: bool = False, test_conv: bool = False, conv_treshold: int = 125, test_poly: bool = False, poly_minim_coef: int | float = 1):
         
         # Arguments
         self.first_cube = False
@@ -119,7 +119,6 @@ class Data:
             raise ValueError("If 'fov_center' a string, needs to have 'cub' or 'stereo' inside it.")
 
         self.sun = (sun or everything)  # choosing to plot the Sun
-        self.stars = (stars or everything)  # choosing to plot the stars
         self.all_data = (all_data or everything)  # choosing to plot all the data (i.e. data containing the duplicates)
         self.duplicates = (duplicates or everything)  # for the duplicates data (i.e. from SDO and STEREO)
         self.no_duplicate = (no_duplicate or everything) # for the no duplicates data
@@ -140,6 +139,8 @@ class Data:
         self.barycenter = barycenter
         self.test_conv = test_conv
         self.conv_treshold = conv_treshold
+        self.test_poly = test_poly
+        self.poly_minim_coef = poly_minim_coef
 
 
         # Instance attributes set when running the class
@@ -188,7 +189,6 @@ class Data:
         self._sun_texture_x = None  # 1D array with values corresponding to the height texture image indexes and array indexes to the theta direction position
         self._sun_texture_y = None  # same for width and phi direction
         self.hex_colours = None  # 1D array with values being integer hex colours and indexes being the position in the Sun's surface
-        self.stars_points = None  # position of the stars
         self._pattern_int = None  # re.compile pattern of the 'int' STEREO .png filenames
         self._all_filenames = None  # all the 'int' filenames for both cubes
         self._days_per_month = None  # list of the number of day per each month in a normal year
@@ -208,6 +208,28 @@ class Data:
 
         # Deleting the private class attributes
         self.Attribute_deletion()
+
+    def Testing_the_polynomial(self):
+        """
+        Just to test one polynomial solution array to see what it gives.
+        """
+
+        polynomial_solution = np.load(os.path.join('..', 'test_conv3d_array', f'poly_conv3dContours_lim10_order4.npy')).astype('uint16')
+        print(f'the shape of polynomial solution is {polynomial_solution.shape}')
+        # values = np.ones(polynomial_solution.shape[1])
+        # print(f'the shape of values is {values.shape}')
+
+        coo = COO(coords=polynomial_solution, data=1, shape=self.cubes_shape)
+        print(f'cubes_shape is {self.cubes_shape}')
+
+        # minimum = np.min(polynomial_solution)
+        # binary_solutions = (polynomial_solution <= (minimum + 1) * self.poly_minim_coef)
+        # print(f'binary_solutions.shape is {binary_solutions.shape}')
+        # print(f'minimum is {minimum}')
+        # # print(f'nb of solutions found are {np.sum(binary_solutions)}')
+        # self.cube_test_poly = binary_solutions.astype('uint8')
+        self.cube_test_poly = coo
+        print(f'cube_test_poly is {self.cube_test_poly} with shape {self.cube_test_poly.shape}')
 
     def Paths(self):
         """
@@ -253,9 +275,6 @@ class Data:
             self.Sun_texture()
             self.Sun_points()
             self.Colours_1D()
-        
-        if self.stars:
-            self.Stars() 
                          
         if self.stereo_pov:
             self.STEREO_stats()
@@ -270,6 +289,9 @@ class Data:
 
         if self.test_conv:
             self.Testing_conv3d_results()
+
+        if self.test_poly:
+            self.Testing_the_polynomial()
 
     def Names(self):
         """
@@ -344,7 +366,7 @@ class Data:
         dates = [CustomDate(self._pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
     
-    @decorators.running_time
+    @Decorators.running_time
     def Processing_data(self, cubes_path, cube_names, dates):
         """
         Downloading and processing the data depending on the arguments chosen.
@@ -952,24 +974,24 @@ class Data:
         self.hex_colours = (blue_val << 16) + (blue_val << 8) + blue_val
         self.hex_colours = self.hex_colours.astype('uint32')
 
-    def Stars(self):
-        """
-        Creating stars to then add to the background.
-        """
+    # def Stars(self):
+    #     """
+    #     Creating stars to then add to the background.
+    #     """
 
-        # Stars spherical positions 
-        stars_N = 1500  # total number of stars
-        stars_radius = np.random.uniform(self.radius_index * 150, self.radius_index * 200, stars_N)
-        stars_theta = np.random.uniform(0, np.pi, stars_N)
-        stars_phi = np.random.uniform(0, 2 * np.pi, stars_N)
+    #     # Stars spherical positions 
+    #     stars_N = 1500  # total number of stars
+    #     stars_radius = np.random.uniform(self.radius_index * 150, self.radius_index * 200, stars_N)
+    #     stars_theta = np.random.uniform(0, np.pi, stars_N)
+    #     stars_phi = np.random.uniform(0, 2 * np.pi, stars_N)
 
-        # To cartesian
-        stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self.sun_center[0]
-        stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self.sun_center[1]
-        stars_z = stars_radius * np.cos(stars_theta) + self.sun_center[2]
+    #     # To cartesian
+    #     stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self.sun_center[0]
+    #     stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self.sun_center[1]
+    #     stars_z = stars_radius * np.cos(stars_theta) + self.sun_center[2]
 
-        # Cartesian positions
-        self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
+    #     # Cartesian positions
+    #     self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
 
     def STEREO_stats(self):
         """
@@ -1202,7 +1224,7 @@ class Data:
         just testing the result gotten from the convolution
         """
 
-        data = np.load(os.path.join('..', 'test_conv3d_array', 'barycenter_array_4.npy')).astype('uint8')
+        data = np.load(os.path.join('..', 'test_conv3d_array', 'conv3dRainbow.npy')).astype('uint8')
 
         binary_data = data > self.conv_treshold
         self.cubes_test_conv = self.Sparse_data(binary_data)
@@ -1468,6 +1490,10 @@ class K3dAnimation(Data):
                                 0, 0, 1]
             sleep(0.2)
               
+        if self.test_poly:
+            data = self.Full_array(self.cube_test_poly[change['new']])
+            self.plot_test_poly.voxels = data
+
         if self.all_data:
             if self.first_cube:
                 data = self.Full_array(self.cubes_all_data_1[change['new']])
@@ -1680,15 +1706,15 @@ class K3dAnimation(Data):
         # Adding the camera specific parameters
         self.Camera_params()
         
+        if self.test_poly:
+            data = self.Full_array(self.cube_test_poly[0])
+            self.plot_test_poly = k3d.voxels(data, opacity=1, compression_level=self.compression_level, color=0x0000ff, name='testpoly')
+            self.plot += self.plot_test_poly
         # Adding the SUN!!!
         if self.sun:
             self.plot += k3d.points(positions=self.sun_points, point_size=3.5, colors=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
-        
-        # Adding the stars      
-        if self.stars: 
-            self.plot += k3d.points(positions=self.stars_points, point_size=100, color=0xffffff, shader='3d', name='Stars', 
-                            compression_level=self.compression_level)
+           
 
         # Adding the different data sets (i.e. with or without duplicates)
         if self.all_data:  #old color color_map=[0x90ee90]
@@ -1829,7 +1855,7 @@ class K3dAnimation(Data):
                     self.plot_interv_dupli_new_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True,
                                             color_map=[0xff0000], opacity=0.2, name=f'Set2: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_new_set2           
-        
+
         if self.trace_data:
             if self.first_cube:
                 data = self.Full_array(self.trace_cubes_1)

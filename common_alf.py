@@ -141,3 +141,39 @@ class ArrayManipulation:
             return np.array(array2D)
         else:
             return array2D
+        
+
+@ClassDecorator(typechecked, functiontype=staticmethod)
+@ClassDecorator(staticmethod)
+class MathematicalEquations:
+    """
+    To store mathematical functions like n-order cartesian polynomial creation.
+    """
+
+    def Generate_nth_order_polynomial(order: int = 3):
+        """
+        Generate a cartesian n-th order polynomial.
+        """
+        from itertools import product
+
+        def nth_order_polynomial(coords, *coeffs):
+            """
+            The n-th order polynomial.
+            """
+
+            # Initialisation
+            x, y, z = coords
+            result = coeffs[0]
+            index = 1
+
+            for loop_order in range(1, order + 1):
+                for powers in product(range(loop_order + 1), repeat=3):
+                    if sum(powers) == loop_order:
+                        result += coeffs[index] * (x**powers[0]) * (y**powers[1]) * (z**powers[2])
+                        index += 1
+            return result
+        
+        nb_coeffs = sum(1 for loop_order in range(1, order + 1)
+                     for powers in product(range(loop_order + 1), repeat=3)
+                     if sum(powers) == loop_order) + 1
+        return nth_order_polynomial, nb_coeffs
