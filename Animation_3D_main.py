@@ -76,12 +76,11 @@ class Data:
     @typechecked  # checks the type for the inputs at runtime 
     def __init__(self, everything: bool = False, both_cubes: str | bool = 'Karine', sun: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicate: bool = False, line_of_sight: bool = False, 
-                 trace_data: bool = False, trace_no_duplicate: bool = False, day_trace: bool = False, 
-                 day_trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
+                 trace_data: bool = False, trace_no_duplicate: bool = False, time_intervals_all_data: bool = False, 
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 10, make_screenshots: bool = False, cube_version: str = 'old',
-                 barycenter: bool = False, test_conv: bool = False, conv_treshold: int = 125, test_poly: bool = False, poly_minim_coef: int | float = 1):
+                 convolution_3d: bool = False, conv_treshold: int = 125, test_poly: bool = False):
         
         # Arguments
         self.first_cube = False
@@ -125,8 +124,6 @@ class Data:
         self.line_of_sight = (line_of_sight or everything)  # for the line of sight data 
         self.trace_data = (trace_data or everything) # for the trace of all_data
         self.trace_no_duplicate = (trace_no_duplicate or everything)  # same for no_duplicate
-        self.day_trace = (day_trace or everything)  # for the trace of all_data for each day
-        self.day_trace_no_duplicate = (day_trace_no_duplicate or everything)  # same for no_duplicate
         self.time_intervals_all_data = (time_intervals_all_data or everything)  # for the data integration over time for all_data
         self.time_intervals_no_duplicate = (time_intervals_no_duplicate or everything)  # same for no_duplicate
         self.time_interval = time_interval  # time interval in hours (if 'int' or 'h' in str), days (if 'd' in str), minutes (if 'min' in str)  
@@ -136,12 +133,9 @@ class Data:
         self._batch_number = batch_number  # number of batches for the I/O bound tasks
         self.make_screenshots = make_screenshots  # creating screenshots when clicking play
         self._heliographic_grid_degrees = heliographic_grid_degrees  # heliographic grid steps in degrees
-        self.barycenter = barycenter
-        self.test_conv = test_conv
+        self.convolution = convolution_3d
         self.conv_treshold = conv_treshold
         self.test_poly = test_poly
-        self.poly_minim_coef = poly_minim_coef
-
 
         # Instance attributes set when running the class
         self.paths = None  # dictionary containing all the path names and the corresponding path
@@ -171,11 +165,6 @@ class Data:
         self.trace_cubes_2 = None  # same for the second set
         self.trace_cubes_no_duplicate_1 = None  # same  for the no duplicate data for the first set
         self.trace_cubes_no_duplicate_2 = None  # same for the second set 
-        self.day_cubes_all_data_1 = None  # (sparse or not) boolean 4D array of the integration of all_data for each days for the first set
-        self.day_cubes_all_data_2 = None  # same for the second set 
-        self.day_cubes_no_duplicate_1 = None  # same for the no duplicate data the first set
-        self.day_cubes_no_duplicate_2 = None  # same for the second set 
-        self.day_indexes = None  # list of the data cube index for each day. index[n][m]=x is for day n the cube index is x. For all chosen sets
         self.time_cubes_all_data_1 = None  # (sparse or not) boolean 4D array of the integration of all_data over time_interval for the first set
         self.time_cubes_all_data_2 = None  # same for the second set
         self.time_cubes_no_duplicate_1 = None  # same for the no duplicate for the first set
@@ -209,27 +198,38 @@ class Data:
         # Deleting the private class attributes
         self.Attribute_deletion()
 
+    def Prepocessing_polynomial_data(self):
+        """
+        Code to get the .npy barycenter filenames
+        """
+
+        pattern = re.compile(r'''poly_
+                             (?P<datatype>[a-zA-Z]+)_
+                             (lim_(?P<conv_limit>\d+)_)?
+                             order(?P<order>\d+)
+                             \.npy''', re.VERBOSE)
+        
+        files_dataNmatches = []
+        for filename in os.listdir(self.paths['polynomials']):
+            filename_match = pattern.match(filename)
+
+            if filename_match:
+                file_data = np.load(os.path.join(self.paths['polynomials'], filename)).astype('uint16')
+                file_data = COO(coords=file_data, data=1, shape=self.cubes_shape)
+                files_dataNmatches.append((filename_match, file_data))
+            else:
+                print(f"\033[92mPolynomial array filename {filename} doesn't match the usual pattern. \033[0m")
+        self.polynomials_matchesNdata = files_dataNmatches
+
     def Testing_the_polynomial(self):
         """
         Just to test one polynomial solution array to see what it gives.
         """
 
-        polynomial_solution = np.load(os.path.join('..', 'test_conv3d_array', f'poly_conv3dContours_lim10_order4.npy')).astype('uint16')
-        print(f'the shape of polynomial solution is {polynomial_solution.shape}')
-        # values = np.ones(polynomial_solution.shape[1])
-        # print(f'the shape of values is {values.shape}')
-
+        polynomial_solution = np.load(os.path.join(self.paths['polynomials'], f'poly_conv3dContours_lim10_order4.npy')).astype('uint16')
         coo = COO(coords=polynomial_solution, data=1, shape=self.cubes_shape)
-        print(f'cubes_shape is {self.cubes_shape}')
-
-        # minimum = np.min(polynomial_solution)
-        # binary_solutions = (polynomial_solution <= (minimum + 1) * self.poly_minim_coef)
-        # print(f'binary_solutions.shape is {binary_solutions.shape}')
-        # print(f'minimum is {minimum}')
-        # # print(f'nb of solutions found are {np.sum(binary_solutions)}')
-        # self.cube_test_poly = binary_solutions.astype('uint8')
         self.cube_test_poly = coo
-        print(f'cube_test_poly is {self.cube_test_poly} with shape {self.cube_test_poly.shape}')
+        print(f'The shape of the polynomial solution is shape {self.cube_test_poly.shape}')
 
     def Paths(self):
         """
@@ -237,38 +237,37 @@ class Data:
         """
 
         main_path = '../'
-        self.paths = {'Main': main_path,
-                      'Cubes': os.path.join(main_path, 'Cubes'),
-                      'Cubes_karine': os.path.join(main_path, 'Cubes_karine'),
-                      'Textures': os.path.join(main_path, 'Textures'),
-                      'Intensities': os.path.join(main_path, 'STEREO', 'int'),
-                      'SDO': os.path.join(main_path, 'sdo')}    
+        self.paths = {
+            'Main': main_path,
+            'Cubes': os.path.join(main_path, 'Cubes'),
+            'Cubes_karine': os.path.join(main_path, 'Cubes_karine'),
+            'Textures': os.path.join(main_path, 'Textures'),
+            'Intensities': os.path.join(main_path, 'STEREO', 'int'),
+            'SDO': os.path.join(main_path, 'sdo'),
+            'polynomials': os.path.join(main_path, 'test_conv3d_array'),
+            }    
     
     def Choices(self):
         """
         To choose what is computed and added depending on the arguments chosen.
         """
 
-        if self.day_trace or self.day_trace_no_duplicate:
-            self.Day_indexes()
-
-        if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-            self.Time_interval()
+        if self.time_intervals_all_data or self.time_intervals_no_duplicate: self.Time_interval()
 
         if self.first_cube:
             self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
             self.cubes_all_data_1, self.cubes_no_duplicate_init_1, self.cubes_no_duplicates_init_STEREO_1, self.cubes_no_duplicates_init_SDO_1, \
             self.cubes_no_duplicate_new_1, self.cubes_no_duplicates_new_STEREO_1, self.cubes_no_duplicates_new_SDO_1, \
-            self.trace_cubes_1, self.trace_cubes_no_duplicate_1, self.day_cubes_all_data_1, self.day_cubes_no_duplicate_1, \
-            self.time_cubes_all_data_1, self.time_cubes_no_duplicate_init_1, self.time_cubes_no_duplicate_new_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1 \
+            self.trace_cubes_1, self.trace_cubes_no_duplicate_1, self.time_cubes_all_data_1, self.time_cubes_no_duplicate_init_1, \
+            self.time_cubes_no_duplicate_new_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1 \
             = self.Processing_data(self.paths['Cubes'], self._cube_names_1, self.dates_1)
             
         if self.second_cube:
             self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
             self.cubes_all_data_2, self.cubes_no_duplicate_init_2, self.cubes_no_duplicates_init_STEREO_2, self.cubes_no_duplicates_init_SDO_2, \
             self.cubes_no_duplicate_new_2, self.cubes_no_duplicates_new_STEREO_2, self.cubes_no_duplicates_new_SDO_2, \
-            self.trace_cubes_2, self.trace_cubes_no_duplicate_2, self.day_cubes_all_data_2, self.day_cubes_no_duplicate_2, \
-            self.time_cubes_all_data_2, self.time_cubes_no_duplicate_init_2, self.time_cubes_no_duplicate_new_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2 \
+            self.trace_cubes_2, self.trace_cubes_no_duplicate_2, self.time_cubes_all_data_2, self.time_cubes_no_duplicate_init_2, \
+            self.time_cubes_no_duplicate_new_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2 \
             = self.Processing_data(self.paths['Cubes_karine'], self._cube_names_2, self.dates_2)
 
         if self.sun:
@@ -281,17 +280,11 @@ class Data:
         elif self.sdo_pov:
             self.SDO_stats()
 
-        if not self.fov_center:
-            self.STEREO_pov_center()
+        if not self.fov_center: self.STEREO_pov_center()
 
-        if self.barycenter:
-            self.Regions_preprocessing2()
+        if self.convolution: self.Conv3d_results()
 
-        if self.test_conv:
-            self.Testing_conv3d_results()
-
-        if self.test_poly:
-            self.Testing_the_polynomial()
+        if self.test_poly: self.Prepocessing_polynomial_data()
 
     def Names(self):
         """
@@ -392,10 +385,9 @@ class Data:
                     IO_processes.append(Process(target=self.Cubes_lineofsight_SDO, args=(queue, 2 * self._batch_number + i, cubes_path, cube_names[step * i:]))) 
         # Ordering the results gotten from the I/O bound tasks
         results = [None for _ in range(self._batch_number * 3)]
-        for p in IO_processes:
-            p.start()
-        for p in IO_processes:
-            p.join()
+        for p in IO_processes: p.start()
+        for p in IO_processes: p.join()
+
         while not queue.empty():
             identifier, result = queue.get()
             results[identifier] = result
@@ -409,7 +401,7 @@ class Data:
 
         # CPU bound processes 
         processes = []
-        results = [None for _ in range(16)]
+        results = [None for _ in range(14)]
         if self.line_of_sight:
             results[-2] = STEREO
             results[-1] = SDO
@@ -423,8 +415,8 @@ class Data:
         self.sparse_data_dtype = sparse_data.dtype
         self.sparse_coords_dtype = sparse_coords.dtype
         # Shared memory object and np.ndarray
-        shm_data, shared_data = self.Shared_memory(sparse_data, self.sparse_data_dtype)
-        shm_coords, shared_coords = self.Shared_memory(sparse_coords, self.sparse_coords_dtype)
+        shm_data = self.Shared_memory(sparse_data, self.sparse_data_dtype)
+        shm_coords = self.Shared_memory(sparse_coords, self.sparse_coords_dtype)
         self._shm_data_name, self._shm_coords_name = shm_data.name, shm_coords.name
 
         # Separating the data
@@ -446,10 +438,6 @@ class Data:
             processes.append(Process(target=self.Cubes_trace, args=(queue,)))
         if self.trace_no_duplicate:
             processes.append(Process(target=self.Cubes_trace_no_duplicate, args=(queue,)))
-        if self.day_trace:
-            processes.append(Process(target=self.Cubes_day, args=(queue, dates)))
-        if self.day_trace_no_duplicate:
-            processes.append(Process(target=self.Cubes_day_no_duplicate, args=(queue, dates)))
         if self.time_intervals_all_data or self.time_intervals_no_duplicate:
             self._days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
             date = self.dates_all[0]
@@ -462,10 +450,8 @@ class Data:
             processes.append(Process(target=self.Cubes_time_chunks_no_duplicate_init, args=(queue, dates)))
             processes.append(Process(target=self.Cubes_time_chunks_no_duplicate_new, args=(queue, dates)))
 
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
+        for p in processes: p.start()
+        for p in processes: p.join()
 
         shm_data.close()
         shm_data.unlink()
@@ -525,7 +511,7 @@ class Data:
         shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
         shared_array = np.ndarray(array.shape, dtype=dtype, buffer=shm.buf)
         np.copyto(shared_array, array)
-        return shm, shared_array
+        return shm 
     
     def Shared_array_reconstruction(self):
         """
@@ -538,7 +524,10 @@ class Data:
         data = np.ndarray(self._sparse_data_shape, dtype=self.sparse_data_dtype, buffer=shm_data.buf)
         coords = np.ndarray(self._sparse_coords_shape, dtype=self.sparse_coords_dtype, buffer=shm_coords.buf)
         cubes = COO(coords=coords, data=data, shape=self.cubes_shape)
-        return COO.copy(cubes)  # had to add a .copy() as it wasn't working properly
+        cubes = COO.copy(cubes)  # had to add a .copy() as it wasn't working properly
+        shm_data.close()
+        shm_coords.close()
+        return cubes
 
     def Cubes_all_data(self, queue):
         """
@@ -622,27 +611,6 @@ class Data:
         trace_cube_no_duplicate = COO.any(cubes_no_duplicate, axis=0).astype('uint8')
         queue.put((8, trace_cube_no_duplicate))
 
-    def Cubes_day(self, queue, dates):
-        """
-        To create the cubes for the day integration of all data.
-        """
-
-        cubes = self.Shared_array_reconstruction()
-        day_cubes_all_data = self.Day_cubes(cubes, dates)
-        day_cubes_all_data = self.Sparse_data(day_cubes_all_data)
-        queue.put((9, day_cubes_all_data))
-
-    def Cubes_day_no_duplicate(self, queue, dates):
-        """
-        To create the cubes for the day integration of the no duplicates.
-        """
-
-        cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')
-        day_cubes_no_duplicate = self.Day_cubes(cubes_no_duplicate, dates)
-        day_cubes_no_duplicate = self.Sparse_data(day_cubes_no_duplicate)
-        queue.put((10, day_cubes_no_duplicate))
-
     def Cubes_time_chunks(self, queue, dates):
         """
         To create the cubes for the time integrations for all data.
@@ -660,7 +628,7 @@ class Data:
         
         time_cubes_all_data = stack(time_cubes_all_data, axis=0)
         time_cubes_all_data = self.Sparse_data(time_cubes_all_data).astype('uint8')
-        queue.put((11, time_cubes_all_data))
+        queue.put((9, time_cubes_all_data))
 
     def Cubes_time_chunks_no_duplicate_init(self, queue, dates):
         """
@@ -679,7 +647,7 @@ class Data:
         
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0)
         time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate).astype('uint8')
-        queue.put((12, time_cubes_no_duplicate))
+        queue.put((10, time_cubes_no_duplicate))
 
     def Cubes_time_chunks_no_duplicate_new(self, queue, dates):
         """
@@ -698,33 +666,7 @@ class Data:
         
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0)
         time_cubes_no_duplicate = self.Sparse_data(time_cubes_no_duplicate).astype('uint8')
-        queue.put((13, time_cubes_no_duplicate))
-    
-    def Day_indexes(self):
-        """
-        To get the cube index for each day so that I can choose the day trace given which cube index I am showing.
-        This is True if using both sets of cubes or only one.
-        """
-        
-        days_unique = sorted(set([date.day for date in self.dates_all]))
-        days = np.array([date.day for date in self.dates_all])
-        self.day_indexes = [np.where(days==day)[0] for day in days_unique]
-
-    def Day_cubes(self, cubes, dates):
-        """
-        To integrate the data for each day.
-        The input being the used data set and the output being an np.ndarray of axis0 length equal to the number of days.
-        """
-
-        days_unique = sorted(set([date.day for date in self.dates_all]))
-        days = np.array([date.day for date in dates])
-    
-        day_cubes = []
-        for day in days_unique:
-            day_index = np.where(days==day)[0]
-            day_trace = COO.any(cubes[day_index], axis=0)
-            day_cubes.append(day_trace)
-        return stack(day_cubes, axis=0).astype('uint8')
+        queue.put((11, time_cubes_no_duplicate))
 
     def Time_interval(self):
         """
@@ -792,17 +734,17 @@ class Data:
             for number in self.cube_numbers_all:
                 if number in self._cube_numbers_1:
                     index += 1
-                    cubes_lineofsight_STEREO_1.append([self.cubes_lineofsight_STEREO_1[index] if self.line_of_sight else None][0])
-                    cubes_lineofsight_SDO_1.append([self.cubes_lineofsight_SDO_1[index] if self.line_of_sight else None][0])
-                    cubes_all_data_1.append([self.cubes_all_data_1[index] if self.all_data else None][0])
+                    cubes_lineofsight_STEREO_1.append(self.cubes_lineofsight_STEREO_1[index] if self.line_of_sight else None)
+                    cubes_lineofsight_SDO_1.append(self.cubes_lineofsight_SDO_1[index] if self.line_of_sight else None)
+                    cubes_all_data_1.append(self.cubes_all_data_1[index] if self.all_data else None)
                     if self.cube_version_0:
-                        cubes_no_duplicate_init_1.append([self.cubes_no_duplicate_init_1[index] if self.no_duplicate else None][0])
-                        cubes_no_duplicates_init_STEREO_1.append([self.cubes_no_duplicates_init_STEREO_1[index] if self.duplicates else None][0])
-                        cubes_no_duplicates_init_SDO_1.append([self.cubes_no_duplicates_init_SDO_1[index] if self.duplicates else None][0])
+                        cubes_no_duplicate_init_1.append(self.cubes_no_duplicate_init_1[index] if self.no_duplicate else None)
+                        cubes_no_duplicates_init_STEREO_1.append(self.cubes_no_duplicates_init_STEREO_1[index] if self.duplicates else None)
+                        cubes_no_duplicates_init_SDO_1.append(self.cubes_no_duplicates_init_SDO_1[index] if self.duplicates else None)
                     if self.cube_version_1:
-                        cubes_no_duplicate_new_1.append([self.cubes_no_duplicate_new_1[index] if self.no_duplicate else None][0])
-                        cubes_no_duplicates_new_STEREO_1.append([self.cubes_no_duplicates_new_STEREO_1[index] if self.duplicates else None][0])
-                        cubes_no_duplicates_new_SDO_1.append([self.cubes_no_duplicates_new_SDO_1[index] if self.duplicates else None][0])
+                        cubes_no_duplicate_new_1.append(self.cubes_no_duplicate_new_1[index] if self.no_duplicate else None)
+                        cubes_no_duplicates_new_STEREO_1.append(self.cubes_no_duplicates_new_STEREO_1[index] if self.duplicates else None)
+                        cubes_no_duplicates_new_SDO_1.append(self.cubes_no_duplicates_new_SDO_1[index] if self.duplicates else None)
                 else:
                     cubes_lineofsight_STEREO_1.append(None)
                     cubes_lineofsight_SDO_1.append(None)
@@ -837,17 +779,17 @@ class Data:
             for number in self.cube_numbers_all:
                 if number in self._cube_numbers_2:
                     index += 1
-                    cubes_lineofsight_STEREO_2.append([self.cubes_lineofsight_STEREO_2[index] if self.line_of_sight else None][0])
-                    cubes_lineofsight_SDO_2.append([self.cubes_lineofsight_SDO_2[index] if self.line_of_sight else None][0])
-                    cubes_all_data_2.append([self.cubes_all_data_2[index] if self.all_data else None][0])
+                    cubes_lineofsight_STEREO_2.append(self.cubes_lineofsight_STEREO_2[index] if self.line_of_sight else None)
+                    cubes_lineofsight_SDO_2.append(self.cubes_lineofsight_SDO_2[index] if self.line_of_sight else None)
+                    cubes_all_data_2.append(self.cubes_all_data_2[index] if self.all_data else None)
                     if self.cube_version_0:
-                        cubes_no_duplicate_init_2.append([self.cubes_no_duplicate_init_2[index] if self.no_duplicate else None][0])
-                        cubes_no_duplicates_init_STEREO_2.append([self.cubes_no_duplicates_init_STEREO_2[index] if self.duplicates else None][0])
-                        cubes_no_duplicates_init_SDO_2.append([self.cubes_no_duplicates_init_SDO_2[index] if self.duplicates else None][0])
+                        cubes_no_duplicate_init_2.append(self.cubes_no_duplicate_init_2[index] if self.no_duplicate else None)
+                        cubes_no_duplicates_init_STEREO_2.append(self.cubes_no_duplicates_init_STEREO_2[index] if self.duplicates else None)
+                        cubes_no_duplicates_init_SDO_2.append(self.cubes_no_duplicates_init_SDO_2[index] if self.duplicates else None)
                     if self.cube_version_1:
-                        cubes_no_duplicate_new_2.append([self.cubes_no_duplicate_new_2[index] if self.no_duplicate else None][0])
-                        cubes_no_duplicates_new_STEREO_2.append([self.cubes_no_duplicates_new_STEREO_2[index] if self.duplicates else None][0])
-                        cubes_no_duplicates_new_SDO_2.append([self.cubes_no_duplicates_new_SDO_2[index] if self.duplicates else None][0])
+                        cubes_no_duplicate_new_2.append(self.cubes_no_duplicate_new_2[index] if self.no_duplicate else None)
+                        cubes_no_duplicates_new_STEREO_2.append(self.cubes_no_duplicates_new_STEREO_2[index] if self.duplicates else None)
+                        cubes_no_duplicates_new_SDO_2.append(self.cubes_no_duplicates_new_SDO_2[index] if self.duplicates else None)
                 else:
                     cubes_lineofsight_STEREO_2.append(None)
                     cubes_lineofsight_SDO_2.append(None)
@@ -867,7 +809,6 @@ class Data:
             self.cubes_no_duplicate_new_2 = cubes_no_duplicate_new_2
             self.cubes_no_duplicates_new_STEREO_2 = cubes_no_duplicates_new_STEREO_2
             self.cubes_no_duplicates_new_SDO_2 = cubes_no_duplicates_new_SDO_2
-
 
     def Sun_pos(self):
         """
@@ -925,10 +866,8 @@ class Data:
         grid_index_lat = self._heliographic_grid_degrees * nb_of_grids_lat / 0.25
         grid_index_lon = self._heliographic_grid_degrees * nb_of_grids_lon / 0.25
 
-        for lat in grid_index_lat:
-            image[int(lat) - 1, :] = np.nanmax(image) * 1.0
-        for lon in grid_index_lon:
-            image[:, int(lon) - 1] = np.nanmax(image) * 1.0
+        for lat in grid_index_lat: image[int(lat) - 1, :] = np.nanmax(image) * 1.0
+        for lon in grid_index_lon: image[:, int(lon) - 1] = np.nanmax(image) * 1.0
 
         # Replacing nan values to the lower_cut 
         nw_image = np.where(np.isnan(image), lower_cut, image)  # TODO: would need to change the nan values to the interpolation for the pole
@@ -974,25 +913,6 @@ class Data:
         self.hex_colours = (blue_val << 16) + (blue_val << 8) + blue_val
         self.hex_colours = self.hex_colours.astype('uint32')
 
-    # def Stars(self):
-    #     """
-    #     Creating stars to then add to the background.
-    #     """
-
-    #     # Stars spherical positions 
-    #     stars_N = 1500  # total number of stars
-    #     stars_radius = np.random.uniform(self.radius_index * 150, self.radius_index * 200, stars_N)
-    #     stars_theta = np.random.uniform(0, np.pi, stars_N)
-    #     stars_phi = np.random.uniform(0, 2 * np.pi, stars_N)
-
-    #     # To cartesian
-    #     stars_x = stars_radius * np.sin(stars_theta) * np.cos(stars_phi) + self.sun_center[0]
-    #     stars_y = stars_radius * np.sin(stars_theta) * np.sin(stars_phi) + self.sun_center[1]
-    #     stars_z = stars_radius * np.cos(stars_theta) + self.sun_center[2]
-
-    #     # Cartesian positions
-    #     self.stars_points = np.array([stars_x, stars_y, stars_z], dtype='float32').T
-
     def STEREO_stats(self):
         """
         To save the information needed to find the position of STEREO.
@@ -1013,10 +933,8 @@ class Data:
             else:
                 IO_processes.append(Process(target=self.STEREO_coords, args=(queue, i, data, self.cube_numbers_all[step * i:])))
         # Running the processes
-        for p in IO_processes:
-            p.start()
-        for p in IO_processes:
-            p.join()
+        for p in IO_processes: p.start()
+        for p in IO_processes: p.join()
 
         # Ordering the results
         results = [None for _ in range(self._batch_number)]
@@ -1095,10 +1013,8 @@ class Data:
             else:
                 IO_processes.append(Process(target=self.SDO_coords, args=(queue, i, SDO_fits_names[step * i:])))
         # Running the processes
-        for p in IO_processes:
-            p.start()
-        for p in IO_processes:
-            p.join()
+        for p in IO_processes: p.start()
+        for p in IO_processes: p.join()
 
         # Ordering the results
         results = [None for _ in range(self._batch_number)]
@@ -1139,87 +1055,7 @@ class Data:
             hdul.close()  
         queue.put((i, np.array(SDO_pos)))
 
-    def Regions_preprocessing(self):
-        """
-        Function to get the barycentre of the time chunks.
-        """
-
-        start = time.time()
-        print(f'cube shape is {self.cubes_shape}')
-        all_data_coords = self.time_cubes_no_duplicate_new_2.coords
-        
-        x_slices = []
-        y_slices = []
-        z_slices = []
-        for times in range(self.cubes_shape[0]):
-            time_coord = all_data_coords[:, all_data_coords[0]==times]
-            x_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[1]==x], axis=1) 
-                for x in range(self.cubes_shape[1])
-                if np.any(time_coord[1]==x)
-                ], axis=1)).astype('int'))
-            y_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[2]==y], axis=1) 
-                for y in range(self.cubes_shape[2])
-                if np.any(time_coord[2]==y)
-                ], axis=1)).astype('int'))
-            z_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[3]==z], axis=1) 
-                for z in range(self.cubes_shape[3])
-                if np.any(time_coord[3]==z)
-                ], axis=1)).astype('int'))
-        middle = time.time()
-        x_slices = np.hstack(x_slices)
-        y_slices = np.hstack(y_slices)
-        z_slices = np.hstack(z_slices)
-        # print(f' slices shapes are {x_slices.shape}, {y_slices.shape}, {z_slices.shape}')
-        print(f"first method done in {middle - start}")
-
-        tot_barycenter = []
-        for times in range(239):
-            time_xslice = x_slices[:, x_slices[0]==times]
-            time_yslice = y_slices[:, y_slices[0]==times]
-            time_zslice = z_slices[:, z_slices[0]==times]
-            # print(f'slices shape are {time_xslice.shape}, {time_yslice.shape}, {time_zslice.shape}')
-            time_slice = np.hstack([time_xslice, time_yslice, time_zslice])
-            positions = []
-            for x in range(320):
-                slices = time_slice[:, time_slice[1]==x]
-                if np.any(slices):
-                    positions.append(np.round(np.mean(slices, axis=1)).astype('int'))
-            tot_barycenter.append(np.stack(positions, axis=1))
-        tot_barycenter = np.hstack(tot_barycenter)
-        barycenter = COO(coords=tot_barycenter, data=np.ones(tot_barycenter.shape[1]), shape=self.cubes_shape)
-        self.cubes_barycenter = barycenter
-        print(f'tot_barycenter shape is {tot_barycenter.shape}')
-        third = time.time()
-        print(f"second method done in {third - middle}")
-        print(f'final array shape is {tot_barycenter.shape}')
-        # x_slices = np.round(np.hstack([
-        #     np.hstack([
-        #         np.mean(all_data_coords[:, (all_data_coords[0, :]==time) & (all_data_coords[1, :]==x)], axis=1)
-        #         for x in range(self.cubes_shape[1])
-        #         if np.any((all_data_coords[0, :]==time) & (all_data_coords[1, :]==x))
-        #     ])
-        #     for time in range(self.cubes_shape[0])
-        # ]))
-
-    def Regions_preprocessing2(self):
-        """
-        testing something
-        """
-        
-        # skeletons = []
-        # for loop in range(self.time_cubes_no_duplicate_new_2.shape[0]):
-        #     array = self.time_cubes_no_duplicate_new_2[loop].todense()
-        #     volume_filled = binary_fill_holes(array)
-        #     skeleton = skeletonize_3d(volume_filled)
-        #     skeletons.append(COO(skeleton))
-        # skeletons = stack(skeletons, axis=0)
-        # self.cubes_barycenter = skeletons
-        pass
-        
-    def Testing_conv3d_results(self):
+    def Conv3d_results(self):
         """
         just testing the result gotten from the convolution
         """
@@ -1228,7 +1064,6 @@ class Data:
 
         binary_data = data > self.conv_treshold
         self.cubes_test_conv = self.Sparse_data(binary_data)
-        print(f"cubes_test_conv has shape {self.cubes_test_conv.shape}")
 
         # Multiprocessing initial I/O bound tasks
         nb_of_batches = 6
@@ -1240,15 +1075,13 @@ class Data:
         # Preping the processes
         for i in range(nb_of_batches):
             if not (i==nb_of_batches - 1):
-                IO_processes.append(Process(target=self.Testing_loop, args=(queue, i, binary_data[step * i:step * (i + 1)])))
+                IO_processes.append(Process(target=self.Skeleton_loop, args=(queue, i, binary_data[step * i:step * (i + 1)])))
             else:
-                IO_processes.append(Process(target=self.Testing_loop, args=(queue, i, binary_data[step * i:])))
+                IO_processes.append(Process(target=self.Skeleton_loop_loop, args=(queue, i, binary_data[step * i:])))
         
         # Running the processes
-        for p in IO_processes:
-            p.start()
-        for p in IO_processes:
-            p.join()
+        for p in IO_processes: p.start()
+        for p in IO_processes: p.join()
 
         # Ordering the results
         results = [None for _ in range(nb_of_batches)]
@@ -1258,7 +1091,7 @@ class Data:
         cubes_barycenter = np.concatenate(results, axis=0)
         self.cubes_barycenter = self.Sparse_data(cubes_barycenter)
 
-    def Testing_loop(self, queue, i, data):
+    def Skeleton_loop(self, queue, i, data):
         skeletons = []
         for cube in data:
             skeleton = skeletonize_3d(cube)
@@ -1345,12 +1178,6 @@ class K3dAnimation(Data):
         self.plot_interv_dupli_new_set1 = None  # same for the no duplicates data and set 1
         self.plot_interv_dupli_init_set2 = None  # same for set 2
         self.plot_interv_dupli_new_set2 = None  # same for set 2
-        self.plot_day_set1 = None  # voxels plot for the day integration of all data for set 1
-        self.plot_day_set2 = None  # same for set 2
-        self.plot_day_dupli_init_set1 = None  # same for no duplicates and set 1
-        self.plot_day_dupli_new_set1 = None  # same for no duplicates and set 1
-        self.plot_day_dupli_init_set2 = None  # same for set 2 
-        self.plot_day_dupli_new_set2 = None  # same for set 2
         self.play_pause_button = None  # Play/Pause widget initialisation
         self.time_slider = None  # time slider widget
         self.date_dropdown = None  # Date dropdown widget to show the date
@@ -1359,13 +1186,12 @@ class K3dAnimation(Data):
 
         # Making the animation
         self.Update_paths()
-        if self.time_intervals_all_data or self.time_intervals_no_duplicate:
-            self.Time_interval_string()
+        if self.time_intervals_all_data or self.time_intervals_no_duplicate: self.Time_interval_string()
         self.Date_strings()
         self.Animation()
 
-    @classmethod
     @typechecked
+    @classmethod
     def The_usual(cls, version: int, data: str = 'no_duplicate', **classkwargs):
         """
         Gives the usual arguments used when making screenshots for a given point of view and data type.
@@ -1489,122 +1315,65 @@ class K3dAnimation(Data):
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 0, 0, 1]
             sleep(0.2)
-              
+        
         if self.test_poly:
-            data = self.Full_array(self.cube_test_poly[change['new']])
-            self.plot_test_poly.voxels = data
+            for index, plot in enumerate(self.plots_polynomials):
+                _, data = self.polynomials_matchesNdata[index]
+                plot.voxels = self.Full_array(data[change['new']])
 
         if self.all_data:
-            if self.first_cube:
-                data = self.Full_array(self.cubes_all_data_1[change['new']])
-                self.plot_alldata_set1.voxels = data
-            if self.second_cube:
-                data = self.Full_array(self.cubes_all_data_2[change['new']])
-                self.plot_alldata_set2.voxels = data
+            if self.first_cube: self.plot_alldata_set1.voxels = self.Full_array(self.cubes_all_data_1[change['new']])
+            if self.second_cube: self.plot_alldata_set2.voxels = self.Full_array(self.cubes_all_data_2[change['new']])
         if self.duplicates:
             if self.first_cube:
                 if self.cube_version_0:
-                    data = self.Full_array(self.cubes_no_duplicates_init_STEREO_1[change['new']])
-                    self.plot_dupli_STEREO_init_set1.voxels = data
-                    data = self.Full_array(self.cubes_no_duplicates_init_SDO_1[change['new']])
-                    self.plot_dupli_SDO_init_set1.voxels = data
+                    self.plot_dupli_STEREO_init_set1.voxels = self.Full_array(self.cubes_no_duplicates_init_STEREO_1[change['new']])
+                    self.plot_dupli_SDO_init_set1.voxels = self.Full_array(self.cubes_no_duplicates_init_SDO_1[change['new']])
                 if self.cube_version_1:
-                    data = self.Full_array(self.cubes_no_duplicates_new_STEREO_1[change['new']])
-                    self.plot_dupli_STEREO_new_set1.voxels = data
-                    data = self.Full_array(self.cubes_no_duplicates_new_SDO_1[change['new']])
-                    self.plot_dupli_SDO_new_set1.voxels = data
+                    self.plot_dupli_STEREO_new_set1.voxels = self.Full_array(self.cubes_no_duplicates_new_STEREO_1[change['new']])
+                    self.plot_dupli_SDO_new_set1.voxels = self.Full_array(self.cubes_no_duplicates_new_SDO_1[change['new']])
             if self.second_cube:
                 if self.cube_version_0:
-                    data = self.Full_array(self.cubes_no_duplicates_init_STEREO_2[change['new']])
-                    self.plot_dupli_STEREO_init_set2.voxels = data
-                    data = self.Full_array(self.cubes_no_duplicates_init_SDO_2[change['new']])
-                    self.plot_dupli_init_SDO_set2.voxels = data
+                    self.plot_dupli_STEREO_init_set2.voxels = self.Full_array(self.cubes_no_duplicates_init_STEREO_2[change['new']])
+                    self.plot_dupli_init_SDO_set2.voxels = self.Full_array(self.cubes_no_duplicates_init_SDO_2[change['new']])
+                     
                 if self.cube_version_1:
-                    data = self.Full_array(self.cubes_no_duplicates_new_STEREO_2[change['new']])
-                    self.plot_dupli_STEREO_new_set2.voxels = data
-                    data = self.Full_array(self.cubes_no_duplicates_new_SDO_2[change['new']])
-                    self.plot_dupli_new_SDO_set2.voxels = data
+                    self.plot_dupli_STEREO_new_set2.voxels = self.Full_array(self.cubes_no_duplicates_new_STEREO_2[change['new']])
+                    self.plot_dupli_new_SDO_set2.voxels = self.Full_array(self.cubes_no_duplicates_new_SDO_2[change['new']])
         if self.no_duplicate:
             if self.first_cube:
-                if self.cube_version_0:
-                    data = self.Full_array(self.cubes_no_duplicate_init_1[change['new']])
-                    self.plot_dupli_init_set1.voxels = data
-                if self.cube_version_1:
-                    data = self.Full_array(self.cubes_no_duplicate_new_1[change['new']])
-                    self.plot_dupli_new_set1.voxels = data
+                if self.cube_version_0: self.plot_dupli_init_set1.voxels = self.Full_array(self.cubes_no_duplicate_init_1[change['new']])
+                if self.cube_version_1: self.plot_dupli_new_set1.voxels = self.Full_array(self.cubes_no_duplicate_new_1[change['new']]) 
             if self.second_cube:
-                if self.cube_version_0:
-                    data = self.Full_array(self.cubes_no_duplicate_init_2[change['new']])
-                    self.plot_dupli_init_set2.voxels = data
-                if self.cube_version_1:
-                    data = self.Full_array(self.cubes_no_duplicate_new_2[change['new']])
-                    self.plot_dupli_new_set2.voxels = data
+                if self.cube_version_0: self.plot_dupli_init_set2.voxels = self.Full_array(self.cubes_no_duplicate_init_2[change['new']]) 
+                if self.cube_version_1: self.plot_dupli_new_set2.voxels = self.Full_array(self.cubes_no_duplicate_new_2[change['new']])
 
         if self.line_of_sight:
             if self.first_cube:    
-                data = self.Full_array(self.cubes_lineofsight_STEREO_1[change['new']])
-                self.plot_los_STEREO_set1.voxels = data
-                data = self.Full_array(self.cubes_lineofsight_SDO_1[change['new']])
-                self.plot_los_SDO_set1.voxels = data
+                self.plot_los_STEREO_set1.voxels = self.Full_array(self.cubes_lineofsight_STEREO_1[change['new']])
+                self.plot_los_SDO_set1.voxels = self.Full_array(self.cubes_lineofsight_SDO_1[change['new']])
             if self.second_cube:
-                data = self.Full_array(self.cubes_lineofsight_STEREO_2[change['new']])
-                self.plot_los_STEREO_set2.voxels = data
-                data = self.Full_array(self.cubes_lineofsight_SDO_2[change['new']])
-                self.plot_los_SDO_set2.voxels = data
+                self.plot_los_STEREO_set2.voxels = self.Full_array(self.cubes_lineofsight_STEREO_2[change['new']])
+                self.plot_los_SDO_set2.voxels = self.Full_array(self.cubes_lineofsight_SDO_2[change['new']])
 
         if self.time_intervals_all_data:
-            if self.first_cube:
-                data = self.Full_array(self.time_cubes_all_data_1[change['new']])
-                self.plot_interv_set1.voxels = data
+            if self.first_cube: self.plot_interv_set1.voxels = self.Full_array(self.time_cubes_all_data_1[change['new']])
+                
             if self.second_cube:
-                if self.cube_version_0:
-                    data = self.Full_array(self.time_cubes_all_data_init_2[change['new']])
-                    self.plot_interv_init_set2.voxels = data 
-                if self.cube_version_1:
-                    data = self.Full_array(self.time_cubes_all_data_new_2[change['new']])
-                    self.plot_interv_new_set2.voxels = data      
+                if self.cube_version_0: self.plot_interv_init_set2.voxels = self.Full_array(self.time_cubes_all_data_init_2[change['new']]) 
+                if self.cube_version_1: self.plot_interv_new_set2.voxels = self.Full_array(self.time_cubes_all_data_new_2[change['new']])
                           
         if self.time_intervals_no_duplicate:
             if self.first_cube:
-                if self.cube_version_0:
-                    data = self.Full_array(self.time_cubes_no_duplicate_init_1[change['new']])
-                    self.plot_interv_dupli_init_set1.voxels = data
-                if self.cube_version_1:
-                    data = self.Full_array(self.time_cubes_no_duplicate_new_1[change['new']])
-                    self.plot_interv_dupli_new_set1.voxels = data
+                if self.cube_version_0: self.plot_interv_dupli_init_set1.voxels = self.Full_array(self.time_cubes_no_duplicate_init_1[change['new']])
+                if self.cube_version_1: self.plot_interv_dupli_new_set1.voxels = self.Full_array(self.time_cubes_no_duplicate_new_1[change['new']])
             if self.second_cube:
-                if self.cube_version_0:
-                    data = self.Full_array(self.time_cubes_no_duplicate_init_2[change['new']])
-                    self.plot_interv_dupli_init_set2.voxels = data
-                if self.cube_version_1:
-                    data = self.Full_array(self.time_cubes_no_duplicate_new_2[change['new']])
-                    self.plot_interv_dupli_new_set2.voxels = data                    
-        if self.day_trace or self.day_trace_no_duplicate:
-            for day_nb, day_index in enumerate(self.day_indexes):
-                if (change['new'] in day_index) and (change['old'] not in day_index):
-                    if self.first_cube:
-                        if self.day_trace:
-                            data = self.Full_array(self.day_cubes_all_data_1[day_nb])
-                            self.plot_day_set1.voxels = data
-                        if self.day_trace_no_duplicate:
-                            data = self.Full_array(self.day_cubes_no_duplicate_1[day_nb])
-                            self.plot_day_dupli_set1.voxels = data
-                    if self.second_cube:
-                        if self.day_trace:
-                            data = self.Full_array(self.day_cubes_all_data_2[day_nb])
-                            self.plot_day_set2.voxels = data
-                        if self.day_trace_no_duplicate:
-                            data = self.Full_array(self.day_cubes_no_duplicate_2[day_nb])
-                            self.plot_day_dupli_set2.voxels = data
-                    break          
-        if self.barycenter:
-            data = self.Full_array(self.cubes_barycenter[change['new']])
-            self.plot_barycenter.voxels = data 
-        if self.test_conv:
-            data = self.Full_array(self.cubes_test_conv[change['new']])
-            self.plot_conv.voxels = data
-        if self.make_screenshots:
-            self.Screenshot_making()
+                if self.cube_version_0: self.plot_interv_dupli_init_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_init_2[change['new']])
+                if self.cube_version_1: self.plot_interv_dupli_new_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_new_2[change['new']])
+       
+        if self.barycenter: self.plot_barycenter.voxels = self.Full_array(self.cubes_barycenter[change['new']])
+        if self.convolution: self.plot_conv.voxels = self.Full_array(self.cubes_test_conv[change['new']])
+        if self.make_screenshots: self.Screenshot_making()
 
     def Play(self):
         """
@@ -1707,9 +1476,14 @@ class K3dAnimation(Data):
         self.Camera_params()
         
         if self.test_poly:
-            data = self.Full_array(self.cube_test_poly[0])
-            self.plot_test_poly = k3d.voxels(data, opacity=1, compression_level=self.compression_level, color=0x0000ff, name='testpoly')
-            self.plot += self.plot_test_poly
+            self.plots_polynomials = []
+            for (pattern, data) in self.polynomials_matchesNdata:
+                data = self.Full_array(data[0])
+                plot = k3d.voxels(data, opacity=0.8, compression_level=self.compression_level, color=0x0000ff, 
+                                  name=f'n{pattern.group('order')}_{pattern.group('conv_limit')}_{pattern.group('datatype')}')
+                self.plots_polynomials.append(plot)
+                self.plots += plot
+
         # Adding the SUN!!!
         if self.sun:
             self.plot += k3d.points(positions=self.sun_points, point_size=3.5, colors=self.hex_colours, shader='flat',
@@ -1875,46 +1649,14 @@ class K3dAnimation(Data):
                 data = self.Full_array(self.trace_cubes_no_duplicate_2)
                 self.plot += k3d.voxels(data, compression_level=self.compression_level, outlines=False, 
                                     color_map=[0xff6666], opacity=self.trace_opacity, name='Set2: no duplicates trace')
-            
-        if self.day_trace:
-            if self.first_cube:
-                date = self.dates_1[0]
-                data = self.Full_array(self.day_cubes_all_data_1[0])
-                self.plot_day_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0x0000ff], opacity=0.3,
-                                         name=f'Set1: total trace for {date.month:02d}.{date.day:02d}')
-                self.plot += self.plot_day_set1
-            if self.second_cube:
-                date = self.dates_2[0]
-                data = self.Full_array(self.day_cubes_all_data_2[0])
-                self.plot_day_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6e00], opacity=0.1, 
-                                         name=f'Set2: total trace for {date.month:02d}.{date.day:02d}')
-                self.plot += self.plot_day_set2
-        
-        if self.day_trace_no_duplicate:
-            if self.first_cube:
-                date = self.dates_1[0]
-                data = self.Full_array(self.day_cubes_no_duplicate_1[0])
-                self.plot_day_dupli_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0x0000ff], opacity=0.3, 
-                                         name=f'Set1: no duplicate trace for {date.month:02d}.{date.day:02d}')
-                self.plot += self.plot_day_dupli_set1
-            if self.second_cube:
-                date = self.dates_2[0]
-                data = self.Full_array(self.day_cubes_no_duplicate_2[0])
-                self.plot_day_dupli_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                         color_map=[0xff6e00], opacity=0.1, 
-                                         name=f'Set2: no duplicate trace for {date.month:02d}.{date.day:02d}')
-                self.plot += self.plot_day_dupli_set2
-
+    
         if self.barycenter:
             data = self.Full_array(self.cubes_barycenter[0])
             self.plot_barycenter = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=1,
                                               name='barycenter for new no dupliactes' )
             self.plot += self.plot_barycenter
 
-        if self.test_conv:
+        if self.convolution:
             data = self.Full_array(self.cubes_test_conv[0])
             self.plot_conv = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=0.5,
                                         name='conv3d')
@@ -1973,69 +1715,9 @@ class VoxelVelocities(Data):
         """
         Function to get the baricenter of the time cunks
         """
-        import time
-        start = time.time()
-        print(f'cube shape is {self.cubes_shape}')
-        all_data_coords = self.time_cubes_no_duplicate_new_2.coords
-        
-        x_slices = []
-        y_slices = []
-        z_slices = []
-        for times in range(self.cubes_shape[0]):
-            time_coord = all_data_coords[:, all_data_coords[0]==times]
-            x_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[1]==x], axis=1) 
-                for x in range(self.cubes_shape[1])
-                if np.any(time_coord[1]==x)
-                ], axis=1)).astype('int'))
-            y_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[2]==y], axis=1) 
-                for y in range(self.cubes_shape[2])
-                if np.any(time_coord[2]==y)
-                ], axis=1)).astype('int'))
-            z_slices.append(np.round(np.stack([
-                np.mean(time_coord[:, time_coord[3]==z], axis=1) 
-                for z in range(self.cubes_shape[3])
-                if np.any(time_coord[3]==z)
-                ], axis=1)).astype('int'))
-        middle = time.time()
-        x_slices = np.hstack(x_slices)
-        y_slices = np.hstack(y_slices)
-        z_slices = np.hstack(z_slices)
-        # print(f' slices shapes are {x_slices.shape}, {y_slices.shape}, {z_slices.shape}')
-        print(f"first method done in {middle - start}")
-
-        tot_barycenter = []
-        for times in range(239):
-            time_xslice = x_slices[:, x_slices[0]==times]
-            time_yslice = y_slices[:, y_slices[0]==times]
-            time_zslice = z_slices[:, z_slices[0]==times]
-            # print(f'slices shape are {time_xslice.shape}, {time_yslice.shape}, {time_zslice.shape}')
-            time_slice = np.hstack([time_xslice, time_yslice, time_zslice])
-            positions = []
-            for x in range(320):
-                slices = time_slice[:, time_slice[1]==x]
-                if np.any(slices):
-                    positions.append(np.round(np.mean(slices, axis=1)).astype('int'))
-            tot_barycenter.append(np.stack(positions, axis=1))
-        tot_barycenter = np.hstack(tot_barycenter)
-        print(f'tot_barycenter shape is {tot_barycenter.shape}')
-        third = time.time()
-        print(f"second method done in {third - middle}")
-        print(f'final array shape is {tot_barycenter.shape}')
-        # x_slices = np.round(np.hstack([
-        #     np.hstack([
-        #         np.mean(all_data_coords[:, (all_data_coords[0, :]==time) & (all_data_coords[1, :]==x)], axis=1)
-        #         for x in range(self.cubes_shape[1])
-        #         if np.any((all_data_coords[0, :]==time) & (all_data_coords[1, :]==x))
-        #     ])
-        #     for time in range(self.cubes_shape[0])
-        # ]))
-
+        pass
 
 # Basic tests
 if __name__ == '__main__':
     # K3dAnimation(everything=True, both_cubes='alf')
-
-    test = VoxelVelocities(time_interval='24h')
-    test.Regions_preprocessing()
+    pass

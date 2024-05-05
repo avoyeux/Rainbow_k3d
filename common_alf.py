@@ -67,8 +67,21 @@ class Decorators:
             print(f"\033[94m{func.__name__} started on {time.ctime(START_time)}. \033[0m")
             result = func(*args, **kwargs)
             END_time = time.time()
-            print(f"\033[92m{func.__name__} ended on {time.ctime(END_time)} "
-                  f"({round(END_time - START_time, 2)}s).\033[0m")
+            DIF_time = END_time - START_time
+            if DIF_time < 60:
+                DIF_time = f'{round(DIF_time, 2)}s'
+            elif DIF_time < 3600:
+                DIF_time //= 60
+                DIF_time = f'{round(DIF_time)}min'
+            elif DIF_time < 24 * 3600:
+                DIF_time //= 3600
+                DIF_time = f'{round(DIF_time)}h'
+            else:
+                DIF_time //= 24 * 3600
+                end_str = 'days' if DIF_time > 1 else 'day'
+                DIF_time = f'{round(DIF_time)}' + end_str
+
+            print(f"\033[92m{func.__name__} ended on {time.ctime(END_time)} ({DIF_time}).\033[0m")
             return result
         return wrapper
 

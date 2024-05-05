@@ -9,7 +9,7 @@ import numpy as np
 
 from typeguard import typechecked
 from scipy.optimize import curve_fit
-from skimage.morphology import skeletonize_3d
+from skimage.morphology import skeletonize
 
 from common_alf import MathematicalEquations, Decorators
 
@@ -47,7 +47,6 @@ class BarycenterCreation:
         # Importing the data
         cubes = np.load(os.path.join(self.path, 'barycenter_array_4.npy')).astype('uint8')
         binary_cubes = cubes > self.conv_thresholds
-        
         # Testing for a specific value
         test_section = binary_cubes[self.test_time_index]
         x, y, z = np.where(test_section==1)
@@ -222,7 +221,7 @@ class BarycenterCreation_4:
                  integration_time: int | str = '24h', multiprocessing: bool = True, threads: int = 5):
         
         # Arguments
-        self.datatype = datatype if not isinstance(datatype, str) else [datatype]  # what data is fitted - 'conv3dContours', 'conv3dAll', 'raw', 'rawContours'
+        self.datatype = datatype if not isinstance(datatype, str) else [datatype]  # what data is fitted - 'conv3dAll', 'conv3dSkele', 'raw', 'rawContours'
         self.conv_thresholds = conv_threshold if not isinstance(conv_threshold, int) else [conv_threshold]  # minimum threshold to convert the conv3d data to binary
         self.n = polynomial_order if not isinstance(polynomial_order, int) else [polynomial_order]  # the polynomial order
         self.time_interval = integration_time
@@ -344,11 +343,13 @@ class BarycenterCreation_4:
         """
 
         # Multiprocessing set up
+        shm_conv = None
+        shm_raw = None
         multiprocessing = True if (self.multiprocessing and len(self.datatype) > 1) else False
         processes = []
 
         # Pre-loading the convolution data if needed
-        conv_name_list = ['conv3dAll', 'conv3dSkele', 'conv3dContours']
+        conv_name_list = ['conv3dAll', 'conv3dSkele']
         if any(item in conv_name_list for item in self.datatype):
             data_conv = np.load(os.path.join(self.paths['main'], 'conv3dRainbow.npy')).astype('uint8')
 
@@ -382,9 +383,10 @@ class BarycenterCreation_4:
         for p in processes: p.join()
 
         if multiprocessing: 
-            shm_conv.unlink()
-            shm_raw.unlink()
+            if shm_conv is not None: shm_conv.unlink()
+            if shm_raw is not None: shm_raw.unlink()
 
+    @Decorators.running_time
     def File_opening_threads(self, filepaths: str):
         """
         Opening the .save files via threads
@@ -410,7 +412,7 @@ class BarycenterCreation_4:
         # Joining the threads
         for t in threads: t.join()
         results.sort(key=lambda x: x[0])
-        return results[:, 1]
+        return [result[1] for result in results]
 
     def File_reader(self, queue, lock, results: list):
         """
@@ -467,7 +469,7 @@ class BarycenterCreation_4:
                     break
         dates = [CustomDate(pattern_int.match(filename).group(1)) for filename in filenames]
         self.days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        date = date[0]
+        date = dates[0]
         if (date.year % 4 == 0 and date.year % 100 !=0) or (date.year % 400 == 0):  # Only works if the year doesn't change
             self.days_per_month[2] = 29  # for leap years
         
@@ -495,7 +497,7 @@ class BarycenterCreation_4:
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
         # Defining the conv_threshold list if the right datatype
-        conv_thresholds = [] if 'conv3d' not in datatype else self.conv_thresholds
+        conv_thresholds = [] if 'conv3dSkele' not in datatype else self.conv_thresholds
 
         if len(conv_thresholds) != 0:
             # Creating a list of arrays depending on the thresholds chosen
@@ -512,24 +514,60 @@ class BarycenterCreation_4:
         processes = []
  
         if multiprocessing:
-            processes = [Process(target=self.Processing_4D_binary, args=(datatype, binary_cube, contour, skeleton, conv_thresholds)) 
-                         for binary_cube in data]
+            processes = [Process(target=self.Processing_4D_binary, args=(datatype, binary_cube, contour, skeleton, 
+                                                                         conv_thresholds[conv_index] if conv_thresholds else None)) 
+                         for conv_index, binary_cube in enumerate(data)]
         else:
-            for binary_cube in data: self.Processing_4D_binary(datatype, binary_cube, contour, skeleton, conv_thresholds)
+            for conv_index, binary_cube in enumerate(data): 
+                self.Processing_4D_binary(datatype, binary_cube, contour, skeleton, conv_thresholds[conv_index] if conv_thresholds else None)
 
         for p in processes: p.start()
         for p in processes: p.join()
 
-    def Processing_4D_binary(self, datatype: str, data: np.ndarray | None, contour: bool = False, skeleton: bool = False, conv_thresholds: list = []):
+    def Processing_4D_binary(self, datatype: str, data: np.ndarray | None, contour: bool = False, skeleton: bool = False, conv_threshold: int | None = None):
         """
         The processing of one 4D binary data cube
         """
 
-        # Initialisation of the list with all the results
-        all_unique_points = [[] for _ in range(len(self.n))]
+        # Multiprocessing set-up
+        multiprocessing = True if (self.multiprocessing and len(self.n) > 1) else False
+        processes = []
 
+        if multiprocessing: shm, data = self.Shared_memory(data)
+
+        kwargs = {
+            'data': data,
+            'datatype': datatype,
+            'contour': contour,
+            'skeleton': skeleton,
+            'shared_array': multiprocessing,
+        }
+
+        if multiprocessing:
+            processes = [Process(target=self.Time_loop, kwargs={'index': i, **kwargs}) for i in range(len(self.n))]
+        else:
+            for i in range(len(self.n)): self.Time_loop(index=i, **kwargs)
+
+        for p in processes: p.start()
+        for p in processes: p.join()
+        
+        if multiprocessing: shm.unlink()
+
+    def Time_loop(self, data: np.ndarray | dict, datatype: str,  shared_array: bool, index: int, conv_threshold: int | None = None, 
+                  contour: bool = False, skeleton: bool = False):
+        """
+        The for loop on the time axis.
+        The code is written like this so that not to many subprocesses are opened and closed.
+        """
+
+        if shared_array: 
+            shm = shared_memory.SharedMemory(name=data['shm.name'])
+            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+
+        # Initialisation of the results list
+        results = []
         # For loop through the time index
-        for time in range(data.shape[0]):
+        for time in range(data.shape[0]): # TODO: need to change the order so that not so many processes are opened and closed
             # Selecting a slice of the data
             section = data[time]
 
@@ -539,7 +577,7 @@ class BarycenterCreation_4:
                 section = section.astype('uint8') - eroded_data.astype('uint8')
             elif skeleton:
                 # Preprocessing to only fit the skeleton
-                section = skeletonize_3d(section)
+                section = skeletonize(section)
 
             # Setting up the data
             x, y, z = np.where(section)
@@ -552,70 +590,28 @@ class BarycenterCreation_4:
             t /= t[-1]  # normalisation
             t += 1
 
-            # Setting up the multiprocessing
-            multiprocessing = True if (self.multiprocessing and len(self.n) > 1) else False
-            processes = []
-            manager = Manager()
-            queue = manager.Queue()
-            time_results = [None for _ in range(len(self.n))]
+            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=index))
+        results = np.concatenate(results, axis=1)
 
-            if multiprocessing:
-                # Setting up the shared memory
-                shm = shared_memory.SharedMemory(create=True, size=points.nbytes)
-                shared_array = np.ndarray(points.shape, dtype=points.dtype, buffer=shm.buf)
-                np.copyto(shared_array, points)
-                points = {
-                    'shm.name': shm.name,
-                    'data.shape': points.shape,
-                    'data.dtype': points.dtype,
-                    }
-                shm.close()
-                processes = [Process(target=self.Fitting_polynomial, args=(time, t, points, index, multiprocessing, queue)) 
-                             for index in range(len(self.n))]
-            else:
-                time_results = [self.Fitting_polynomial(time=time, t=t, points=points, index=index)
-                                for index in range(len(self.n))]
+        if shared_array: shm.close()
 
-            # Running the multiprocessing 
-            for p in processes: p.start()
-            for p in processes: p.join()
-
-            if multiprocessing: shm.unlink()
-            
-            # Getting the results from the queue 
-            while not queue.empty():
-                indentifier, result = queue.get()
-                time_results[indentifier] = result
-            
-            # Populating the total results list
-            for i in range(len(self.n)): all_unique_points[i].append(time_results[i])
-            
         # Saving the data in .npy files
-        for i, n in enumerate(self.n):
-            if len(conv_thresholds) != 0:
-                added_string = 'lim' + '_'.join(f'{threshold}' for threshold in conv_thresholds)
-            else:
-                added_string= ''
-            
-            # Preparing the filename and data and saving it
-            filename = f'poly_{datatype}_' + added_string + f'_order{n}.npy'
-            data_array = np.concatenate(all_unique_points[i], axis=1)
-            np.save(os.path.join(self.paths['main'], filename), data_array.astype('uint16'))
+        if conv_threshold is not None:
+            added_string = f'_lim_{conv_threshold}'
+        else:
+            added_string = ''
+        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}.npy'
+        np.save(os.path.join(self.paths['main'], filename), results.astype('uint16'))
 
-            print(f'File {filename} saved with shape {data_array.shape}', flush=True)
+        print(f'File {filename} saved with shape {results.shape}', flush=True)
 
-    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index, shared_array: bool = False, queue = None):
+    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index):
             """
             Where the fitting of the curve actually takes place.
             """
 
-            if shared_array: 
-                shm = shared_memory.SharedMemory(name=data['shm.name'])
-                data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
-
             # Getting the data ready
             x, y, z = data[:, 0], data[:, 1], data[:, 2]
-            if shared_array: shm.close()
             polynomial = self.polynomial_list[index]
             params = self.params_list[index]
 
@@ -638,23 +634,12 @@ class BarycenterCreation_4:
             data = data[~conditions]        
             unique_data = np.unique(data, axis=0).T
             time_row = np.full((1, unique_data.shape[1]), time)
-            data_points = np.vstack((time_row, data_points))
-
-            if queue:
-                # Getting the results out of the child process
-                queue.put((index, unique_data.astype('uint16')))
-            else:
-                return unique_data
-
+            unique_data = np.vstack((time_row, unique_data)).astype('uint16')
+            return unique_data
 
 if __name__=='__main__':
-
-    # BarycenterCreation_2(n_oder=3, conv_threshold=40, test_time_index=84)
-    # BarycenterCreation_3(n_oder=3, conv_threshold=40, test_time_index=84, smooth=1)
-    # BarycenterCreation_4(conv_threshold=10, polynomial_order=4)
-
-    BarycenterCreation_4(datatype=['conv3dContours', 'conv3dSkele'], 
-                         conv_threshold=[10, 20], 
-                         polynomial_order=[4, 5],
+    BarycenterCreation_4(datatype=['conv3dAll', 'conv3dSkele', 'raw', 'rawContours'], 
+                         conv_threshold=[10, 40, 100], 
+                         polynomial_order=[3, 4, 5, 6, 7],
                          integration_time='24h',
                          multiprocessing=True)
