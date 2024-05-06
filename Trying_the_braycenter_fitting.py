@@ -205,7 +205,7 @@ class BarycenterCreation_3:
 
 
 from scipy.ndimage import binary_erosion
-from multiprocessing import Process, Manager, shared_memory
+from multiprocessing import Process, shared_memory, Manager
 from scipy.io import readsav
 import re
 from glob import glob
@@ -218,7 +218,7 @@ class BarycenterCreation_4:
 
     @typechecked
     def __init__(self, datatype: str | list = 'surface', conv_threshold: int | list | tuple = 125, polynomial_order: int | list | tuple = 3, 
-                 integration_time: int | str = '24h', multiprocessing: bool = True, threads: int = 5):
+                 integration_time: int | str = '24h', multiprocessing: bool = True, multiprocessing_multiplier: int = 2, threads: int = 5):
         
         # Arguments
         self.datatype = datatype if not isinstance(datatype, str) else [datatype]  # what data is fitted - 'conv3dAll', 'conv3dSkele', 'raw', 'rawContours'
@@ -226,6 +226,7 @@ class BarycenterCreation_4:
         self.n = polynomial_order if not isinstance(polynomial_order, int) else [polynomial_order]  # the polynomial order
         self.time_interval = integration_time
         self.multiprocessing = multiprocessing
+        self.multiprocessing_multiplier = multiprocessing_multiplier
         self.threads = threads
 
         # Attributes
@@ -544,29 +545,91 @@ class BarycenterCreation_4:
         }
 
         if multiprocessing:
-            processes = [Process(target=self.Time_loop, kwargs={'index': i, **kwargs}) for i in range(len(self.n))]
+            processes = [Process(target=self.Time_multiprocessing, kwargs={'index': i, **kwargs}) for i in range(len(self.n))]
         else:
-            for i in range(len(self.n)): self.Time_loop(index=i, **kwargs)
+            for i in range(len(self.n)): self.Time_multiprocessing(index=i, **kwargs)
 
         for p in processes: p.start()
         for p in processes: p.join()
         
         if multiprocessing: shm.unlink()
 
-    def Time_loop(self, data: np.ndarray | dict, datatype: str,  shared_array: bool, index: int, conv_threshold: int | None = None, 
+    def Time_multiprocessing(self, data: np.ndarray | dict, datatype: str,  shared_array: bool, index: int, conv_threshold: int | None = None, 
                   contour: bool = False, skeleton: bool = False):
         """
         The for loop on the time axis.
-        The code is written like this so that not to many subprocesses are opened and closed.
         """
 
-        if shared_array: 
+        # Initialisation of the multiprocessing
+        multiprocessing = True if (self.multiprocessing and self.multiprocessing_multiplier > 1) else False
+
+        if multiprocessing:
+            if not shared_array: shm, data = self.Shared_memory(data)
+
+            # Initialisation
+            results = []
+            processes = []
+            manager = Manager()
+            queue = manager.Queue()
+
+            # Step an multiprocessing kwargs
+            step = int(np.ceil(data.shape[0] / self.multiprocessing_multiplier))
+            kwargs = {
+                'queue': queue,
+                'step': step,
+                'data': data,
+                'shared_array': True,
+                'contour': contour,
+                'skeleton': skeleton,
+            }
+            # Preping the processes
+            for i in range(self.multiprocessing_multiplier):
+                if not (i==self.multiprocessing_multiplier - 1):
+                    processes.append(Process(target=self.Time_loop, kwargs={'index':i, **kwargs}))
+                else:
+                    processes.append(Process(target=self.Time_loop, kwargs={'index': i, 'last': True, **kwargs}))
+
+            for p in processes: p.start()
+            for p in processes: p.join()
+
+            if not shared_array: shm.unlink()
+
+            while not queue.empty():
+                identifier, result = queue.get()
+                results[identifier] = result
+            results = np.concatenate(results, axis=1)
+        else:
+            results = self.Time_loop(data=data, shared_array=shared_array, contour=contour, skeleton=skeleton)
+
+        # Saving the data in .npy files
+        if conv_threshold is not None:
+            added_string = f'_lim_{conv_threshold}'
+        else:
+            added_string = ''
+        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}.npy'
+        np.save(os.path.join(self.paths['main'], filename), results.astype('uint16'))
+
+        print(f'File {filename} saved with shape {results.shape}', flush=True)
+
+    def Time_loop(self, index: int | None = None, queue: None = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
+                  contour: bool = False, skeleton: bool = False):
+        """
+        The for loop on the time axis.
+        """
+
+        if shared_array:
             shm = shared_memory.SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
-        # Initialisation of the results list
+        # If multiprocessing this part
+        if step:
+            if not last:
+                data = data[step * i:step * (i + 1)]
+            else:
+                data = data[step * i:]
+
+        # Initialisation of the result list
         results = []
-        # For loop through the time index
         for time in range(data.shape[0]): # TODO: need to change the order so that not so many processes are opened and closed
             # Selecting a slice of the data
             section = data[time]
@@ -594,16 +657,8 @@ class BarycenterCreation_4:
         results = np.concatenate(results, axis=1)
 
         if shared_array: shm.close()
-
-        # Saving the data in .npy files
-        if conv_threshold is not None:
-            added_string = f'_lim_{conv_threshold}'
-        else:
-            added_string = ''
-        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}.npy'
-        np.save(os.path.join(self.paths['main'], filename), results.astype('uint16'))
-
-        print(f'File {filename} saved with shape {results.shape}', flush=True)
+        if not step: return results  # if no multiprocessing
+        queue.put((index, results))
 
     def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index):
             """
@@ -642,4 +697,5 @@ if __name__=='__main__':
                          conv_threshold=[10, 40, 100], 
                          polynomial_order=[3, 4, 5, 6, 7],
                          integration_time='24h',
-                         multiprocessing=True)
+                         multiprocessing=True,
+                         multiprocessing_multiplier=4)

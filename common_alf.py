@@ -68,7 +68,7 @@ class Decorators:
             result = func(*args, **kwargs)
             END_time = time.time()
             DIF_time = END_time - START_time
-            if DIF_time < 60:
+            if DIF_time < 120:
                 DIF_time = f'{round(DIF_time, 2)}s'
             elif DIF_time < 3600:
                 DIF_time //= 60

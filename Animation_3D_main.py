@@ -80,7 +80,7 @@ class Data:
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 10, make_screenshots: bool = False, cube_version: str = 'old',
-                 convolution_3d: bool = False, conv_treshold: int = 125, test_poly: bool = False):
+                 convolution_3d: bool = False, conv_treshold: int = 125, polynomials: bool = False, skeleton: bool = False):
         
         # Arguments
         self.first_cube = False
@@ -135,7 +135,8 @@ class Data:
         self._heliographic_grid_degrees = heliographic_grid_degrees  # heliographic grid steps in degrees
         self.convolution = convolution_3d
         self.conv_treshold = conv_treshold
-        self.test_poly = test_poly
+        self.polynomials = polynomials
+        self.skeleton = skeleton
 
         # Instance attributes set when running the class
         self.paths = None  # dictionary containing all the path names and the corresponding path
@@ -204,7 +205,7 @@ class Data:
         """
 
         pattern = re.compile(r'''poly_
-                             (?P<datatype>[a-zA-Z]+)_
+                             (?P<datatype>[a-zA-Z0-9]+)_
                              (lim_(?P<conv_limit>\d+)_)?
                              order(?P<order>\d+)
                              \.npy''', re.VERBOSE)
@@ -220,16 +221,6 @@ class Data:
             else:
                 print(f"\033[92mPolynomial array filename {filename} doesn't match the usual pattern. \033[0m")
         self.polynomials_matchesNdata = files_dataNmatches
-
-    def Testing_the_polynomial(self):
-        """
-        Just to test one polynomial solution array to see what it gives.
-        """
-
-        polynomial_solution = np.load(os.path.join(self.paths['polynomials'], f'poly_conv3dContours_lim10_order4.npy')).astype('uint16')
-        coo = COO(coords=polynomial_solution, data=1, shape=self.cubes_shape)
-        self.cube_test_poly = coo
-        print(f'The shape of the polynomial solution is shape {self.cube_test_poly.shape}')
 
     def Paths(self):
         """
@@ -284,7 +275,7 @@ class Data:
 
         if self.convolution: self.Conv3d_results()
 
-        if self.test_poly: self.Prepocessing_polynomial_data()
+        if self.polynomials: self.Prepocessing_polynomial_data()
 
     def Names(self):
         """
@@ -1063,33 +1054,34 @@ class Data:
         data = np.load(os.path.join('..', 'test_conv3d_array', 'conv3dRainbow.npy')).astype('uint8')
 
         binary_data = data > self.conv_treshold
-        self.cubes_test_conv = self.Sparse_data(binary_data)
+        self.cubes_convolution = self.Sparse_data(binary_data)
 
-        # Multiprocessing initial I/O bound tasks
-        nb_of_batches = 6
-        IO_processes = []
-        manager = Manager()
-        queue = manager.Queue()
+        if self.skeleton:
+            # Multiprocessing initial I/O bound tasks
+            nb_of_batches = 6
+            IO_processes = []
+            manager = Manager()
+            queue = manager.Queue()
 
-        step = int(np.ceil(self.cubes_shape[0] / nb_of_batches))
-        # Preping the processes
-        for i in range(nb_of_batches):
-            if not (i==nb_of_batches - 1):
-                IO_processes.append(Process(target=self.Skeleton_loop, args=(queue, i, binary_data[step * i:step * (i + 1)])))
-            else:
-                IO_processes.append(Process(target=self.Skeleton_loop_loop, args=(queue, i, binary_data[step * i:])))
-        
-        # Running the processes
-        for p in IO_processes: p.start()
-        for p in IO_processes: p.join()
+            step = int(np.ceil(self.cubes_shape[0] / nb_of_batches))
+            # Preping the processes
+            for i in range(nb_of_batches):
+                if not (i==nb_of_batches - 1):
+                    IO_processes.append(Process(target=self.Skeleton_loop, args=(queue, i, binary_data[step * i:step * (i + 1)])))
+                else:
+                    IO_processes.append(Process(target=self.Skeleton_loop, args=(queue, i, binary_data[step * i:])))
+            
+            # Running the processes
+            for p in IO_processes: p.start()
+            for p in IO_processes: p.join()
 
-        # Ordering the results
-        results = [None for _ in range(nb_of_batches)]
-        while not queue.empty():
-            identifier, result = queue.get()
-            results[identifier] = result
-        cubes_barycenter = np.concatenate(results, axis=0)
-        self.cubes_barycenter = self.Sparse_data(cubes_barycenter)
+            # Ordering the results
+            results = [None for _ in range(nb_of_batches)]
+            while not queue.empty():
+                identifier, result = queue.get()
+                results[identifier] = result
+            cubes_barycenter = np.concatenate(results, axis=0)
+            self.cubes_skeleton = self.Sparse_data(cubes_barycenter)
 
     def Skeleton_loop(self, queue, i, data):
         skeletons = []
@@ -1316,7 +1308,7 @@ class K3dAnimation(Data):
                                 0, 0, 1]
             sleep(0.2)
         
-        if self.test_poly:
+        if self.polynomials:
             for index, plot in enumerate(self.plots_polynomials):
                 _, data = self.polynomials_matchesNdata[index]
                 plot.voxels = self.Full_array(data[change['new']])
@@ -1371,8 +1363,8 @@ class K3dAnimation(Data):
                 if self.cube_version_0: self.plot_interv_dupli_init_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_init_2[change['new']])
                 if self.cube_version_1: self.plot_interv_dupli_new_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_new_2[change['new']])
        
-        if self.barycenter: self.plot_barycenter.voxels = self.Full_array(self.cubes_barycenter[change['new']])
-        if self.convolution: self.plot_conv.voxels = self.Full_array(self.cubes_test_conv[change['new']])
+        if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
+        if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
         if self.make_screenshots: self.Screenshot_making()
 
     def Play(self):
@@ -1462,6 +1454,14 @@ class K3dAnimation(Data):
                 self.time_interval = time_interval
         else:
             raise ValueError("Time interval is way too large")
+    
+    def Random_hexadecimal_color_generator(self):
+        """
+        Generator that yields a color value in integer hexadecimal code format.
+        """
+
+        while True:
+            yield np.random.randint(0, 0xffffff)
 
     def Animation(self):
         """
@@ -1475,14 +1475,15 @@ class K3dAnimation(Data):
         # Adding the camera specific parameters
         self.Camera_params()
         
-        if self.test_poly:
+        if self.polynomials:
             self.plots_polynomials = []
             for (pattern, data) in self.polynomials_matchesNdata:
                 data = self.Full_array(data[0])
-                plot = k3d.voxels(data, opacity=0.8, compression_level=self.compression_level, color=0x0000ff, 
-                                  name=f'n{pattern.group('order')}_{pattern.group('conv_limit')}_{pattern.group('datatype')}')
+                limit_val = f"_lim{pattern.group('conv_limit')}" if pattern.group('conv_limit') else None
+                plot = k3d.voxels(data, opacity=0.8, compression_level=self.compression_level, color_map=[next(self.Random_hexadecimal_color_generator())], 
+                                  name=f"n{pattern.group('order')}{limit_val if limit_val else ''}_{pattern.group('datatype')}")
                 self.plots_polynomials.append(plot)
-                self.plots += plot
+                self.plot += plot
 
         # Adding the SUN!!!
         if self.sun:
@@ -1650,17 +1651,17 @@ class K3dAnimation(Data):
                 self.plot += k3d.voxels(data, compression_level=self.compression_level, outlines=False, 
                                     color_map=[0xff6666], opacity=self.trace_opacity, name='Set2: no duplicates trace')
     
-        if self.barycenter:
-            data = self.Full_array(self.cubes_barycenter[0])
-            self.plot_barycenter = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=1,
+        if self.skeleton:
+            data = self.Full_array(self.cubes_skeleton[0])
+            self.plot_skeleton = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=1,
                                               name='barycenter for new no dupliactes' )
-            self.plot += self.plot_barycenter
+            self.plot += self.plot_skeleton
 
         if self.convolution:
-            data = self.Full_array(self.cubes_test_conv[0])
-            self.plot_conv = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=0.5,
+            data = self.Full_array(self.cubes_convolution[0])
+            self.plot_convolution = k3d.voxels(data, compression_level=self.compression_level, outlines=False, color_map=[0xff6e00], opacity=0.5,
                                         name='conv3d')
-            self.plot += self.plot_conv
+            self.plot += self.plot_convolution
 
         # Adding a play/pause button
         self.play_pause_button = widgets.ToggleButton(value=False, description='Play', icon='play')
