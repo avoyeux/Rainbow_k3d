@@ -76,134 +76,6 @@ class BarycenterCreation:
         result_cube = (np.abs(result_cube) * 255).astype('uint16')
         np.save(os.path.join(self.path, f'polynomial_results_convlim{self.conv_thresholds}.npy'), result_cube)
 
-from sklearn.decomposition import PCA
-from scipy.interpolate import BSpline, make_interp_spline
-
-
-class BarycenterCreation_2:
-
-    @typechecked
-    def __init__(self, n_oder: int = 3, conv_threshold: int = 125, test_time_index: int = 200):
-        
-        # Arguments
-        self.n_order = n_oder
-        self.conv_thresholds = conv_threshold
-        self.test_time_index = test_time_index
-
-        # Attributes
-        self.path = None  # the path to the cubes and where to save the result 
-
-        # Functions
-        self.Paths()
-        self.Main_structure()
-
-    def Paths(self):
-        """
-        Path creation.
-        """
-
-        self.path = os.path.join(os.getcwd(), '..', 'test_conv3d_array')
-
-    def Main_structure(self):
-        """
-        Class' main function.
-        """
-
-        # Importing the data
-        cubes = np.load(os.path.join(self.path, 'barycenter_array_4.npy')).astype('uint8')
-        binary_cubes = cubes > self.conv_thresholds
-        
-        # Testing for a specific value
-        test_section = binary_cubes[self.test_time_index]
-        test_section = skeletonize_3d(test_section)
-
-        print(f'skeleton shape is {test_section.shape}')
-        x, y, z = np.where(test_section)
-        points = np.stack((x, y, z), axis=1)
-
-        # Finding the principal component
-        pca = PCA(n_components=1)
-        projection = pca.fit_transform(points)
-        sorted_indices = np.argsort(projection[:, 0])
-        sorted_points = points[sorted_indices]
-
-        # Fit a B-spline
-        t = np.linspace(0, 1, len(sorted_points))
-        x, y, z = sorted_points[:, 0], sorted_points[:, 1], sorted_points[:, 2]
-        spl_x = make_interp_spline(t, x, k=self.n_order)
-        spl_y = make_interp_spline(t, y, k=self.n_order)
-        spl_z = make_interp_spline(t, z, k=self.n_order)
-
-        # Evaluate the spline for a smooth curve
-        t_fine = np.linspace(0, 1, 1*10**5)
-        smooth_x = spl_x(t_fine)
-        smooth_y = spl_y(t_fine)
-        smooth_z = spl_z(t_fine)
-
-        # Recreating the curve
-        points = np.vstack((smooth_x, smooth_y, smooth_z)).T.astype('uint16')
-        unique_points = np.unique(points, axis=0).T
-        
-        print(f'the shape of the output is {unique_points.shape}')
-        np.save(os.path.join(self.path, f'polynomial_results_convlim{self.conv_thresholds}_skele.npy'), unique_points)
-
-
-from scipy.interpolate import splprep, splev
-
-
-class BarycenterCreation_3:
-
-    @typechecked
-    def __init__(self, n_oder: int = 3, conv_threshold: int = 125, test_time_index: int = 200,
-                 smooth: float = 0.5):
-        
-        # Arguments
-        self.n_order = n_oder
-        self.smooth = smooth
-        self.conv_thresholds = conv_threshold
-        self.test_time_index = test_time_index
-
-        # Attributes
-        self.path = None  # the path to the cubes and where to save the result 
-
-        # Functions
-        self.Paths()
-        self.Main_structure()
-
-    def Paths(self):
-        """
-        Path creation.
-        """
-
-        self.path = os.path.join(os.getcwd(), '..', 'test_conv3d_array')
-
-    @Decorators.running_time
-    def Main_structure(self):
-        """
-        Class' main function.
-        """
-
-        # Importing the data
-        cubes = np.load(os.path.join(self.path, 'barycenter_array_4.npy')).astype('uint8')
-        binary_cubes = cubes > self.conv_thresholds
-        
-        # Testing for a specific value
-        test_section = binary_cubes[self.test_time_index]
-        x, y, z = np.where(test_section==1)
-        points = np.stack((x, y, z), axis=1)
-
-        # Finding the principal component
-        tck, u = splprep([x, y, z], s=self.smooth, k=self.n_order)
-        new_points = np.array(splev(np.linspace(0, 1, 1*10**5), tck))
-
-        print(f'new_points shape is {new_points.shape}')
-        new_points = new_points.T.astype('uint16')
-        unique_points = np.unique(new_points, axis=0).T
-
-        print(f'the shape of unique_points is{unique_points.shape}')
-        np.save(os.path.join(self.path, f'polynomial_results_convlim{self.conv_thresholds}.npy'), unique_points)
-
-
 from scipy.ndimage import binary_erosion
 from multiprocessing import Process, shared_memory, Manager
 from scipy.io import readsav
@@ -218,7 +90,8 @@ class BarycenterCreation_4:
 
     @typechecked
     def __init__(self, datatype: str | list = 'surface', conv_threshold: int | list | tuple = 125, polynomial_order: int | list | tuple = 3, 
-                 integration_time: int | str = '24h', multiprocessing: bool = True, multiprocessing_multiplier: int = 2, threads: int = 5):
+                 integration_time: int | str = '24h', multiprocessing: bool = True, multiprocessing_multiplier: int = 2, threads: int = 5,
+                 multiprocessing_raw: int = 5):
         
         # Arguments
         self.datatype = datatype if not isinstance(datatype, str) else [datatype]  # what data is fitted - 'conv3dAll', 'conv3dSkele', 'raw', 'rawContours'
@@ -228,6 +101,7 @@ class BarycenterCreation_4:
         self.multiprocessing = multiprocessing
         self.multiprocessing_multiplier = multiprocessing_multiplier
         self.threads = threads
+        self.multiprocessing_raw = multiprocessing_raw
 
         # Attributes
         self.paths = None  # the different folder paths
@@ -273,10 +147,17 @@ class BarycenterCreation_4:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
         self.time_interval = time_delta
 
-    def Time_chunks(self, dates, cubes, date_max, date_min):
+    def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
         """
         To select the data in the time chunk given the data chosen for the integration.
         """
+
+        if shared_array:
+            shm = shared_memory.SharedMemory(name=cubes['shm.name'])
+            cubes_shape = cubes['data.shape']
+            cubes = np.ndarray(cubes_shape, dtype=cubes['data.dtype'], buffer=shm.buf)
+        else:
+            cubes_shape = cubes.shape
 
         chunk = []
         for date2, data2 in zip(dates, cubes):
@@ -289,8 +170,11 @@ class BarycenterCreation_4:
                 chunk.append(data2)
             else:
                 break
+        
+        if shared_array: shm.close()
+
         if len(chunk) == 0:  # i.e. if nothing was found
-            return np.zeros((cubes.shape[1], cubes.shape[2], cubes.shape[3]))
+            return np.zeros(cubes_shape)
         elif len(chunk) == 1:
             return chunk[0]
         else:
@@ -437,6 +321,30 @@ class BarycenterCreation_4:
             finally:
                 queue.task_done()
 
+    def Time_integration(self, dates: list, queue, data: np.ndarray | dict, index: int | None = None, step: int | None = None, shared_array: bool = False, last: bool = False):
+        """
+        To integrate the cubes for a given a time interval and the file dates in seconds.
+        """
+
+        # If multiprocessed the parent function.
+        if step:
+            dates_section = dates[step * index:step * (index + 1)]
+            if last: dates_section = dates[step * index:]
+        else:
+            dates_section = dates
+
+        time_cubes_no_duplicate = []
+        for date in dates_section:
+            date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
+
+            date_min = date_seconds - self.time_interval / 2
+            date_max = date_seconds + self.time_interval / 2
+            time_cubes_no_duplicate.append(self.Time_chunks(dates, data, date_max, date_min, shared_array))
+        time_cubes_no_duplicate = np.stack(time_cubes_no_duplicate, axis=0).astype('uint8')
+
+        if step is None: return time_cubes_no_duplicate
+        queue.put((index, time_cubes_no_duplicate))
+
     @Decorators.running_time
     def Getting_IDL_cubes(self):
         """
@@ -474,18 +382,47 @@ class BarycenterCreation_4:
         if (date.year % 4 == 0 and date.year % 100 !=0) or (date.year % 400 == 0):  # Only works if the year doesn't change
             self.days_per_month[2] = 29  # for leap years
         
-        # Creating the time_cubes integrations together
-        time_cubes_no_duplicate = [] 
-        for date in dates:
-            date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
+        # Setting up the multiprocessing if needed
+        multiprocessing = True if (self.multiprocessing and self.multiprocessing_raw > 1) else False
 
-            date_min = date_seconds - self.time_interval / 2
-            date_max = date_seconds + self.time_interval / 2
-            time_cubes_no_duplicate.append(self.Time_chunks(dates, cubes_no_duplicate, date_max, date_min))
-        
-        time_cubes_no_duplicate = np.stack(time_cubes_no_duplicate, axis=0)
-        return time_cubes_no_duplicate.astype('uint8')
-    
+        if multiprocessing:
+            # Multiprocessing initialisation
+            processes = []
+            manager = Manager()
+            queue = manager.Queue()
+            shm, cubes_no_duplicate = self.Shared_memory(cubes_no_duplicate)
+            step = int(np.ceil(len(dates) / self.multiprocessing_raw))
+
+            kwargs = {
+                'queue': queue,
+                'dates': dates,
+                'data': cubes_no_duplicate,
+                'step': step,
+                'shared_array': multiprocessing,
+                }
+
+            for i in range(self.multiprocessing_raw):
+                if i != self.multiprocessing_raw - 1:
+                    processes.append(Process(target=self.Time_integration, kwargs={'index': i, **kwargs}))
+                else:
+                    processes.append(Process(target=self.Time_integration, kwargs={'index': i, 'last': True, **kwargs}))
+            
+            for p in processes: p.start()
+            for p in processes: p.join()
+
+            shm.unlink()
+
+            results = [None for _ in range(self.multiprocessing_raw)]
+            while not queue.empty():
+                identifier, result = queue.get()
+                results[identifier] = result
+            results = np.concatenate(results, axis=0).astype('uint8')
+
+        else:
+            results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False, )
+
+        return results
+
     @Decorators.running_time
     def Main_structure(self, datatype: str, data: np.ndarray | dict, shared_array: bool = False, contour: bool = False, skeleton: bool = False):
         """
@@ -572,8 +509,8 @@ class BarycenterCreation_4:
             queue = manager.Queue()
 
             # Step an multiprocessing kwargs
-            data_shape = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
-            step = int(np.ceil(data_shape / self.multiprocessing_multiplier))
+            data_shape_0 = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
+            step = int(np.ceil(data_shape_0 / self.multiprocessing_multiplier))
             kwargs = {
                 'queue': queue,
                 'step': step,
@@ -581,6 +518,7 @@ class BarycenterCreation_4:
                 'shared_array': True,
                 'contour': contour,
                 'skeleton': skeleton,
+                'poly_index': index,
             }
             # Preping the processes
             for i in range(self.multiprocessing_multiplier):
@@ -600,7 +538,7 @@ class BarycenterCreation_4:
                 results[identifier] = result
             results = np.concatenate(results, axis=1)
         else:
-            results = self.Time_loop(data=data, shared_array=shared_array, contour=contour, skeleton=skeleton)
+            results = self.Time_loop(data=data, shared_array=shared_array, contour=contour, skeleton=skeleton, poly_index=index)
 
         # Saving the data in .npy files
         if conv_threshold is not None:
@@ -612,7 +550,7 @@ class BarycenterCreation_4:
 
         print(f'File {filename} saved with shape {results.shape}', flush=True)
 
-    def Time_loop(self, index: int | None = None, queue: None = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
+    def Time_loop(self, poly_index: int, index: int | None = None, queue: None = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
                   contour: bool = False, skeleton: bool = False):
         """
         The for loop on the time axis.
@@ -654,14 +592,14 @@ class BarycenterCreation_4:
             t /= t[-1]  # normalisation
             t += 1
 
-            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=index))
+            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index))
         results = np.concatenate(results, axis=1)
 
         if shared_array: shm.close()
         if not step: return results  # if no multiprocessing
         queue.put((index, results))
 
-    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index):
+    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int):
             """
             Where the fitting of the curve actually takes place.
             """
