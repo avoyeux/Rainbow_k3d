@@ -567,13 +567,13 @@ class BarycenterCreation_4:
             if not shared_array: shm, data = self.Shared_memory(data)
 
             # Initialisation
-            results = []
             processes = []
             manager = Manager()
             queue = manager.Queue()
 
             # Step an multiprocessing kwargs
-            step = int(np.ceil(data.shape[0] / self.multiprocessing_multiplier))
+            data_shape = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
+            step = int(np.ceil(data_shape / self.multiprocessing_multiplier))
             kwargs = {
                 'queue': queue,
                 'step': step,
@@ -585,7 +585,7 @@ class BarycenterCreation_4:
             # Preping the processes
             for i in range(self.multiprocessing_multiplier):
                 if not (i==self.multiprocessing_multiplier - 1):
-                    processes.append(Process(target=self.Time_loop, kwargs={'index':i, **kwargs}))
+                    processes.append(Process(target=self.Time_loop, kwargs={'index': i, **kwargs}))
                 else:
                     processes.append(Process(target=self.Time_loop, kwargs={'index': i, 'last': True, **kwargs}))
 
@@ -594,6 +594,7 @@ class BarycenterCreation_4:
 
             if not shared_array: shm.unlink()
 
+            results = [None for _ in range(self.multiprocessing_multiplier)]
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
@@ -624,9 +625,9 @@ class BarycenterCreation_4:
         # If multiprocessing this part
         if step:
             if not last:
-                data = data[step * i:step * (i + 1)]
+                data = data[step * index:step * (index + 1)]
             else:
-                data = data[step * i:]
+                data = data[step * index:]
 
         # Initialisation of the result list
         results = []
@@ -693,9 +694,8 @@ class BarycenterCreation_4:
             return unique_data
 
 if __name__=='__main__':
-    BarycenterCreation_4(datatype=['conv3dAll', 'conv3dSkele', 'raw', 'rawContours'], 
-                         conv_threshold=[10, 40, 100], 
-                         polynomial_order=[3, 4, 5, 6, 7],
+    BarycenterCreation_4(datatype=['conv3dAll', 'raw', 'rawContours'], 
+                         polynomial_order=[3, 4, 5, 6, 8],
                          integration_time='24h',
                          multiprocessing=True,
-                         multiprocessing_multiplier=4)
+                         multiprocessing_multiplier=5)
