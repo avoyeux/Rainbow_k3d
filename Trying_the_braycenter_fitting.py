@@ -587,10 +587,13 @@ class BarycenterCreation_4:
 
         # If multiprocessing this part
         if step:
+            first_index = step * index
             if not last:
-                data = data[step * index:step * (index + 1)]
+                data = data[first_index:step * (index + 1)]
             else:
-                data = data[step * index:]
+                data = data[first_index:]
+        else:
+            first_index = 0
 
         # Initialisation of the result list
         results = []
@@ -617,14 +620,14 @@ class BarycenterCreation_4:
             t /= t[-1]  # normalisation
             t += 1
 
-            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index))
+            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=first_index))
         results = np.concatenate(results, axis=1)
 
         if shared_array: shm.close()
         if not step: return results  # if no multiprocessing
         queue.put((index, results))
 
-    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int):
+    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int, first_time_index: int = 0):
             """
             Where the fitting of the curve actually takes place.
             """
@@ -652,7 +655,7 @@ class BarycenterCreation_4:
             conditions = (data[:, 0] >= 320) | (data[:, 1] >= 226) | (data[:, 2] >= 186)
             data = data[~conditions]        
             unique_data = np.unique(data, axis=0).T
-            time_row = np.full((1, unique_data.shape[1]), time)
+            time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
             unique_data = np.vstack((time_row, unique_data)).astype('uint16')
             return unique_data
 
