@@ -217,6 +217,7 @@ class Data:
             if filename_match:
                 file_data = np.load(os.path.join(self.paths['polynomials'], filename)).astype('uint16')
                 file_data = COO(coords=file_data, data=1, shape=self.cubes_shape)
+                print(f'the file_data coo shape is {file_data.shape}')
                 files_dataNmatches.append((filename_match, file_data))
             else:
                 print(f"\033[92mPolynomial array filename {filename} doesn't match the usual pattern. \033[0m")
@@ -1478,7 +1479,10 @@ class K3dAnimation(Data):
         if self.polynomials:
             self.plots_polynomials = []
             for (pattern, data) in self.polynomials_matchesNdata:
+                print(f'total shape {data.shape}')
+                print(f'data[0].shape is {data[0].shape}')
                 data = self.Full_array(data[0])
+                print(f'the final shape of the array is {data.shape}')
                 limit_val = f"_lim{pattern.group('conv_limit')}" if pattern.group('conv_limit') else None
                 plot = k3d.voxels(data, opacity=0.8, compression_level=self.compression_level, color_map=[next(self.Random_hexadecimal_color_generator())], 
                                   name=f"n{pattern.group('order')}{limit_val if limit_val else ''}_{pattern.group('datatype')}")

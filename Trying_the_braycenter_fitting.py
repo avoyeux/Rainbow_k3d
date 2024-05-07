@@ -84,7 +84,7 @@ from glob import glob
 from Animation_3D_main import CustomDate
 import threading
 import queue as Queue
-
+from sparse import COO, stack, concatenate
 
 class BarycenterCreation_4:
 
@@ -147,17 +147,15 @@ class BarycenterCreation_4:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
         self.time_interval = time_delta
 
-    def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
+    def Time_chunks(self, index, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
         """
         To select the data in the time chunk given the data chosen for the integration.
         """
 
         if shared_array:
             shm = shared_memory.SharedMemory(name=cubes['shm.name'])
-            cubes_shape = cubes['data.shape']
-            cubes = np.ndarray(cubes_shape, dtype=cubes['data.dtype'], buffer=shm.buf)
-        else:
-            cubes_shape = cubes.shape
+            coords = np.ndarray(cubes['data.shape'], dtype=cubes['data.dtype'], buffer=shm.buf)
+            cubes = COO(coords=coords, data=1, shape=cubes['cubes.shape'])
 
         chunk = []
         for date2, data2 in zip(dates, cubes):
@@ -174,12 +172,12 @@ class BarycenterCreation_4:
         if shared_array: shm.close()
 
         if len(chunk) == 0:  # i.e. if nothing was found
-            return np.zeros(cubes_shape)
+            return COO(np.zeros(cubes.shape))
         elif len(chunk) == 1:
             return chunk[0]
         else:
-            chunk = np.stack(chunk, axis=0)
-            return np.any(chunk, axis=0)
+            chunk = stack(chunk, axis=0)
+            return COO.any(chunk, axis=0)
           
     def Generate_nth_order_polynomial(self, n: int = 3):
         """
@@ -321,15 +319,17 @@ class BarycenterCreation_4:
             finally:
                 queue.task_done()
 
-    def Time_integration(self, dates: list, queue, data: np.ndarray | dict, index: int | None = None, step: int | None = None, shared_array: bool = False, last: bool = False):
+    def Time_integration(self, dates: list, data: np.ndarray | dict, queue = None, index: int | None = None, step: int | None = None, shared_array: bool = False, last: bool = False):
         """
         To integrate the cubes for a given a time interval and the file dates in seconds.
         """
 
         # If multiprocessed the parent function.
-        if step:
-            dates_section = dates[step * index:step * (index + 1)]
-            if last: dates_section = dates[step * index:]
+        if shared_array:
+            if not last:
+                dates_section = dates[step * index:step * (index + 1)]
+            else: 
+                dates_section = dates[step * index:]
         else:
             dates_section = dates
 
@@ -339,11 +339,14 @@ class BarycenterCreation_4:
 
             date_min = date_seconds - self.time_interval / 2
             date_max = date_seconds + self.time_interval / 2
-            time_cubes_no_duplicate.append(self.Time_chunks(dates, data, date_max, date_min, shared_array))
-        time_cubes_no_duplicate = np.stack(time_cubes_no_duplicate, axis=0).astype('uint8')
+            time_cubes_no_duplicate.append(self.Time_chunks(dates=dates, cubes=data, date_max=date_max, date_min=date_min, shared_array=shared_array, index=index))
+        time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0).astype('uint8')
 
-        if step is None: return time_cubes_no_duplicate
-        queue.put((index, time_cubes_no_duplicate))
+        if shared_array: 
+            queue.put((index, time_cubes_no_duplicate))
+        else:
+            return time_cubes_no_duplicate
+    
 
     @Decorators.running_time
     def Getting_IDL_cubes(self):
@@ -368,6 +371,9 @@ class BarycenterCreation_4:
         cubes = np.array(cubes, dtype='uint8')  
         cubes_no_duplicate = ((cubes & 0b00011000) == 24).astype('uint8')
 
+        # Setting up a sparse data array
+        cubes_no_duplicate = COO(cubes_no_duplicate)
+
         # Getting the corresponding filenames 
         filenames = []
         for number in cube_numbers: 
@@ -386,11 +392,26 @@ class BarycenterCreation_4:
         multiprocessing = True if (self.multiprocessing and self.multiprocessing_raw > 1) else False
 
         if multiprocessing:
+
+            coords = cubes_no_duplicate.coords
+            shm = shared_memory.SharedMemory(create=True, size=coords.nbytes)
+            shared_array = np.ndarray(coords.shape, dtype=coords.dtype, buffer=shm.buf)
+            np.copyto(shared_array, coords)
+            shm.close()
+
+            cubes_no_duplicate = {
+                'shm.name': shm.name,
+                'data.shape': coords.shape,
+                'cubes.shape': cubes_no_duplicate.shape,
+                'data.dtype': coords.dtype,
+                'cubes.dtype': cubes_no_duplicate.dtype,
+            }
+
             # Multiprocessing initialisation
             processes = []
             manager = Manager()
             queue = manager.Queue()
-            shm, cubes_no_duplicate = self.Shared_memory(cubes_no_duplicate)
+    
             step = int(np.ceil(len(dates) / self.multiprocessing_raw))
 
             kwargs = {
@@ -398,7 +419,7 @@ class BarycenterCreation_4:
                 'dates': dates,
                 'data': cubes_no_duplicate,
                 'step': step,
-                'shared_array': multiprocessing,
+                'shared_array': True,
                 }
 
             for i in range(self.multiprocessing_raw):
@@ -410,17 +431,21 @@ class BarycenterCreation_4:
             for p in processes: p.start()
             for p in processes: p.join()
 
-            shm.unlink()
-
             results = [None for _ in range(self.multiprocessing_raw)]
+            index = -1
+
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
-            results = np.concatenate(results, axis=0).astype('uint8')
+                index += 1
+            results = concatenate(results, axis=0).astype('uint8')
+            results = results.todense()
 
         else:
-            results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False, )
+            results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False)
+            results = results.todense()
 
+        if multiprocessing: shm.unlink()
         return results
 
     @Decorators.running_time
@@ -632,8 +657,9 @@ class BarycenterCreation_4:
             return unique_data
 
 if __name__=='__main__':
-    BarycenterCreation_4(datatype=['conv3dAll', 'raw', 'rawContours'], 
-                         polynomial_order=[3, 4, 5, 6, 8],
+    BarycenterCreation_4(datatype=['conv3dAll', 'raw'], 
+                         polynomial_order=[3, 4, 5, 6, 8, 10],
                          integration_time='24h',
                          multiprocessing=True,
-                         multiprocessing_multiplier=5)
+                         multiprocessing_multiplier=7, 
+                         multiprocessing_raw=6)
