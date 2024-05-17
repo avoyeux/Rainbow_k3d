@@ -80,7 +80,8 @@ class Data:
                  time_intervals_no_duplicate: bool = False, time_interval: str | int = 1, heliographic_grid_degrees: int | float = 15, 
                  fov_center: tuple[int | float, int | float, int | float] | str = 'cubes', sun_texture_resolution: int = 960,
                  sdo_pov: bool = False, stereo_pov: bool = False, batch_number: int = 10, make_screenshots: bool = False, cube_version: str = 'old',
-                 convolution_3d: bool = False, conv_treshold: int = 125, polynomials: bool = False, skeleton: bool = False):
+                 convolution_3d: bool = False, conv_treshold: int = 125, polynomials: bool = False, skeleton: bool = False, 
+                 html_snapshot: bool = False):
         
         # Arguments
         self.first_cube = False
@@ -137,6 +138,7 @@ class Data:
         self.conv_treshold = conv_treshold
         self.polynomials = polynomials
         self.skeleton = skeleton
+        self.html_snapshot = html_snapshot
 
         # Instance attributes set when running the class
         self.paths = None  # dictionary containing all the path names and the corresponding path
@@ -216,8 +218,8 @@ class Data:
 
             if filename_match:
                 file_data = np.load(os.path.join(self.paths['polynomials'], filename)).astype('uint16')
+                file_data = file_data[[0, 3, 2, 1]]
                 file_data = COO(coords=file_data, data=1, shape=self.cubes_shape)
-                print(f'the file_data coo shape is {file_data.shape}')
                 files_dataNmatches.append((filename_match, file_data))
             else:
                 print(f"\033[92mPolynomial array filename {filename} doesn't match the usual pattern. \033[0m")
@@ -236,7 +238,7 @@ class Data:
             'Textures': os.path.join(main_path, 'Textures'),
             'Intensities': os.path.join(main_path, 'STEREO', 'int'),
             'SDO': os.path.join(main_path, 'sdo'),
-            'polynomials': os.path.join(main_path, 'test_conv3d_array'),
+            'polynomials': os.path.join(main_path, 'curveFitArrays'),
             }    
     
     def Choices(self):
@@ -384,6 +386,7 @@ class Data:
             identifier, result = queue.get()
             results[identifier] = result
         cubes = concatenate(results[:self._batch_number], axis=0)
+        print(f'The cubes shape is {cubes.shape}')
         if self.line_of_sight:
             STEREO = concatenate(results[self._batch_number:self._batch_number * 2], axis=0)
             SDO = concatenate(results[self._batch_number * 2:], axis=0)
@@ -472,6 +475,7 @@ class Data:
 
         cubes = [readsav(os.path.join(path, cube_name)).cube.astype('uint8') for cube_name in names]
         cubes = np.array(cubes)  
+        cubes = np.transpose(cubes, (0, 3, 2, 1))
         cubes = self.Sparse_data(cubes)
         queue.put((queue_index, cubes))
 
@@ -482,6 +486,7 @@ class Data:
 
         cubes_lineofsight_STEREO = [readsav(os.path.join(path, cube_name)).cube1.astype('uint8') for cube_name in names]  
         cubes_lineofsight_STEREO = np.array(cubes_lineofsight_STEREO)  # line of sight seen from STEREO 
+        cubes_lineofsight_STEREO = np.transpose(cubes_lineofsight_STEREO, (0, 3, 2, 1))
         cubes_lineofsight_STEREO = self.Sparse_data(cubes_lineofsight_STEREO)
         queue.put((queue_index, cubes_lineofsight_STEREO))
         
@@ -492,6 +497,7 @@ class Data:
 
         cubes_lineofsight_SDO = [readsav(os.path.join(path, cube_name)).cube2.astype('uint8') for cube_name in names]
         cubes_lineofsight_SDO = np.array(cubes_lineofsight_SDO)  # line of sight seen from SDO
+        cubes_lineofsight_SDO = np.transpose(cubes_lineofsight_SDO, (0, 3, 2, 1))
         cubes_lineofsight_SDO = self.Sparse_data(cubes_lineofsight_SDO)
         queue.put((queue_index, cubes_lineofsight_SDO))
 
@@ -814,13 +820,14 @@ class Data:
             first_cube_name = os.path.join(self.paths['Cubes_karine'], self._cube_names_2[0])
 
         # Initial data values
-        solar_r = 6.96e5 
-        self._length_dx = readsav(first_cube_name).dx
-        self._length_dy = readsav(first_cube_name).dy
-        self._length_dz = readsav(first_cube_name).dz
-        x_min = readsav(first_cube_name).xt_min
-        y_min = readsav(first_cube_name).yt_min
-        z_min = readsav(first_cube_name).zt_min
+        solar_r = 6.96e5
+        first_cube = readsav(first_cube_name)
+        self._length_dx = first_cube.dx
+        self._length_dy = first_cube.dy
+        self._length_dz = first_cube.dz
+        x_min = first_cube.xt_min
+        y_min = first_cube.yt_min
+        z_min = first_cube.zt_min
 
         # The Sun's radius
         self.radius_index = solar_r / self._length_dx  # TODO: need to change this if dx!=dy!=dz.
@@ -830,8 +837,9 @@ class Data:
         y_index = y_min / self._length_dy 
         z_index = z_min / self._length_dz 
         self.sun_center = np.array([0 - x_index, 0 - y_index, 0 - z_index])
+        print(f'sun center coords are {self.sun_center}')
 
-    def Sun_texture(self):
+    def Sun_texture_old(self):
         """
         To create upload the Sun's texture and do the usual treatment so that the contrasts are more visible.
         A logarithmic intensity treatment is done with a saturation of really high an really low intensities.
@@ -843,6 +851,8 @@ class Data:
 
         # Image shape
         self._texture_height, self._texture_width = image.shape
+        print(self._texture_height)
+        print(self._texture_width)
 
         # Image treatment
         lower_cut = np.nanpercentile(image, 0.5)
@@ -868,6 +878,24 @@ class Data:
         # Changing values to a logarithmic scale
         self._sun_texture = np.log(nw_image)
 
+    def Sun_texture(self):
+        self._texture_height, self._texture_width = 720, 1440
+
+        image = np.ones((self._texture_height, self._texture_width))
+
+
+        # Adding a white longitude latitude white grid each 15 degrees:
+        nb_of_grids_lat = np.arange(1, 180 / self._heliographic_grid_degrees, 1)
+        nb_of_grids_lon = np.arange(1, 360 / self._heliographic_grid_degrees + 1, 1)
+
+        grid_index_lat = self._heliographic_grid_degrees * nb_of_grids_lat / 0.25
+        grid_index_lon = self._heliographic_grid_degrees * nb_of_grids_lon / 0.25
+
+        for lat in grid_index_lat: image[int(lat) - 1, :] = 0
+        for lon in grid_index_lon: image[:, int(lon) - 1] = 0
+        nw_image = np.flip(image, axis=0)
+        self._sun_texture = nw_image
+
     def Sun_points(self):
         """
         Creates a spherical cloud of points that represents the pixels on the Sun's surface.
@@ -876,7 +904,7 @@ class Data:
         # Initialisation
         N = self._sun_texture_resolution  # number of points in the theta direction
         phi = np.linspace(0, np.pi, N)  # latitude of the points
-        theta = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
+        theta = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the pointss
         phi, theta = np.meshgrid(phi, theta)  # the subsequent meshgrid
 
         # Conversion to cartesian coordinates
@@ -1027,8 +1055,7 @@ class Data:
 
         SDO_pos = []
         for fits_name in paths:
-            hdul = fits.open(fits_name)
-            header = hdul[0].header
+            header = fits.getheader(fits_name)
 
             hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
                                                 header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
@@ -1043,8 +1070,7 @@ class Data:
             ypos_index = Yhec / (1000 * self._length_dy)
             zpos_index = Zhec / (1000 * self._length_dz)
 
-            SDO_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index]))
-            hdul.close()  
+            SDO_pos.append(self.sun_center + np.array([xpos_index, ypos_index, zpos_index])) 
         queue.put((i, np.array(SDO_pos)))
 
     def Conv3d_results(self):
@@ -1250,7 +1276,7 @@ class K3dAnimation(Data):
 
         if sparse_cube:
             cube = sparse_cube.todense()
-            return cube
+            return cube.astype('uint8')
         else:
             return np.zeros((self.cubes_shape[1], self.cubes_shape[2], self.cubes_shape[3]), dtype='uint8')
 
@@ -1312,7 +1338,7 @@ class K3dAnimation(Data):
         if self.polynomials:
             for index, plot in enumerate(self.plots_polynomials):
                 _, data = self.polynomials_matchesNdata[index]
-                plot.voxels = self.Full_array(data[change['new']])
+                plot.voxels = self.Full_array(data[change['new']]).T
 
         if self.all_data:
             if self.first_cube: self.plot_alldata_set1.voxels = self.Full_array(self.cubes_all_data_1[change['new']])
@@ -1339,7 +1365,7 @@ class K3dAnimation(Data):
                 if self.cube_version_1: self.plot_dupli_new_set1.voxels = self.Full_array(self.cubes_no_duplicate_new_1[change['new']]) 
             if self.second_cube:
                 if self.cube_version_0: self.plot_dupli_init_set2.voxels = self.Full_array(self.cubes_no_duplicate_init_2[change['new']]) 
-                if self.cube_version_1: self.plot_dupli_new_set2.voxels = self.Full_array(self.cubes_no_duplicate_new_2[change['new']])
+                if self.cube_version_1: self.plot_dupli_new_set2.voxels = self.Full_array(self.cubes_no_duplicate_new_2[change['new']]).T
 
         if self.line_of_sight:
             if self.first_cube:    
@@ -1362,11 +1388,16 @@ class K3dAnimation(Data):
                 if self.cube_version_1: self.plot_interv_dupli_new_set1.voxels = self.Full_array(self.time_cubes_no_duplicate_new_1[change['new']])
             if self.second_cube:
                 if self.cube_version_0: self.plot_interv_dupli_init_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_init_2[change['new']])
-                if self.cube_version_1: self.plot_interv_dupli_new_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_new_2[change['new']])
+                if self.cube_version_1: self.plot_interv_dupli_new_set2.voxels = self.Full_array(self.time_cubes_no_duplicate_new_2[change['new']]).T
        
         if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
         if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
         if self.make_screenshots: self.Screenshot_making()
+
+        if self.html_snapshot:
+            sleep(4)
+            with open(f"snapshot_date{self.date_text[change['new']]}.html", "w") as f:
+                f.write(self.plot.get_snapshot())
 
     def Play(self):
         """
@@ -1447,7 +1478,7 @@ class K3dAnimation(Data):
                 self.time_interval = time_interval + f'{(self.time_interval % 3600) // 60}min'
             else: 
                 self.time_interval = time_interval
-        elif self.time_interval < 3600 * 24 * 2:
+        elif self.time_interval < 3600 * 24 * 3.1:
             time_interval = f'{self.time_interval // (3600 * 24)}days'
             if self.time_interval % (3600 * 24) != 0:
                 self.time_interval = time_interval + f'{(self.time_interval % 3600 * 24) // 3600}h'
@@ -1479,13 +1510,10 @@ class K3dAnimation(Data):
         if self.polynomials:
             self.plots_polynomials = []
             for (pattern, data) in self.polynomials_matchesNdata:
-                print(f'total shape {data.shape}')
-                print(f'data[0].shape is {data[0].shape}')
                 data = self.Full_array(data[0])
-                print(f'the final shape of the array is {data.shape}')
                 limit_val = f"_lim{pattern.group('conv_limit')}" if pattern.group('conv_limit') else None
-                plot = k3d.voxels(data, opacity=0.8, compression_level=self.compression_level, color_map=[next(self.Random_hexadecimal_color_generator())], 
-                                  name=f"n{pattern.group('order')}{limit_val if limit_val else ''}_{pattern.group('datatype')}")
+                plot = k3d.voxels(data.T, opacity=0.95, compression_level=self.compression_level, color_map=[next(self.Random_hexadecimal_color_generator())], 
+                                  name=f"fit_order{pattern.group('order')}_data: {limit_val if limit_val else ''}_{pattern.group('datatype')}")
                 self.plots_polynomials.append(plot)
                 self.plot += plot
 
@@ -1493,7 +1521,16 @@ class K3dAnimation(Data):
         if self.sun:
             self.plot += k3d.points(positions=self.sun_points, point_size=3.5, colors=self.hex_colours, shader='flat',
                                     name='SUN', compression_level=self.compression_level)
-           
+        
+        # Just for testing some stuff
+        # self.plot += k3d.points(positions=np.array([0,0,0]), name='000', opacity=1, compression_level=self.compression_level, point_size=5)
+        # self.plot += k3d.points(positions=self.sun_center, name='suncenter', opacity=1, compression_level=self.compression_level, point_size=5)
+        # self.plot += k3d.points(positions=np.array([0, 0, 10]), name='001', opacity=1, compression_level=self.compression_level, point_size=5)
+        # self.plot += k3d.points(positions=np.array([10, 0, 0]), name='100', opacity=1, compression_level=self.compression_level, point_size=5)
+        # self.plot += k3d.points(positions=np.array([0, 10, 0]), name='010', opacity=1, compression_level=self.compression_level, point_size=5)
+        # data = np.zeros((30, 30, 30))
+        # data[20, 0, 0] = 1
+        # self.plot += k3d.voxels(data.T, opacity=1, compression_level=self.compression_level, name='voxelinxdirec')
 
         # Adding the different data sets (i.e. with or without duplicates)
         if self.all_data:  #old color color_map=[0x90ee90]
@@ -1568,7 +1605,7 @@ class K3dAnimation(Data):
                     self.plot += self.plot_dupli_init_set2
                 if self.cube_version_1:
                     data = self.Full_array(self.cubes_no_duplicate_new_2[0])
-                    self.plot_dupli_new_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True, 
+                    self.plot_dupli_new_set2 = k3d.voxels(data.T, compression_level=self.compression_level, outlines=True, 
                                             color_map=[0x0000ff], opacity=0.2, name='Set2: no duplicates')
                     self.plot += self.plot_dupli_new_set2
 
@@ -1616,23 +1653,23 @@ class K3dAnimation(Data):
                 if self.cube_version_0:
                     data = self.Full_array(self.time_cubes_no_duplicate_init_1[0])
                     self.plot_interv_dupli_init_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                            color_map=[0x0000ff], opacity=0.5, name=f'aSet1: no duplicate for {self.time_interval}')
+                                            color_map=[0x0000ff], opacity=0.35, name=f'aSet1: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_init_set1
                 if self.cube_version_1:
                     data = self.Full_array(self.time_cubes_no_duplicate_new_1[0])
                     self.plot_interv_dupli_new_set1 = k3d.voxels(data, compression_level=self.compression_level, outlines=False,
-                                            color_map=[0x0000ff], opacity=0.5, name=f'Set1: no duplicate for {self.time_interval}')
+                                            color_map=[0x0000ff], opacity=0.35, name=f'Set1: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_new_set1
             if self.second_cube:
                 if self.cube_version_0:
                     data = self.Full_array(self.time_cubes_no_duplicate_init_2[0])
                     self.plot_interv_dupli_init_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True,
-                                            color_map=[0x0000ff], opacity=0.5, name=f'aSet2: no duplicate for {self.time_interval}')
+                                            color_map=[0x0000ff], opacity=0.35, name=f'aSet2: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_init_set2          
                 if self.cube_version_1:
                     data = self.Full_array(self.time_cubes_no_duplicate_new_2[0])
-                    self.plot_interv_dupli_new_set2 = k3d.voxels(data, compression_level=self.compression_level, outlines=True,
-                                            color_map=[0xff0000], opacity=0.2, name=f'Set2: no duplicate for {self.time_interval}')
+                    self.plot_interv_dupli_new_set2 = k3d.voxels(data.T, compression_level=self.compression_level, outlines=True,
+                                            color_map=[0xff0000], opacity=0.35, name=f'Set2: no duplicate for {self.time_interval}')
                     self.plot += self.plot_interv_dupli_new_set2           
 
         if self.trace_data:

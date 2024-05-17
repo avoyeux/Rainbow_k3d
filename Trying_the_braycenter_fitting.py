@@ -7,12 +7,16 @@ Rainbow protuberance.
 import os
 import numpy as np
 
+from astropy.io import fits
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 from typeguard import typechecked
 from scipy.optimize import curve_fit
 from skimage.morphology import skeletonize
+from astropy.coordinates import CartesianRepresentation
+from sunpy.coordinates.frames import  HeliographicCarrington
 
 from common_alf import MathematicalEquations, Decorators
-
 
 
 class BarycenterCreation:
@@ -20,24 +24,7 @@ class BarycenterCreation:
     @typechecked
     def __init__(self, n_oder: int = 3, conv_threshold: int = 125, test_time_index: int = 200):
         
-        # Arguments
-        self.n_order = n_oder
-        self.conv_thresholds = conv_threshold
-        self.test_time_index = test_time_index
-
-        # Attributes
-        self.path = None  # the path to the cubes and where to save the result 
-
-        # Functions
-        self.Paths()
-        self.Main_structure()
-
-    def Paths(self):
-        """
-        Path creation.
-        """
-
-        self.path = os.path.join(os.getcwd(), '..', 'test_conv3d_array')
+        pass
 
     def Main_structure(self):
         """
@@ -147,7 +134,7 @@ class BarycenterCreation_4:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
         self.time_interval = time_delta
 
-    def Time_chunks(self, index, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
+    def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
         """
         To select the data in the time chunk given the data chosen for the integration.
         """
@@ -339,7 +326,7 @@ class BarycenterCreation_4:
 
             date_min = date_seconds - self.time_interval / 2
             date_max = date_seconds + self.time_interval / 2
-            time_cubes_no_duplicate.append(self.Time_chunks(dates=dates, cubes=data, date_max=date_max, date_min=date_min, shared_array=shared_array, index=index))
+            time_cubes_no_duplicate.append(self.Time_chunks(dates=dates, cubes=data, date_max=date_max, date_min=date_min, shared_array=shared_array))
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0).astype('uint8')
 
         if shared_array: 
@@ -659,10 +646,476 @@ class BarycenterCreation_4:
             unique_data = np.vstack((time_row, unique_data)).astype('uint16')
             return unique_data
 
+
+class OrthographicalProjection:
+    """
+    Does the 2D projection of a 3D volume.
+    Used to recreate what is seen by SDO when looking at the cube, especially the curve fits.
+    """
+
+    @typechecked
+    def __init__(self, coords: np.ndarray | None = None, data: np.ndarray | None = None, camera_position: np.ndarray | tuple | list = (1, 1, 1), 
+                 center_of_interest: np.ndarray | tuple | list = (0, 0, 0), camera_fov: int | float | str = '1deg'):
+    
+        # Data arguments
+
+        if data is not None:
+            if data.shape[0] not in [3, 4]: 
+                self.data = COO(data)
+            else:
+                self.data = data
+        elif coords is not None:
+            self.data = coords
+        else:
+            raise ValueError("'coords' or 'data' needed to get the 2D projection.")
+
+        # Camera arguments
+        self.center_of_interest = np.stack(center_of_interest, axis=0) if isinstance(center_of_interest, (tuple, list)) else center_of_interest
+        self.camera_position = np.stack(camera_position, axis=0) if isinstance(camera_position, (tuple, list)) else camera_position  # TODO: need to check for when the camera is a list but only the x, y, z, value
+        self.camera_fov = camera_fov
+
+        # Functions
+        # self.Checks()  # checks if the arguments had the expected shapes
+        self.Paths()
+        self.Important_attributes()
+        self.Cartesian_pos()
+        self.SDO_pos()
+
+    # def Checks(self):
+    #     """
+    #     Checking if the inputs got the expected values/shapes.
+    #     """
+
+    #     if (len(self.camera_position.shape) == 2) and (self.camera_position.shape[1] == 3):
+    #         pass
+    #     elif (len(self.camera_position.shape == 1)) and (self.camera_position.shape[0] == 3):
+    #         pass
+    #     else:
+    #         raise ValueError(f"'camera_position' needs to be a list/tuple of arrays or an array of shape (3,) or (n, 3). Not {self.camera_position}")
+        
+    def Paths(self):
+        """
+        Function where the filepaths dictionary is created.
+        """
+
+        main_path = os.path.join(os.getcwd(), '..')
+        self.paths = {
+            'main': main_path, 
+            'SDO': os.path.join(main_path, 'sdo'),
+            'cubes': os.path.join(main_path, 'Cubes_karine'),
+            'curve fit': os.path.join(main_path, 'curveFitArrays'),
+        }
+
+    # def Recentering_the_data(self):
+    #     """
+    #     Putting the center of interest as the initial origin of the data to simply the translation matrix 
+    #     creation.
+    #     """
+
+    #     if self.data.shape[0] == 3:
+    #         self.data -= self.center_of_interest
+    #     elif self.data.shape[0] == 4:
+    #         pass
+
+    #     # TODO: need to finish this part too
+
+    # @typechecked
+    # def Ortho_projection(self, right: int | float, left: int | float, bottom: int | float, top: int | float, 
+    #                      near: int | float, far: int | float, x: np.ndarray, y: np.ndarray, z: np.ndarray):
+    #     """
+    #     The translation matrix.
+    #     """
+
+    #     x_proj = (2 * x - right - left) / (right - left)
+    #     y_proj = (2 * y - top - bottom) / (top - bottom)
+    #     z_proj = (-2 * z - far - near) / (far - near)
+
+    #     return x_proj, y_proj, z_proj
+
+    # def Ortho_projection_params(self):
+    #     """
+    #     To get all the parameters needed for the orthographical projection translation matrix.
+    #     """
+
+    #     # Re-centering the data
+    #     if len(self.center_of_interest.shape) != 2 and self.center_of_interest.shape[0] == 3:
+    #         self.center_of_interest = np.stack([
+    #             self.center_of_interest 
+    #             for loop in range(self.data.shape[0])
+    #         ], axis=0)
+    #     elif len(self.center_of_interest.shape) > 2:
+    #         raise ValueError('The value of center_of_interest is wrong.')
+    #     for time in range(self.data.shape[0]):
+    #         filters = self.cartesian_data_coords[0, :] == time
+    #         section = self.cartesian_data_coords[filters].astype('int32')
+    #         section[1:4, :] -= self.center_of_interest[time, :]
+    #         self.cartesian_data_coords[filters] = section
+
+    #     # The box size gotten by looking at the Coronal Monsoon paper
+    #     lat_min = (245 - 270) * u.deg  # TODO: need to check with sir Auchere. Most probably wrong
+    #     lat_max = (295 - 270) * u.deg
+    #     radius_min = 0 * u.km
+    #     radius_max = radius_min + (self.solar_r + 3.4 * 10**3) / self.solar_r * u.km
+    #     lon_min = 165 * u.deg
+    #     lon_max = 225 * u.deg
+
+    #     # Setting the max and min coords in cartesian coordinates that encompasses the whole sun with the protuberance
+    #     cartesian_max = np.array([radius_max, radius_max, radius_max])
+    #     cartesian_min = - cartesian_max
+
+
+    #     # TODO: most probably don't need this code anymore
+    
+    def Matrix_rotation(self):
+        """
+        To rotate the matrix so that it aligns with the satellite pov
+        """
+        data_list = []
+        for test_time in [0, 5, 40, 90, 200]:
+            data_filter = self.cartesian_data_coords[0, :] == test_time
+
+            data = self.cartesian_data_coords[1:4, data_filter]
+            print(f'data shape is {data.shape}')
+            center = np.array([0, 0, 0]).reshape(3, 1)
+            data = np.column_stack((data, center))  # adding the sun center to see if the translation is correct
+            print(data.shape)
+            satelitte_pos = self.sdo_pos[test_time]
+            sun_center = np.array([0, 0, 0])
+
+            viewing_direction = sun_center - satelitte_pos
+            viewing_direction_norm = viewing_direction / np.linalg.norm(viewing_direction)
+
+            # Axis to center on the pov
+            target_axis = np.array([0, 0, 1])
+
+            # Axis of rotation
+            rotation_axis = np.cross(viewing_direction_norm, target_axis)
+
+            # Angle of rotation
+            cos_theta = np.dot(viewing_direction_norm, target_axis)
+            theta = np.arccos(cos_theta)
+
+            # Corresponding rotation matrix
+            rotation_matrix = self.Rodrigues_rotation(rotation_axis, theta)
+
+
+            # As the data has original shape (3, n) for each cube I need to change it to (n,3) for the rotation
+            data = data.T
+
+            print(f'data transpose shape is {data.shape}')
+            print(f'rotation matrix shape is {rotation_matrix.shape}')
+            nw_data = []
+            for point in data:
+                # print(f'point shape is {point.shape}')
+
+                new_point = np.matmul(rotation_matrix, point)
+                # print(f'new_point shape is {new_point.shape}')
+                nw_data.append(new_point)
+            nw_data = np.stack(nw_data, axis=-1)
+            print(f"new_data shape is {nw_data.shape}")
+            data = nw_data
+            # rotated_data = np.dot(data, rotation_matrix.T)
+            # data = rotated_data.T
+            data_list.append(data)
+        return data_list
+    
+    def Rodrigues_rotation(self, axis, angle):
+        """
+        The Rodrigues's rotation formula to rotate matrices.
+        """
+
+        # Normalisation
+        axis = axis / np.linalg.norm(axis)
+
+        matrix = np.array([
+            [0, -axis[2], axis[1]],
+            [axis[2], 0, -axis[0]],
+            [-axis[1], axis[0], 0]
+        ])
+
+        return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
+
+    def Important_attributes(self):
+        """
+        To create the values of some of the class attributes.
+        """
+
+        # Initialisation
+        cube_pattern = re.compile(r'cube(\d{3})\.save')
+
+        # Class attributes
+        self.numbers = sorted([
+            int(cube_pattern.match(cube_name).group(1))
+            for cube_name in os.listdir(self.paths['cubes'])
+            if cube_pattern.match(cube_name)
+        ])
+        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
+                              for number in self.numbers]
+
+    def Cartesian_pos(self):
+        """
+        To calculate the heliographic cartesian positions of some of the objects.
+        """
+
+        cubes_sparse_coords = np.copy(self.data).astype('float64')
+
+        # Initialisation
+        self.solar_r = 6.96e5  # in km
+        first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
+        dx = first_cube.dx  # in km
+        print(f'dx is {dx}')
+        print(f'one cube shape is {np.array(first_cube.cube).shape}')
+        dy = first_cube.dy
+        dz = first_cube.dz
+        x_min = first_cube.xt_min  # in km
+        y_min = first_cube.yt_min
+        z_min = first_cube.zt_min
+        # print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
+        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
+        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
+        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
+        # print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
+        print(f'x max and min {round(np.max(cubes_sparse_coords[1, :]))}  {round(np.min(cubes_sparse_coords[1, :]))}')
+        print(f'y max and min {round(np.max(cubes_sparse_coords[2, :]))}  {round(np.min(cubes_sparse_coords[2, :]))}')
+        print(f'z max and min {round(np.max(cubes_sparse_coords[3, :]))}  {round(np.min(cubes_sparse_coords[3, :]))}')
+
+        self.cartesian_data_coords = cubes_sparse_coords
+        self.heliographic_cubes_origin = np.array([x_min, y_min, z_min]) 
+    
+    # def Main_structure(self):
+    #     """
+    #     Where the main functions are added together to make the code.
+    #     """
+
+
+    def SDO_pos(self):
+        """
+        To get the important info out of the SDO data.
+        """
+        
+        # Opening the fits to get the data
+        sdo_pos = []
+        for filepath in self.SDO_filepaths:
+            header = fits.getheader(filepath)
+
+            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
+                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
+                                                observer='self')
+            hec_coords = hec_coords.represent_as(CartesianRepresentation)
+
+            Xhec = hec_coords.x.value / (1000)
+            Yhec = hec_coords.y.value / (1000)
+            Zhec = hec_coords.z.value / (1000)
+
+            sdo_pos.append((Xhec, Yhec, Zhec))
+        self.sdo_pos = sdo_pos
+
+
+
+
+class TESTING_STUFF:
+    
+    @typechecked
+    def __init__(self, coords: np.ndarray | None = None, data: np.ndarray | None = None, camera_position: np.ndarray | tuple | list = (1, 1, 1), 
+                 center_of_interest: np.ndarray | tuple | list = (0, 0, 0), camera_fov: int | float | str = '1deg'):
+    
+        # Data arguments
+        self.data = self.Random_data()
+
+        # Camera arguments
+        self.center_of_interest = np.stack(center_of_interest, axis=0) if isinstance(center_of_interest, (tuple, list)) else center_of_interest
+        self.camera_position = np.stack(camera_position, axis=0) if isinstance(camera_position, (tuple, list)) else camera_position  # TODO: need to check for when the camera is a list but only the x, y, z, value
+        self.camera_fov = camera_fov
+
+        # Functions
+        # self.Checks()  # checks if the arguments had the expected shapes
+        self.Paths()
+        self.Important_attributes()
+
+    def Random_data(self):
+        """
+        making data up
+        """
+
+        data = np.zeros((4, 220 * 3))
+        data[0, ::3] = np.arange(0, 220)
+        data[1, ::3] = 1
+        data[2, ::3] = 1
+        data[3, ::3] = 1
+        data[0, 1::3] = np.arange(0, 220)
+        data[1, 1::3] = 0
+        data[2, 1::3] = 0
+        data[3, 1::3] = 0
+        data[0, 2::3] = np.arange(0, 220)
+        data[1, 2::3] = 1
+        data[2, 2::3] = 0
+        data[3, 2::3] = 0
+        # print(f'random data shape is {data.shape}')
+        return data
+
+    def Paths(self):
+        """
+        Function where the filepaths dictionary is created.
+        """
+
+        main_path = os.path.join(os.getcwd(), '..')
+        self.paths = {
+            'main': main_path, 
+            'SDO': os.path.join(main_path, 'sdo'),
+            'cubes': os.path.join(main_path, 'Cubes_karine'),
+            'curve fit': os.path.join(main_path, 'curveFitArrays'),
+        }
+
+    
+    def Matrix_rotation(self):
+        """
+        To rotate the matrix so that it aligns with the satellite pov
+        """
+        data_list = []
+        satelitte_poss = np.array([
+            [5, 5, 5],
+            [8, 8, 8],
+            [1, 0, 0],
+            [0, 1, 0], 
+            [10, 20, 30],
+        ])
+        for i, test_time in enumerate([0, 5, 40, 90, 200]):
+            # data_filter = self.cartesian_data_coords[0, :] == test_time
+            data_filter = self.data[0, :] == test_time
+
+            # data = self.cartesian_data_coords[1:4, data_filter]
+            data = self.data[1:4, data_filter]
+            # satelitte_pos = self.sdo_pos[test_time]
+            satelitte_pos = satelitte_poss[i]
+            print(f'satellite pos is {satelitte_pos}')
+            # print(f'data is {data} with shape {data.shape}')
+            # print(f'satellite_pos shape is {satelitte_pos.shape}')
+            sun_center = np.array([0, 0, 0])
+
+            viewing_direction = sun_center - satelitte_pos
+            viewing_direction_norm = viewing_direction / np.linalg.norm(viewing_direction)
+
+            # Axis to center on the pov
+            target_axis = np.array([0, 0, 1])
+
+            # Axis of rotation
+            rotation_axis = np.cross(viewing_direction_norm, target_axis)
+
+            # Angle of rotation
+            cos_theta = np.dot(viewing_direction_norm, target_axis)
+            theta = np.arccos(cos_theta)
+
+            # Corresponding rotation matrix
+            rotation_matrix = self.Rodrigues_rotation(rotation_axis, theta)
+
+
+            # As the data has original shape (3, n) for each cube I need to change it to (n,3) for the rotation
+            data = data.T
+
+            # print(f'data transpose shape is {data.shape}')
+            # print(f'rotation matrix shape is {rotation_matrix.shape}')
+            nw_data = []
+            for point in data:
+                # print(f'point shape is {point.shape}')
+
+                new_point = np.matmul(rotation_matrix, point)
+                # print(f'new_point shape is {new_point.shape}')
+                nw_data.append(new_point)
+            nw_data = np.stack(nw_data, axis=-1)
+            # print(f"new_data shape is {nw_data.shape}")
+            data = nw_data
+            # rotated_data = np.dot(data, rotation_matrix.T)
+            # data = rotated_data.T
+            data_list.append(data)
+        return data_list
+    
+    def Rodrigues_rotation(self, axis, angle):
+        """
+        The Rodrigues's rotation formula to rotate matrices.
+        """
+
+        # Normalisation
+        axis = axis / np.linalg.norm(axis)
+
+        matrix = np.array([
+            [0, -axis[2], axis[1]],
+            [axis[2], 0, -axis[0]],
+            [-axis[1], axis[0], 0]
+        ])
+
+        return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
+
+    def Important_attributes(self):
+        """
+        To create the values of some of the class attributes.
+        """
+
+        # Initialisation
+        cube_pattern = re.compile(r'cube(\d{3})\.save')
+
+        # Class attributes
+        self.numbers = sorted([
+            int(cube_pattern.match(cube_name).group(1))
+            for cube_name in os.listdir(self.paths['cubes'])
+            if cube_pattern.match(cube_name)
+        ])
+        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
+                              for number in self.numbers]
+
+    # def Cartesian_pos(self):
+    #     """
+    #     To calculate the heliographic cartesian positions of some of the objects.
+    #     """
+
+    #     cubes_sparse_coords = np.copy(self.data).astype('float64')
+
+    #     # Initialisation
+    #     self.solar_r = 6.96e5  # in km
+    #     first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
+    #     dx = first_cube.dx  # in km
+    #     dy = first_cube.dy
+    #     dz = first_cube.dz
+    #     x_min = first_cube.xt_min  # in km
+    #     y_min = first_cube.yt_min
+    #     z_min = first_cube.zt_min
+    #     print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
+    #     cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
+    #     cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
+    #     cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
+    #     print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
+
+    #     self.cartesian_data_coords = cubes_sparse_coords
+    #     self.heliographic_cubes_origin = np.array([x_min, y_min, z_min]) 
+
+    def SDO_pos(self):
+        """
+        To get the important info out of the SDO data.
+        """
+        
+        # Opening the fits to get the data
+        sdo_pos = []
+        for filepath in self.SDO_filepaths:
+            header = fits.getheader(filepath)
+
+            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
+                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
+                                                observer='self')
+            hec_coords = hec_coords.represent_as(CartesianRepresentation)
+
+            Xhec = hec_coords.x.value / (1000)
+            Yhec = hec_coords.y.value / (1000)
+            Zhec = hec_coords.z.value / (1000)
+
+            sdo_pos.append((Xhec, Yhec, Zhec))
+        self.sdo_pos = sdo_pos
+
+
+
+
 if __name__=='__main__':
-    BarycenterCreation_4(datatype=['conv3dAll', 'raw'], 
-                         polynomial_order=[3, 4, 5, 6, 8, 10],
+    BarycenterCreation_4(datatype=['conv3dAll'], 
+                         polynomial_order=[2],
                          integration_time='24h',
                          multiprocessing=True,
-                         multiprocessing_multiplier=7, 
+                         multiprocessing_multiplier=15, 
                          multiprocessing_raw=6)
