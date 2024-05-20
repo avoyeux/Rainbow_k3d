@@ -12,8 +12,10 @@ import imageio.v3 as iio3
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
+from glob import glob
 from PIL import Image
-from pathlib import Path
+from typing import Match
+from astropy.io import fits
 from typeguard import typechecked
 from matplotlib.gridspec import GridSpec
 
@@ -22,67 +24,60 @@ from matplotlib.gridspec import GridSpec
 class ImageFinder:
 
     @typechecked
-    def __init__(self, ints: bool = True, avg: bool = False, interval: str | None = None, testing: bool = False):
+    def __init__(self, interval: str | None = None):
         
         # Arguments
-        self.ints = ints
-        self.avgs = avg
-        if avg:
-            self.ints = False
         self.interval = interval
-        self.testing = testing  # choosing to test some stuff to then maybe incorporate it.
 
         # Functions
         self.Paths()
+        self.SDO_image_finder()
         self.Images()
         self.Patterns()
         self.Main_loop()
         self.Multiprocessing()
 
-    def Paths(self):
+    def Paths(self) -> None:
         """
         Creating the paths to the files.
         """
 
-        main_path = '../'
-        if self.ints:
-            self.paths = {'Main': main_path,
-                        'SDO': os.path.join(main_path, 'MP4_saves'),
-                        'STEREO': os.path.join(main_path, 'STEREO', 'int'),
-                        'Screenshots': os.path.join(main_path, 'texture_screenshots'),
-                        'Save': os.path.join(main_path, 'texture_plots4')}
-        else:
-            self.paths = {'Main': main_path,
-                        'SDO': os.path.join(main_path, 'MP4_saves'),
-                        'STEREO': os.path.join(main_path, 'STEREO', 'avg'),
-                        'Screenshots': os.path.join(main_path, 'Screenshots_both'),
-                        'Save': os.path.join(main_path, 'texture_both_avg')}
+        main_path = os.path.join(os.getcwd(), '..')
+
+        self.paths = {
+            'Main': main_path,
+            'STEREO': os.path.join(main_path, 'STEREO', 'int'),
+            'Screenshots': os.path.join(main_path, 'texture_screenshots'),
+            'MP4': os.path.join(main_path, 'MP4_saves'),
+            'Save': os.path.join(main_path, 'k3d_final_plots'),
+            }
+            
         os.makedirs(self.paths['Save'], exist_ok=True)
 
-    def Images(self):
+    def Images(self) -> None:
         """
         Getting the path to the images as lists.
         """
 
-        self.sdo_image = sorted(Path(self.paths['SDO']).glob('*.png'))
-        self.stereo_image = sorted(Path(self.paths['STEREO']).glob('*.png'))
-        self.screenshot = sorted(Path(self.paths['Screenshots']).glob('*v0.png'))
+        self.stereo_image = sorted(glob(os.path.join(self.paths['STEREO'], '*.png')))
+        self.screenshot = sorted(glob(self.paths['Screenshots'], '*.png'))
 
-    def Patterns(self):
+    def Patterns(self) -> None:
         """
         Setting up the patterns for the filenames so that I can choose the right images.
         """
 
-        self.sdo_pattern = re.compile(r'''Frame_\d{2}m
-                                      (?P<day>\d{2})d_
-                                      (?P<hour>\d{2})h
-                                      (?P<minute>\d{2})\.png''', re.VERBOSE)
         self.stereo_pattern = re.compile(r'''(?P<number>\d{4})
                                          _\d{4}-\d{2}-
                                          (?P<day>\d{2})T
                                          (?P<hour>\d{2})-
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
+        self.sdo_date_pattern = re.compile(r'''\d{4}-\d{2}-
+                                           (?P<day>\d{2})T
+                                           (?P<hour>\d{2}):
+                                           (?P<minute>\{2})
+                                           :\d{2}\.\d{2}''', re.VERBOSE)
         if 'nodupli' in self.interval:
             self.screenshot_pattern = re.compile(r'''(?P<interval>nodupli)_
                                                  \d{3}_\d{4}-\d{2}-
@@ -98,172 +93,129 @@ class ImageFinder:
                                                 (?P<minute>\d{2})min_
                                                 v(?P<version>\d{1})\.png''', re.VERBOSE)
 
-    def Main_loop(self):
+    def SDO_image_finder(self) -> None:
         """
-        Loop for the SDO images.
+        To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
         """
 
-        self.groups = []
-        for path_sdo in self.sdo_image[2:]:
-            sdo_groups = self.sdo_pattern.match(os.path.basename(path_sdo))
-
-            if sdo_groups:
-                self.Second_loop(sdo_groups)
-            else:
-                raise ValueError(f"The sdo filename {os.path.basename(path_sdo)} doesn't match")
-        self.groups = np.array(self.groups)
-
-    def Second_loop(self, sdo_groups):
-        """
-        Loop for the screenshot images (i.e. the ones gotten with k3d).
-        """
+        with open('SDO_timestamps.txt', 'r') as files:
+            strings = files.read().splitlines()
+        tuple_list = [s.split(" ; ") for s in strings]
         
-        for path_screenshot in self.screenshot:
-            screenshot_groups = self.screenshot_pattern.match(os.path.basename(path_screenshot))
-
-            if screenshot_groups:
-                if screenshot_groups.group('interval') == self.interval:
-                    day = int(screenshot_groups.group('day'))
-                    hour = int(screenshot_groups.group('hour'))
-                    minute = round(int(screenshot_groups.group('minute')) / 10) * 10 # to match the sdo one
-                    sdo_day = int(sdo_groups.group('day'))
-                    sdo_hour = int(sdo_groups.group('hour'))
-                    sdo_minute = int(sdo_groups.group('minute'))
-
-                    if minute==60:
-                        hour += 1
-                        minute = 0
-                        if hour==24:
-                            day += 1
-                            hour = 0
-                    if (day==sdo_day) and (hour==sdo_hour) and (minute==sdo_minute):
-                        self.Third_loop(sdo_groups, screenshot_groups)
-                        return
-            
-    def Third_loop(self, sdo_groups, screenshot_groups):
+        timestamp_to_path = {}
+        for s in tuple_list:
+            path, timestamp = s
+            timestamp_to_path[timestamp] = path + '/S00000/image_lev1.fits'
+        self.sdo_timestamp = timestamp_to_path
+    
+    def Main_loop(self) -> None:
         """
         Loop for the STEREO images.
         """
 
+        self.groups = []
         for path_stereo in self.stereo_image:
-            stereo_groups = self.stereo_pattern.match(os.path.basename(path_stereo))
+            stereo_group = self.stereo_pattern.match(path_stereo)
 
-            if stereo_groups:
-                day = stereo_groups.group('day')
-                hour = stereo_groups.group('hour')
-                minute = stereo_groups.group('minute')
-                screen_day = screenshot_groups.group('day')
-                screen_hour = screenshot_groups.group('hour')
-                screen_minute =screenshot_groups.group('minute')
+            if stereo_group:
+                self.Second_loop(stereo_group)
+            else:
+                raise ValueError(f"Stereo filename {os.path.basename(path_stereo)} doesn't match.")
+        self.groups = np.array(self.groups)
 
-                if (day==screen_day) and (hour==screen_hour) and (minute==screen_minute):
-                    self.groups.append([sdo_groups.group(), stereo_groups.group(), screenshot_groups.group()])
+    def Second_loop(self, stereo_group: Match[str]) -> None:
+        """
+        Loop for the screenshot images (i.e. the ones gotten with k3d).
+        """
+
+        for path_screenshot in self.screenshot:
+            screenshot_group = self.screenshot_pattern.match(os.path.basename(path_screenshot))
+
+            if screenshot_group and (screenshot_group.group('interval') == self.interval):
+                day = int(screenshot_group.group('day'))
+                hour = int(screenshot_group.group('hour'))
+                minute = round(int(screenshot_group.group('minute'))) 
+                stereo_day = int(stereo_group.group('day'))
+                stereo_hour = int(stereo_group.group('hour'))
+                stereo_minute = int(stereo_group.group('minute'))
+
+                if (day==stereo_day) and (hour==stereo_hour) and (minute==stereo_minute):
+                    self.Third_loop(stereo_group, screenshot_group)
+                    return
+
+    def Third_loop(self, stereo_group: Match[str], screenshot_group: Match[str]) -> None:
+        """
+        Loop on the SDO images.
+        """
+
+        for date in self.sdo_timestamp.keys():
+            sdo_group = self.sdo_date_pattern.match(date)
+
+            if sdo_group:
+                day = int(sdo_group.group('day'))
+                hour = int(sdo_group.group('hour'))
+                minute = int(sdo_group.match('minute'))
+                stereo_day = int(stereo_group.group('day'))
+                stereo_hour = int(stereo_group.group('hour'))
+                stereo_minute = int(stereo_group.group('minute'))
+
+                if (day==stereo_day) and (hour==stereo_hour) and (minute in [stereo_minute, stereo_minute + 1]):
+                    print(f"time in minutes is {minute} while the stereo time is {stereo_minute}")
+
+                    self.groups.append([sdo_group.group(), stereo_group.group(), screenshot_group.group()])
                     return
             else:
-                raise ValueError(f"Stereo filename {os.path.basename(path_stereo)} doesn't match")
+                raise ValueError(f"The date {date} doesn't match the usual pattern.")
 
-    def Multiprocessing(self):
+    def Multiprocessing(self) -> None:
         """
         For the multiprocessing.
         Some class attributes are set to None as multiprocessing doesn't like pattern objects.
         """
 
         # Multiprocesses hates patterns
-        self.last_screenshot = None
-        self.sdo_pattern = None
         self.stereo_pattern = None
+        self.sdo_date_pattern = None
         self.screenshot_pattern = None
-        self.stereo_ratio_pattern = None
 
-        if self.testing:
-            args = self.groups[2:4]
-            [self.Testing(arg) for arg in args]
-        else:
-            pool = mp.Pool(processes=14)
-            args = [(group_str,) for group_str in self.groups]
-            pool.starmap(self.Plotting, args)
-            pool.close()
-            pool.join()
+        pool = mp.Pool(processes=14)
+        args = [(group_str,) for group_str in self.groups]
+        pool.starmap(self.Plotting, args)
+        pool.close()
+        pool.join()
 
-    def Plotting3(self, group_str):
+    def SDO_prepocessing(self, date: str) -> Image:
         """
-        Plots the corresponding images together.
+        To open and do the corresponding preprocessing for the SDO image.
         """
 
-        sdo_str, stereo_str, screen_str = group_str
+        image = np.array(fits.getdata(self.sdo_timestamp[date], 1))
+        index = round(image.shape[0] / 3)
+        image = image[index: index * 2 + 1, :]
+        index = round(image.shape[1] / 3)
+        image = image[:, :index + 1]
 
-        self.Patterns()
-        stereo_groups = self.stereo_pattern.match(stereo_str)
-        sdo_groups = self.sdo_pattern.match(sdo_str)
+        lower_cut = np.nanpercentile(image, 1)
+        upper_cut = np.nanpercentile(image, 99.99)
+        image[image < lower_cut] = lower_cut
+        image[image > upper_cut] = upper_cut
+        image = np.where(np.isnan(image), lower_cut, image)
+        image = np.flip(image, axis=0) # TODO: why is there a flip??
+        image = np.log(image)
+        image = Image.fromarray(image)
+        return image.resize((512, 512), Image.Resampling.LANCZOS)
 
-        print(f'screen str is {screen_str}')
-        sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
-        stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
-        screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
-        screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
+    def STEREO_preprocessing(self, filename: str) -> Image:
+        """
+        To get and do the corresponding preprocessing for the STEREO image.
+        """
 
-        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
-        # stereo_image = Image.open(os.path.join(self.paths['STEREO'], stereo_str))
-
+        full_image = Image.open(os.path.join(self.paths['MP4'], filename))
         full_image = np.split(np.array(full_image), 2, axis=1)
-
-        sdo_image = Image.fromarray(full_image[1])
         stereo_image = Image.fromarray(full_image[0])
-
-        # x1, sdo_screenshot, x3 = np.split(np.array(sdo_screenshot), 3, axis=0)
-        # sdo_screenshot, x2, x3 = np.split(sdo_screenshot, 3, axis=1)
-        # sdo_screenshot = Image.fromarray(sdo_screenshot)
-
-        sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
-        stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
-        screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
-        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
-        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
-        screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
-
-        fig = plt.figure(figsize=(6, 4))
-        gs = GridSpec(2, 3)
-        
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax1.imshow(sdo_screenshot, interpolation='none')
-        ax1.axis('off')
-        ax1.set_title('SDO', fontsize=7)
-
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax2.imshow(stereo_screenshot, interpolation='none')
-        ax2.axis('off')
-        ax2.set_title('STEREO', fontsize=7)
-
-        ax3 = fig.add_subplot(gs[0, 2])
-        ax3.imshow(screenshot2, interpolation='none')
-        ax3.axis('off')
-
-        ax4 = fig.add_subplot(gs[1, 0])
-        ax4.imshow(sdo_image, interpolation='none')
-        ax4.axis('off')
-        ax4.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
-                        fontsize=6, color='black', alpha=1, weight='bold')
-
-        ax5 = fig.add_subplot(gs[1, 1])
-        ax5.imshow(stereo_image, interpolation='none')
-        ax5.axis('off')
-        ax5.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
-                        fontsize=6, color='black', alpha=1, weight='bold')
-
-        ax6 = fig.add_subplot(gs[1, 2])
-        ax6.imshow(screenshot3, interpolation='none')
-        ax6.axis('off')
-        # plt.tight_layout()
-        plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
-
-        if 'nodu' in self.interval:
-            figname = f"nodupli_{stereo_groups.group('number')}.png"
-        else:
-            figname = f"Fig_{self.interval}_{stereo_groups.group('number')}.png"
-        plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
-        plt.close()
-
-    def Plotting(self, group_str):
+        return stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
+    
+    def Plotting(self, group_str: list[str]) -> None:
         """
         Created to test the possibilities for the plotting.
         """
@@ -271,29 +223,24 @@ class ImageFinder:
         sdo_str, stereo_str, screen_str = group_str
         self.Patterns()
         stereo_groups = self.stereo_pattern.match(stereo_str)
-        sdo_groups = self.sdo_pattern.match(sdo_str)
 
-        print(f'screen str is {screen_str}')
+        # Opening and preprocessing of the SDO and STEREO images
+        stereo_image = self.STEREO_preprocessing(stereo_str)
+        sdo_image = self.SDO_prepocessing(sdo_str)
 
+        # Opening the images
         sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
         stereo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '1.png'))
         screenshot2 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '2.png'))
         screenshot3 = Image.open(os.path.join(self.paths['Screenshots'], screen_str[:-5] + '3.png'))
 
-        full_image = Image.open(os.path.join(self.paths['SDO'], sdo_str))
-
-        full_image = np.split(np.array(full_image), 2, axis=1)
-
-        sdo_image = Image.fromarray(full_image[1])
-        stereo_image = Image.fromarray(full_image[0])
-
+        # Resizing
         sdo_screenshot = sdo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
         stereo_screenshot = stereo_screenshot.resize((512, 512), Image.Resampling.LANCZOS)
         screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
-        sdo_image = sdo_image.resize((512, 512), Image.Resampling.LANCZOS)
-        stereo_image = stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
         screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
 
+        # Plotting
         fig = plt.figure(figsize=(6, 4))
         gs = GridSpec(2, 3)
         
@@ -324,12 +271,12 @@ class ImageFinder:
         ax6 = fig.add_subplot(gs[1, 2])
         ax6.imshow(screenshot3, interpolation='none')
         ax6.axis('off')
-        plt.tight_layout(pad=0.01, h_pad=0.01, w_pad=0.01)
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.13, hspace=0.08)
 
         if 'nodu' in self.interval:
-            figname = f"testnodupli_{stereo_groups.group('number')}.png"
+            figname = f"new_nodupli_{stereo_groups.group('number')}.png"
         else:
-            figname = f"testFig_{self.interval}_{stereo_groups.group('number')}.png"
+            figname = f"new_Fig_{self.interval}_{stereo_groups.group('number')}.png"
         plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
         plt.close()
 
