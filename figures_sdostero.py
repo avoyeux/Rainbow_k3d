@@ -318,7 +318,7 @@ class MP4_making:
         iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
-    ImageFinder(interval='1h', ints=True)
+    ImageFinder(interval='1h')
     # MP4_making(interval='nodupli', stereo='int', fps=10)
 
 
