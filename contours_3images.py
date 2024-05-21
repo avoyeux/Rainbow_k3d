@@ -361,26 +361,22 @@ class FirstFigure:
         axs[0, 2].axis('off')
 
         ## [...] the first image with the mask lines
-        for line in lines:
-            axs[1, 0].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
+        for line in lines: axs[1, 0].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
         axs[1, 0] = self.Subplot_params(axs[1, 0], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom)
         axs[1, 0].yaxis.tick_right()
 
         ## [...] the contrast with the mask lines
-        for line in lines:
-            axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
+        for line in lines: axs[1, 1].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
         axs[1, 1] = self.Subplot_params(axs[1, 1], lon_positions, lat_positions, lon_text, lat_text, tick_params_kwargs_bottom, second=True)
 
         ## [...] the sdo image with the mask lines
         axs[1, 2].axis('off')
-        for line in lines_sdo:
-            axs[1, 2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
+        for line in lines_sdo: axs[1, 2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.2)
 
         # Taking out the black spine around each plot
         a = 10
         for ax in axs.flat:
-            for spine in ax.spines.values():
-                spine.set_visible(False)
+            for spine in ax.spines.values(): spine.set_visible(False)
             for t in ax.yaxis.get_ticklabels():
                 a -= 1
                 t.set_zorder(a)

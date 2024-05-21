@@ -6,9 +6,11 @@ plt.savefig plot. Also creates the corresponding GIF object.
 # Imports 
 import os
 import re
+import sunpy.map
 
 import numpy as np
 import imageio.v3 as iio3
+import astropy.units as u
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
@@ -17,17 +19,18 @@ from PIL import Image
 from typing import Match
 from astropy.io import fits
 from typeguard import typechecked
-from matplotlib.gridspec import GridSpec
+from sunpy.coordinates import frames
 
 
 
 class ImageFinder:
 
     @typechecked
-    def __init__(self, interval: str | None = None):
+    def __init__(self, interval: str | None = None, multiprocessing: bool = False):
         
         # Arguments
         self.interval = interval
+        self.multiprocessing = multiprocessing
 
         # Functions
         self.Paths()
@@ -60,7 +63,9 @@ class ImageFinder:
         """
 
         self.stereo_image = sorted(glob(os.path.join(self.paths['STEREO'], '*.png')))
-        self.screenshot = sorted(glob(self.paths['Screenshots'], '*.png'))
+        self.screenshot = sorted(glob(os.path.join(self.paths['Screenshots'], '*.png')))
+        self.MP4_filepaths = sorted(glob(os.path.join(self.paths['MP4'], 'Frame*.png')))
+        print(f'len of MP4 filepaths is {len(self.MP4_filepaths)}')
 
     def Patterns(self) -> None:
         """
@@ -73,10 +78,14 @@ class ImageFinder:
                                          (?P<hour>\d{2})-
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
+        self.MP4_pattern = re.compile(r'''Frame_\d{2}m
+                                      (?P<day>\d{2})d_
+                                      (?P<hour>\d{2})h
+                                      (?P<minute>\d{2})\.png''', re.VERBOSE)
         self.sdo_date_pattern = re.compile(r'''\d{4}-\d{2}-
                                            (?P<day>\d{2})T
                                            (?P<hour>\d{2}):
-                                           (?P<minute>\{2})
+                                           (?P<minute>\d{2})
                                            :\d{2}\.\d{2}''', re.VERBOSE)
         if 'nodupli' in self.interval:
             self.screenshot_pattern = re.compile(r'''(?P<interval>nodupli)_
@@ -98,8 +107,7 @@ class ImageFinder:
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
         """
 
-        with open('SDO_timestamps.txt', 'r') as files:
-            strings = files.read().splitlines()
+        with open('SDO_timestamps.txt', 'r') as files: strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
         
         timestamp_to_path = {}
@@ -114,8 +122,8 @@ class ImageFinder:
         """
 
         self.groups = []
-        for path_stereo in self.stereo_image:
-            stereo_group = self.stereo_pattern.match(path_stereo)
+        for path_stereo in self.stereo_image[1:]:  # because the first image in k3d is always wrong
+            stereo_group = self.stereo_pattern.match(os.path.basename(path_stereo))
 
             if stereo_group:
                 self.Second_loop(stereo_group)
@@ -154,18 +162,48 @@ class ImageFinder:
             if sdo_group:
                 day = int(sdo_group.group('day'))
                 hour = int(sdo_group.group('hour'))
-                minute = int(sdo_group.match('minute'))
+                minute = int(sdo_group.group('minute'))
                 stereo_day = int(stereo_group.group('day'))
                 stereo_hour = int(stereo_group.group('hour'))
                 stereo_minute = int(stereo_group.group('minute'))
 
                 if (day==stereo_day) and (hour==stereo_hour) and (minute in [stereo_minute, stereo_minute + 1]):
-                    print(f"time in minutes is {minute} while the stereo time is {stereo_minute}")
-
-                    self.groups.append([sdo_group.group(), stereo_group.group(), screenshot_group.group()])
+                    self.Fourth_loop(stereo_group, screenshot_group, sdo_group)
                     return
             else:
                 raise ValueError(f"The date {date} doesn't match the usual pattern.")
+
+    def Fourth_loop(self, stereo_group: Match[str], screenshot_group: Match[str], sdo_group: Match[str]) -> None:
+        """
+        For the loop on the images gotten from the MP4 powerpoint video.
+        """
+
+        for filepath in self.MP4_filepaths:
+            MP4_group = self.MP4_pattern.match(os.path.basename(filepath))
+
+            if MP4_group:
+                day = int(MP4_group.group('day'))
+                hour = int(MP4_group.group('hour'))
+                minute = int(MP4_group.group('minute')) 
+                stereo_day = int(stereo_group.group('day'))
+                stereo_hour = int(stereo_group.group('hour'))
+                stereo_minute = round(int(stereo_group.group('minute')) / 10) * 10
+
+                # print(f"minute is {minute} and stereo_minute is {stereo_minute}")
+
+                if stereo_minute==60:
+                    stereo_hour += 1
+                    stereo_minute = 0
+                    if stereo_hour==24:
+                        stereo_day += 1
+                        stereo_hour = 0
+
+                if (day==stereo_day) and (hour==stereo_hour) and (minute in [stereo_minute, stereo_minute + 1]):
+                    self.groups.append([sdo_group.group(), stereo_group.group(), screenshot_group.group(), MP4_group.group()])
+                    return
+            else:
+                raise ValueError(f"The filename {os.path.basename(filepath)} doesn't match the MP4 pattern.")
+
 
     def Multiprocessing(self) -> None:
         """
@@ -176,34 +214,40 @@ class ImageFinder:
         # Multiprocesses hates patterns
         self.stereo_pattern = None
         self.sdo_date_pattern = None
+        self.MP4_pattern = None
         self.screenshot_pattern = None
 
-        pool = mp.Pool(processes=14)
-        args = [(group_str,) for group_str in self.groups]
-        pool.starmap(self.Plotting, args)
-        pool.close()
-        pool.join()
+        if self.multiprocessing:
+            pool = mp.Pool(processes=14)
+            args = [(group_str,) for group_str in self.groups]
+            pool.starmap(self.Plotting, args)
+            pool.close()
+            pool.join()
+        else:
+            for arg in self.groups: self.Plotting(arg)
 
-    def SDO_prepocessing(self, date: str) -> Image:
+    def SDO_prepocessing(self, image: np.ndarray) -> Image:
         """
         To open and do the corresponding preprocessing for the SDO image.
         """
 
-        image = np.array(fits.getdata(self.sdo_timestamp[date], 1))
         index = round(image.shape[0] / 3)
         image = image[index: index * 2 + 1, :]
         index = round(image.shape[1] / 3)
         image = image[:, :index + 1]
 
-        lower_cut = np.nanpercentile(image, 1)
-        upper_cut = np.nanpercentile(image, 99.99)
-        image[image < lower_cut] = lower_cut
-        image[image > upper_cut] = upper_cut
-        image = np.where(np.isnan(image), lower_cut, image)
+        image = np.where(np.isnan(image), np.nanmin(image), image)
+        image -= np.min(image) 
+
+        lower_cut = np.percentile(image, 1)
+        upper_cut = np.percentile(image, 99.99)
+        image[image <= lower_cut] = lower_cut
+        image[image >= upper_cut] = upper_cut
         image = np.flip(image, axis=0) # TODO: why is there a flip??
         image = np.log(image)
         image = Image.fromarray(image)
-        return image.resize((512, 512), Image.Resampling.LANCZOS)
+        image = image.resize((512, 512), Image.Resampling.LANCZOS)
+        return np.array(image)
 
     def STEREO_preprocessing(self, filename: str) -> Image:
         """
@@ -213,20 +257,32 @@ class ImageFinder:
         full_image = Image.open(os.path.join(self.paths['MP4'], filename))
         full_image = np.split(np.array(full_image), 2, axis=1)
         stereo_image = Image.fromarray(full_image[0])
-        return stereo_image.resize((512, 512), Image.Resampling.LANCZOS)
+        return np.array(stereo_image.resize((512, 512), Image.Resampling.LANCZOS))
     
     def Plotting(self, group_str: list[str]) -> None:
         """
         Created to test the possibilities for the plotting.
         """
 
-        sdo_str, stereo_str, screen_str = group_str
+        # Separation of the different image string IDs
+        sdo_str, stereo_str, screen_str, MP4_str = group_str
+
+        # Preparation of the SDO carrington map
+        hdul = fits.open(self.sdo_timestamp[sdo_str])
+        hdul[1].verify('fix')
+        decompressed_sdo = hdul[1].data
+        sdo_map = sunpy.map.sources.AIAMap(decompressed_sdo, hdul[1].header)
+
+        # Creation of the re.Match items
         self.Patterns()
         stereo_groups = self.stereo_pattern.match(stereo_str)
+        sdo_groups = self.sdo_date_pattern.match(sdo_str)
+        MP4_groups = self.MP4_pattern.match(MP4_str)
 
         # Opening and preprocessing of the SDO and STEREO images
-        stereo_image = self.STEREO_preprocessing(stereo_str)
-        sdo_image = self.SDO_prepocessing(sdo_str)
+        stereo_image = self.STEREO_preprocessing(MP4_str)
+        sdo_image = self.SDO_prepocessing(np.array(decompressed_sdo))
+        hdul.close()
 
         # Opening the images
         sdo_screenshot = Image.open(os.path.join(self.paths['Screenshots'], screen_str))
@@ -240,56 +296,49 @@ class ImageFinder:
         screenshot2 = screenshot2.resize((512, 512), Image.Resampling.LANCZOS)
         screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
 
-        # Plotting
-        fig = plt.figure(figsize=(6, 4))
-        gs = GridSpec(2, 3)
+        # Plot setup
+        fig, axs = plt.subplots(2, 3, figsize=(6, 4), subplot_kw={'projection': sdo_map})
+
+        # Plotting the carringtion map for STEREO
+        sdo_map.plot(axes=axs[0, 0], clip_interval=(1, 99.99) * u.percent)
+        sdo_map.draw_grid(axes=axs[0, 0])
+
+        # Choosing the images
+        # axs[0, 0].imshow(sdo_image, interpolation='none', cmap='gray')
+        axs[0, 1].imshow(sdo_screenshot, interpolation='none')
+        axs[0, 2].imshow(screenshot2, interpolation='none')
+        axs[1, 0].imshow(stereo_image, interpolation='none')
+        axs[1, 1].imshow(stereo_screenshot, interpolation='none')
+        axs[1, 2].imshow(screenshot3, interpolation='none')
+
+        # Taking out the axes
+        for ax in axs.flat: ax.axis('off')
         
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax1.imshow(sdo_image, interpolation='none')
-        ax1.axis('off')
-        ax1.text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
-                        fontsize=6, color='black', alpha=1, weight='bold')
-        
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax2.imshow(sdo_screenshot, interpolation='none')
-        ax2.axis('off')
+        # Adding the date text
+        axs[0, 0].text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
+                      fontsize=6, color='black', alpha=1, weight='bold')
+        axs[1, 0].text(260, 500, f"2012-07-{MP4_groups.group('day')} {MP4_groups.group('hour')}:{MP4_groups.group('minute')}",
+                       fontsize=6, color='black', alpha=1, weight='bold')
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
 
-        ax3 = fig.add_subplot(gs[0, 2])
-        ax3.imshow(screenshot2, interpolation='none')
-        ax3.axis('off')
-
-        ax4 = fig.add_subplot(gs[1, 0])
-        ax4.imshow(stereo_image, interpolation='none')
-        ax4.axis('off')
-        ax4.text(260, 500, f"2012-07-{stereo_groups.group('day')} {stereo_groups.group('hour')}:{stereo_groups.group('minute')}",
-                        fontsize=6, color='black', alpha=1, weight='bold')
-
-        ax5 = fig.add_subplot(gs[1, 1])
-        ax5.imshow(stereo_screenshot, interpolation='none')
-        ax5.axis('off')
-
-        ax6 = fig.add_subplot(gs[1, 2])
-        ax6.imshow(screenshot3, interpolation='none')
-        ax6.axis('off')
-        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.13, hspace=0.08)
-
+        # Saving the plot
         if 'nodu' in self.interval:
             figname = f"new_nodupli_{stereo_groups.group('number')}.png"
         else:
             figname = f"new_Fig_{self.interval}_{stereo_groups.group('number')}.png"
         plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
         plt.close()
+        print('one plot done.')
 
 class MP4_making:
     """
     To create the corresponding GIF.
     """
 
-    def __init__(self, interval='1h', fps=5, stereo='int'):
+    def __init__(self, interval='1h', fps=5):
 
         self.fps = fps
         self.interval = interval
-        self.stereo = stereo
         self.Paths()
         self.MP4()
 
@@ -301,8 +350,8 @@ class MP4_making:
         main_path = '../'
 
         self.paths = {'Main': main_path,
-                      'Figures': os.path.join(main_path, f'texture_plots2'),
-                      'GIF': os.path.join(main_path, 'texture_mp4')}
+                      'Figures': os.path.join(main_path, f'k3d_final_plots'),
+                      'MP4': os.path.join(main_path, 'MP4_creations')}
         os.makedirs(self.paths['MP4'], exist_ok=True)
 
     def MP4(self):
@@ -310,15 +359,13 @@ class MP4_making:
         Making a corresponding mp4 file.
         """
 
-        # writer = iio3.get_writer(os.path.join(self.paths['GIF'], f'MP4_test.mp4'), fps=self.fps)
-
-        image_paths = sorted(Path(self.paths['Figures']).glob(f'*{self.interval}*.png'))
+        image_paths = sorted(glob(os.path.join(self.paths['Figures'], f'*{self.interval}*.png')))
         images = [iio3.imread(image_path) for image_path in image_paths]
 
         iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
-    ImageFinder(interval='1h')
-    # MP4_making(interval='nodupli', stereo='int', fps=10)
+    ImageFinder(interval='1h', multiprocessing=False)
+    # MP4_making(interval='1h', fps=10)
 
 
