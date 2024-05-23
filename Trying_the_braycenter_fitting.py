@@ -5,75 +5,34 @@ Rainbow protuberance.
 
 # Imports 
 import os
-import numpy as np
+import re
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+from glob import glob
+from queue import Queue
 from astropy.io import fits
+from scipy.io import readsav
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from typing import Callable, Any
 from typeguard import typechecked
+from threading import Lock, Thread
 from scipy.optimize import curve_fit
+from scipy.ndimage import binary_erosion
+from sparse import COO, stack, concatenate
 from skimage.morphology import skeletonize
+from multiprocessing import Process, Manager
+from multiprocessing.queues import Queue as QUEUE
+from multiprocessing.shared_memory import SharedMemory
 from astropy.coordinates import CartesianRepresentation
 from sunpy.coordinates.frames import  HeliographicCarrington
 
-from common_alf import MathematicalEquations, Decorators
+from Animation_3D_main import CustomDate
+from common_alf import Decorators, MultiProcessing, ClassDecorator
 
 
 class BarycenterCreation:
-
-    @typechecked
-    def __init__(self, n_oder: int = 3, conv_threshold: int = 125, test_time_index: int = 200):
-        
-        pass
-
-    def Main_structure(self):
-        """
-        Class' main function.
-        """
-
-        # Importing the data
-        cubes = np.load(os.path.join(self.path, 'barycenter_array_4.npy')).astype('uint8')
-        binary_cubes = cubes > self.conv_thresholds
-        # Testing for a specific value
-        test_section = binary_cubes[self.test_time_index]
-        x, y, z = np.where(test_section==1)
-        w = np.ones(len(x))
-        coords = (x, y, z)
-
-        # Creating the n-th order cartesian polynomial
-        nth_order_polynomial, nb_coeffs = MathematicalEquations.Generate_nth_order_polynomial(self.n_order)
-
-        # Initial random guess for the polynomial coefficients
-        constants = np.random.rand(nb_coeffs)
-
-        params, params_covariance = curve_fit(nth_order_polynomial, coords, w, p0=constants)
-
-        # Setting up the index grid to get the polynomial 'solutions'
-        x_range = np.arange(0, cubes.shape[1])
-        y_range = np.arange(0, cubes.shape[2])
-        z_range = np.arange(0, cubes.shape[3])
-        X, Y, Z = np.meshgrid(x_range, y_range, z_range, indexing='ij')
-
-        # Creating the results cube
-        mesh_coords = X, Y, Z
-        result_cube = nth_order_polynomial(mesh_coords, *params)
-        
-        # Normalisation of the results
-        result_cube = (result_cube - np.min(result_cube)) / (np.max(result_cube - np.min(result_cube)))
-        result_cube = (np.abs(result_cube) * 255).astype('uint16')
-        np.save(os.path.join(self.path, f'polynomial_results_convlim{self.conv_thresholds}.npy'), result_cube)
-
-from scipy.ndimage import binary_erosion
-from multiprocessing import Process, shared_memory, Manager
-from scipy.io import readsav
-import re
-from glob import glob
-from Animation_3D_main import CustomDate
-import threading
-import queue as Queue
-from sparse import COO, stack, concatenate
-
-class BarycenterCreation_4:
 
     @typechecked
     def __init__(self, datatype: str | list = 'surface', conv_threshold: int | list | tuple = 125, polynomial_order: int | list | tuple = 3, 
@@ -85,6 +44,7 @@ class BarycenterCreation_4:
         self.conv_thresholds = conv_threshold if not isinstance(conv_threshold, int) else [conv_threshold]  # minimum threshold to convert the conv3d data to binary
         self.n = polynomial_order if not isinstance(polynomial_order, int) else [polynomial_order]  # the polynomial order
         self.time_interval = integration_time
+        self.time_interval_str = integration_time
         self.multiprocessing = multiprocessing
         self.multiprocessing_multiplier = multiprocessing_multiplier
         self.threads = threads
@@ -100,18 +60,21 @@ class BarycenterCreation_4:
         self.Time_interval()
         self.Loader()
 
-    def Paths(self):
+    def Paths(self) -> None:
         """
         Path creation.
         """
 
+        main_path = '..'
         self.paths = {
-            'main': os.path.join(os.getcwd(), '..', 'test_conv3d_array'), 
-            'cubes': os.path.join(os.getcwd(), '..', 'Cubes_karine'),
-            'intensities': os.path.join(os.getcwd(), '..', 'STEREO', 'int'),
-                     }
+            'main': os.path.join(main_path, 'test_conv3d_array'), 
+            'cubes': os.path.join(main_path, 'Cubes_karine'),
+            'intensities': os.path.join(main_path, 'STEREO', 'int'),
+            'save': os.path.join(main_path, 'curveFitArrays'),
+        }
+        os.makedirs(self.paths['save'], exist_ok=True)
     
-    def Time_interval(self):
+    def Time_interval(self) -> None:
         """
         Checking the date interval type an assigning a value to be used in another function to get the min and max date.
         """
@@ -134,25 +97,24 @@ class BarycenterCreation_4:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
         self.time_interval = time_delta
 
-    def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max, date_min, shared_array: bool = False):
+    def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max: int, date_min: int, shared_array: bool = False) -> COO:
         """
         To select the data in the time chunk given the data chosen for the integration.
         """
 
         if shared_array:
-            shm = shared_memory.SharedMemory(name=cubes['shm.name'])
+            shm = SharedMemory(name=cubes['shm.name'])
             coords = np.ndarray(cubes['data.shape'], dtype=cubes['data.dtype'], buffer=shm.buf)
             cubes = COO(coords=coords, data=1, shape=cubes['cubes.shape'])
 
         chunk = []
-        for date2, data2 in zip(dates, cubes):
-            date_seconds2 = (((self.days_per_month[date2.month] + date2.day) * 24 + date2.hour) * 60 + date2.minute) * 60 \
-                + date2.second
+        for date, data in zip(dates, cubes):
+            date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
             
-            if date_seconds2 < date_min:
+            if date_seconds < date_min:
                 continue
-            elif date_seconds2 <= date_max:
-                chunk.append(data2)
+            elif date_seconds <= date_max:
+                chunk.append(data)
             else:
                 break
         
@@ -166,12 +128,12 @@ class BarycenterCreation_4:
             chunk = stack(chunk, axis=0)
             return COO.any(chunk, axis=0)
           
-    def Generate_nth_order_polynomial(self, n: int = 3):
+    def Generate_nth_order_polynomial(self, n: int = 3) -> tuple[Callable[[np.ndarray, Any], int | float], int]:
         """
         Creating a one variable n-th order polynomial.
         """
 
-        def nth_order_polynomial(t, *coeffs):
+        def nth_order_polynomial(t: np.ndarray, *coeffs) -> int | float:
             """
             The n-th order polynomial.
             """
@@ -187,13 +149,13 @@ class BarycenterCreation_4:
         nb_coeffs = n + 1
         return nth_order_polynomial, nb_coeffs
     
-    def Shared_memory(self, data: np.ndarray):
+    def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:
         """
         Creating a shared memory object for storing a numpy array.
         Only saves a dictionary with the necessary information to access the shared array.
         """
 
-        shm = shared_memory.SharedMemory(create=True, size=data.nbytes)
+        shm = SharedMemory(create=True, size=data.nbytes)
         shared_array = np.ndarray(data.shape, dtype=data.dtype, buffer=shm.buf)
         np.copyto(shared_array, data)
 
@@ -206,7 +168,7 @@ class BarycenterCreation_4:
         return shm, info
 
     @Decorators.running_time
-    def Loader(self):
+    def Loader(self) -> None:
         """
         To add the chosen data to the Main_structure function.
         The function is here to create polynomials for different data inputs. 
@@ -257,20 +219,20 @@ class BarycenterCreation_4:
             if shm_raw is not None: shm_raw.unlink()
 
     @Decorators.running_time
-    def File_opening_threads(self, filepaths: str):
+    def File_opening_threads(self, filepaths: str) -> list[np.ndarray]:
         """
         Opening the .save files via threads
         """
         
         # Threading initialisation
-        queue = Queue.Queue()
+        queue = Queue()
+        lock = Lock()
         threads = []
-        lock = threading.Lock()
         results = []
 
         # Creating a set number of threads and starting them
         for _ in range(self.threads):
-            t = threading.Thread(target=self.File_reader, args=(queue, lock, results))
+            t = Thread(target=self.File_reader, args=(queue, lock, results))
             t.start()
             threads.append(t)
 
@@ -284,7 +246,7 @@ class BarycenterCreation_4:
         results.sort(key=lambda x: x[0])
         return [result[1] for result in results]
 
-    def File_reader(self, queue, lock, results: list):
+    def File_reader(self, queue: Queue[tuple[int, str]], lock: Lock, results: list[tuple[int, str]]) -> None:
         """
         Opens a .save file and saves it in a queue.Queue().
         """
@@ -292,9 +254,7 @@ class BarycenterCreation_4:
         while True:
             # Getting the queue inputs
             item = queue.get()
-            if item is None: 
-                queue.task_done()
-                break
+            if item is None: queue.task_done(); break
             
             # Setting up the file reading
             index, filepath = item
@@ -306,9 +266,10 @@ class BarycenterCreation_4:
             finally:
                 queue.task_done()
 
-    def Time_integration(self, dates: list, data: np.ndarray | dict, queue = None, index: int | None = None, step: int | None = None, shared_array: bool = False, last: bool = False):
+    def Time_integration(self, dates: list, data: np.ndarray | dict, queue = None, index: int | None = None, step: int | None = None, 
+                         shared_array: bool = False, last: bool = False) -> None | COO:
         """
-        To integrate the cubes for a given a time interval and the file dates in seconds.
+        To integrate the cubes for a given time interval and the file dates in seconds.
         """
 
         # If multiprocessed the parent function.
@@ -329,14 +290,11 @@ class BarycenterCreation_4:
             time_cubes_no_duplicate.append(self.Time_chunks(dates=dates, cubes=data, date_max=date_max, date_min=date_min, shared_array=shared_array))
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0).astype('uint8')
 
-        if shared_array: 
-            queue.put((index, time_cubes_no_duplicate))
-        else:
-            return time_cubes_no_duplicate
-    
+        if not shared_array: return time_cubes_no_duplicate
+        queue.put((index, time_cubes_no_duplicate))
 
     @Decorators.running_time
-    def Getting_IDL_cubes(self):
+    def Getting_IDL_cubes(self) -> np.ndarray:
         """
         Opening the .save data files to get the 'raw' cube and doing the time integration.
         """
@@ -366,9 +324,7 @@ class BarycenterCreation_4:
         for number in cube_numbers: 
             for filepath in all_filenames:
                 filename = os.path.basename(filepath)
-                if filename[:4] == f'{number:04d}':
-                    filenames.append(filename)
-                    break
+                if filename[:4] == f'{number:04d}': filenames.append(filename); break
         dates = [CustomDate(pattern_int.match(filename).group(1)) for filename in filenames]
         self.days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         date = dates[0]
@@ -381,7 +337,7 @@ class BarycenterCreation_4:
         if multiprocessing:
 
             coords = cubes_no_duplicate.coords
-            shm = shared_memory.SharedMemory(create=True, size=coords.nbytes)
+            shm = SharedMemory(create=True, size=coords.nbytes)
             shared_array = np.ndarray(coords.shape, dtype=coords.dtype, buffer=shm.buf)
             np.copyto(shared_array, coords)
             shm.close()
@@ -419,15 +375,12 @@ class BarycenterCreation_4:
             for p in processes: p.join()
 
             results = [None for _ in range(self.multiprocessing_raw)]
-            index = -1
 
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
-                index += 1
             results = concatenate(results, axis=0).astype('uint8')
             results = results.todense()
-
         else:
             results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False)
             results = results.todense()
@@ -436,14 +389,14 @@ class BarycenterCreation_4:
         return results
 
     @Decorators.running_time
-    def Main_structure(self, datatype: str, data: np.ndarray | dict, shared_array: bool = False, contour: bool = False, skeleton: bool = False):
+    def Main_structure(self, datatype: str, data: np.ndarray | dict, shared_array: bool = False, contour: bool = False, skeleton: bool = False) -> None:
         """
         Class' main function.
         """
 
         # Defining the reference if using shared arrays
         if shared_array:
-            shm = shared_memory.SharedMemory(name=data['shm.name'])
+            shm = SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
         # Defining the conv_threshold list if the right datatype
@@ -464,19 +417,16 @@ class BarycenterCreation_4:
         processes = []
  
         if multiprocessing:
-            processes = [Process(target=self.Processing_4D_binary, args=(datatype, binary_cube, contour, skeleton, 
-                                                                         conv_thresholds[conv_index] if conv_thresholds else None)) 
-                         for conv_index, binary_cube in enumerate(data)]
+            processes = [Process(target=self.Processing_4D_binary, args=(datatype, binary_cube, contour, skeleton)) for binary_cube in data]
         else:
-            for conv_index, binary_cube in enumerate(data): 
-                self.Processing_4D_binary(datatype, binary_cube, contour, skeleton, conv_thresholds[conv_index] if conv_thresholds else None)
+            for binary_cube in data: self.Processing_4D_binary(datatype, binary_cube, contour, skeleton)
 
         for p in processes: p.start()
         for p in processes: p.join()
 
-    def Processing_4D_binary(self, datatype: str, data: np.ndarray | None, contour: bool = False, skeleton: bool = False, conv_threshold: int | None = None):
+    def Processing_4D_binary(self, datatype: str, data: np.ndarray | None, contour: bool = False, skeleton: bool = False) -> None:
         """
-        The processing of one 4D binary data cube
+        The processing of one 4D binary data cube.
         """
 
         # Multiprocessing set-up
@@ -503,8 +453,8 @@ class BarycenterCreation_4:
         
         if multiprocessing: shm.unlink()
 
-    def Time_multiprocessing(self, data: np.ndarray | dict, datatype: str,  shared_array: bool, index: int, conv_threshold: int | None = None, 
-                  contour: bool = False, skeleton: bool = False):
+    def Time_multiprocessing(self, data: np.ndarray | dict, datatype: str, shared_array: bool, index: int, conv_threshold: int | None = None, 
+                  contour: bool = False, skeleton: bool = False) -> None:
         """
         The for loop on the time axis.
         """
@@ -553,23 +503,20 @@ class BarycenterCreation_4:
             results = self.Time_loop(data=data, shared_array=shared_array, contour=contour, skeleton=skeleton, poly_index=index)
 
         # Saving the data in .npy files
-        if conv_threshold is not None:
-            added_string = f'_lim_{conv_threshold}'
-        else:
-            added_string = ''
-        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}.npy'
-        np.save(os.path.join(self.paths['main'], filename), results.astype('uint16'))
+        added_string = '' if conv_threshold is None else f'_lim_{conv_threshold}'
+        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}_{self.time_interval_str}.npy'
+        np.save(os.path.join(self.paths['save'], filename), results.astype('float64'))
 
-        print(f'File {filename} saved with shape {results.shape}', flush=True)
+        print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=True)
 
-    def Time_loop(self, poly_index: int, index: int | None = None, queue: None = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
-                  contour: bool = False, skeleton: bool = False):
+    def Time_loop(self, poly_index: int, index: int | None = None, queue: None | QUEUE = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
+                  contour: bool = False, skeleton: bool = False) -> None | np.ndarray:
         """
         The for loop on the time axis.
         """
 
         if shared_array:
-            shm = shared_memory.SharedMemory(name=data['shm.name'])
+            shm = SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
         # If multiprocessing this part
@@ -584,7 +531,7 @@ class BarycenterCreation_4:
 
         # Initialisation of the result list
         results = []
-        for time in range(data.shape[0]): # TODO: need to change the order so that not so many processes are opened and closed
+        for time in range(data.shape[0]): 
             # Selecting a slice of the data
             section = data[time]
 
@@ -614,7 +561,7 @@ class BarycenterCreation_4:
         if not step: return results  # if no multiprocessing
         queue.put((index, results))
 
-    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int, first_time_index: int = 0):
+    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int, first_time_index: int = 0) -> np.ndarray:
             """
             Where the fitting of the curve actually takes place.
             """
@@ -630,23 +577,27 @@ class BarycenterCreation_4:
             params_z, _ = curve_fit(polynomial, t, z, p0=params)
 
             # Getting the curve
-            t_fine = np.linspace(0.5, 2.5, 10**4)
+            t_fine = np.linspace(0.5, 2.5, 10**6)
             x = polynomial(t_fine, *params_x)
             y = polynomial(t_fine, *params_y)
             z = polynomial(t_fine, *params_z)
 
             # Taking away duplicates 
-            data = np.vstack((x, y, z)).T.astype('uint16')
+            data = np.vstack((x, y, z)).T.astype('float64')
 
             # Cutting away the values that are outside the initial cube shape
-            conditions = (data[:, 0] >= 320) | (data[:, 1] >= 226) | (data[:, 2] >= 186)
-            data = data[~conditions]        
+            conditions_upper = (data[:, 0] >= 318) | (data[:, 1] >= 225) | (data[:, 2] >= 185) 
+            conditions_lower = np.any(data < 0, axis=1)
+            conditions = conditions_upper | conditions_lower
+            data = data[~conditions]       
+
             unique_data = np.unique(data, axis=0).T
             time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
-            unique_data = np.vstack((time_row, unique_data)).astype('uint16')
+            unique_data = np.vstack((time_row, unique_data)).astype('float64')
             return unique_data
 
 
+@ClassDecorator(Decorators.running_time)
 class OrthographicalProjection:
     """
     Does the 2D projection of a 3D volume.
@@ -654,46 +605,51 @@ class OrthographicalProjection:
     """
 
     @typechecked
-    def __init__(self, coords: np.ndarray | None = None, data: np.ndarray | None = None, camera_position: np.ndarray | tuple | list = (1, 1, 1), 
-                 center_of_interest: np.ndarray | tuple | list = (0, 0, 0), camera_fov: int | float | str = '1deg'):
-    
+    def __init__(self, data: np.ndarray | COO | None = None, processes: int = 0, saving_data: bool = False, time_interval: str = '24h',
+                 saving_plots: bool = False, saved_data: bool = False, saving_filename: str = 'k3d_projection_cubes.npy',
+                 plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial']):
+        
         # Data arguments
+        if isinstance(data, COO):
+            data = data.coords
+        elif data.shape[0] not in [3, 4]:
+            data = COO(data).coords
 
-        if data is not None:
-            if data.shape[0] not in [3, 4]: 
-                self.data = COO(data)
-            else:
-                self.data = data
-        elif coords is not None:
-            self.data = coords
-        else:
-            raise ValueError("'coords' or 'data' needed to get the 2D projection.")
+        # Arguments
+        self.time_interval = time_interval
+        self.multiprocessing = True if processes > 1 else False
+        self.processes = processes
+        self.saving_filename = os.path.splitext(saving_filename)[0] + f'_{self.time_interval}.npy'
+        self.solar_r = 6.96e5  # in km
+        self.plot_choices = self.Plot_choices(plot_choices if isinstance(plot_choices, list) else [plot_choices])
 
-        # Camera arguments
-        self.center_of_interest = np.stack(center_of_interest, axis=0) if isinstance(center_of_interest, (tuple, list)) else center_of_interest
-        self.camera_position = np.stack(camera_position, axis=0) if isinstance(camera_position, (tuple, list)) else camera_position  # TODO: need to check for when the camera is a list but only the x, y, z, value
-        self.camera_fov = camera_fov
+        # Input print
+        if data is not None: print(f"The input data shape is {data.shape} with size {round(data.nbytes / 2**20, 2)}Mb.")
 
         # Functions
-        # self.Checks()  # checks if the arguments had the expected shapes
         self.Paths()
         self.Important_attributes()
-        self.Cartesian_pos()
-        self.SDO_pos()
+        self.Choices(data, saving_data, saving_plots, saved_data)
 
-    # def Checks(self):
-    #     """
-    #     Checking if the inputs got the expected values/shapes.
-    #     """
+    def Plot_choices(self, plot_choices: list[str]) -> dict[str, bool]:
+        """
+        To check the values given for the plot_choices argument
+        """
 
-    #     if (len(self.camera_position.shape) == 2) and (self.camera_position.shape[1] == 3):
-    #         pass
-    #     elif (len(self.camera_position.shape == 1)) and (self.camera_position.shape[0] == 3):
-    #         pass
-    #     else:
-    #         raise ValueError(f"'camera_position' needs to be a list/tuple of arrays or an array of shape (3,) or (n, 3). Not {self.camera_position}")
-        
-    def Paths(self):
+        # Initialisation of the possible choices
+        possibilities = ['polar', 'cartesian', 'sdo image', 'no duplicate', 'envelop', 'polynomial']
+        plot_choices_kwargs = {key: False for key in possibilities}
+
+        for key in plot_choices: 
+            if key in possibilities: 
+                plot_choices_kwargs[key] = True
+            else: 
+                raise ValueError(f"Value for the 'plot_choices' argument not recognised.") 
+            
+        if 'envelop' in plot_choices.keys(): plot_choices_kwargs['polar'] = True
+        return plot_choices_kwargs
+
+    def Paths(self) -> None:
         """
         Function where the filepaths dictionary is created.
         """
@@ -704,122 +660,219 @@ class OrthographicalProjection:
             'SDO': os.path.join(main_path, 'sdo'),
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'curve fit': os.path.join(main_path, 'curveFitArrays'),
+            'save': os.path.join(main_path, 'projection_results'),
         }
-
-    # def Recentering_the_data(self):
-    #     """
-    #     Putting the center of interest as the initial origin of the data to simply the translation matrix 
-    #     creation.
-    #     """
-
-    #     if self.data.shape[0] == 3:
-    #         self.data -= self.center_of_interest
-    #     elif self.data.shape[0] == 4:
-    #         pass
-
-    #     # TODO: need to finish this part too
-
-    # @typechecked
-    # def Ortho_projection(self, right: int | float, left: int | float, bottom: int | float, top: int | float, 
-    #                      near: int | float, far: int | float, x: np.ndarray, y: np.ndarray, z: np.ndarray):
-    #     """
-    #     The translation matrix.
-    #     """
-
-    #     x_proj = (2 * x - right - left) / (right - left)
-    #     y_proj = (2 * y - top - bottom) / (top - bottom)
-    #     z_proj = (-2 * z - far - near) / (far - near)
-
-    #     return x_proj, y_proj, z_proj
-
-    # def Ortho_projection_params(self):
-    #     """
-    #     To get all the parameters needed for the orthographical projection translation matrix.
-    #     """
-
-    #     # Re-centering the data
-    #     if len(self.center_of_interest.shape) != 2 and self.center_of_interest.shape[0] == 3:
-    #         self.center_of_interest = np.stack([
-    #             self.center_of_interest 
-    #             for loop in range(self.data.shape[0])
-    #         ], axis=0)
-    #     elif len(self.center_of_interest.shape) > 2:
-    #         raise ValueError('The value of center_of_interest is wrong.')
-    #     for time in range(self.data.shape[0]):
-    #         filters = self.cartesian_data_coords[0, :] == time
-    #         section = self.cartesian_data_coords[filters].astype('int32')
-    #         section[1:4, :] -= self.center_of_interest[time, :]
-    #         self.cartesian_data_coords[filters] = section
-
-    #     # The box size gotten by looking at the Coronal Monsoon paper
-    #     lat_min = (245 - 270) * u.deg  # TODO: need to check with sir Auchere. Most probably wrong
-    #     lat_max = (295 - 270) * u.deg
-    #     radius_min = 0 * u.km
-    #     radius_max = radius_min + (self.solar_r + 3.4 * 10**3) / self.solar_r * u.km
-    #     lon_min = 165 * u.deg
-    #     lon_max = 225 * u.deg
-
-    #     # Setting the max and min coords in cartesian coordinates that encompasses the whole sun with the protuberance
-    #     cartesian_max = np.array([radius_max, radius_max, radius_max])
-    #     cartesian_min = - cartesian_max
-
-
-    #     # TODO: most probably don't need this code anymore
+        os.makedirs(self.paths['save'], exist_ok=True)
     
-    def Matrix_rotation(self):
+    def Important_attributes(self) -> None:
+        """
+        To create the values of some of the class attributes.
+        """
+
+        # Initialisation
+        cube_pattern = re.compile(r'cube(\d{3})\.save')
+
+        # Important lists
+        self.numbers = sorted([
+            int(cube_pattern.match(cube_name).group(1))
+            for cube_name in os.listdir(self.paths['cubes'])
+            if cube_pattern.match(cube_name)
+        ])
+        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
+                              for number in self.numbers]
+    
+    def Choices(self, data: np.ndarray | None, saving_data: bool, saving_plots: bool, saved_data: bool) -> None:
+        """
+        To call the right class functions depending on the class arguments.
+        The function is here just to not overpopulate __init__.
+        """
+
+        if not saved_data:
+            self.SDO_pos()
+            data = self.Cartesian_pos(data)
+            data = self.Matrix_rotation(data)
+            if saving_data: self.Saving_data(data)
+        else:
+            data = np.load(os.path.join(self.paths['save'], self.saving_filename))
+
+        if saving_plots: self.Plotting(data)  
+
+    def Cartesian_pos(self, data: np.ndarray) -> np.ndarray:
+        """
+        To calculate the heliographic cartesian positions of some of the objects.
+        """
+
+        cubes_sparse_coords = data.astype('float64')
+
+        # Initialisation
+        first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
+        dx = first_cube.dx  # in km
+        dy = first_cube.dy
+        dz = first_cube.dz
+        x_min = first_cube.xt_min  # in km
+        y_min = first_cube.yt_min
+        z_min = first_cube.zt_min
+        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
+        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
+        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
+   
+        self.heliographic_cubes_origin = np.array([x_min, y_min, z_min], dtype='float64')
+        return cubes_sparse_coords
+
+    def SDO_pos(self) -> None:
+        """
+        To get the position of the SDO satellite.
+        """
+        # Multithreading initialisation
+        if self.multiprocessing:
+            manager = Manager()
+            queue = manager.Queue()
+            results = []
+            indexes = MultiProcessing.Pool_indexes(len(self.SDO_filepaths), self.processes)
+
+            processes = [Process(target=self.SDO_pos_sub, kwargs={'queue':queue, 'index': index, 'data_index': data_index}) for index, data_index in enumerate(indexes)]
+            for p in processes: p.start()
+            for p in processes: p.join()
+
+            results = [None for _ in range(self.processes)]
+            while not queue.empty():
+                identifier, result = queue.get()
+                results[identifier] = result
+            self.sdo_pos = [one_result for sub_results in results for one_result in sub_results]
+        else:
+            self.sdo_pos = self.SDO_pos_sub((0, len(self.SDO_filepaths) - 1))
+    
+    def SDO_pos_sub(self, data_index: tuple[int, int], queue: QUEUE | None = None, index: int | None = None) -> None:
+        """
+        For the multithreading when opening the files
+        """
+        
+        sdo_pos = []
+        for filepath in self.SDO_filepaths[data_index[0]:data_index[1] + 1]:
+            header = fits.getheader(filepath)
+            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
+                                                header['DSUN_OBS'] * u.km, obstime=header['DATE-OBS'], observer='self')
+            hec_coords = hec_coords.represent_as(CartesianRepresentation)
+
+            Xhec = hec_coords.x.value 
+            Yhec = hec_coords.y.value 
+            Zhec = hec_coords.z.value
+            sdo_pos.append((Xhec, Yhec, Zhec))
+        
+        if self.multiprocessing: queue.put((index, sdo_pos))
+        return sdo_pos
+        
+    def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:
+        """
+        To initialise a shared memory when multiprocessing.
+        """
+
+        shm = SharedMemory(create=True, size=data.nbytes)
+        shared_array = np.ndarray(data.shape, dtype=data.dtype, buffer=shm.buf)
+        np.copyto(shared_array, data)
+
+        info = {
+            'shm.name': shm.name,
+            'data.shape': data.shape,
+            'data.dtype': data.dtype,
+        }
+        shm.close()
+        return shm, info
+
+    def Matrix_rotation(self, data: np.ndarray) -> np.ndarray:
         """
         To rotate the matrix so that it aligns with the satellite pov
         """
-        data_list = []
-        for test_time in [0, 5, 40, 90, 200]:
-            data_filter = self.cartesian_data_coords[0, :] == test_time
 
-            data = self.cartesian_data_coords[1:4, data_filter]
-            print(f'data shape is {data.shape}')
-            center = np.array([0, 0, 0]).reshape(3, 1)
-            data = np.column_stack((data, center))  # adding the sun center to see if the translation is correct
-            print(data.shape)
-            satelitte_pos = self.sdo_pos[test_time]
+        if self.multiprocessing:
+            # Initialisation of the multiprocessing
+            manager = Manager()
+            queue = manager.Queue()
+            shm, data = self.Shared_memory(data.astype('float64'))
+
+            # Setting up each process
+            indexes = MultiProcessing.Pool_indexes(len(self.numbers), self.processes)
+            kwargs = {
+                'queue': queue, 
+                'data': data,
+            }
+            processes = [Process(target=self.Time_loop, kwargs={'index': i, 'data_index': index_tuple, **kwargs}) for i, index_tuple in enumerate(indexes)]
+            for p in processes: p.start()
+            for p in processes: p.join()
+            
+            shm.unlink()
+
+            # Getting the results 
+            results = [None for _ in range(self.processes)]
+            while not queue.empty():
+                identifier, result = queue.get()
+                results[identifier] = result
+            results = [projection_matrix for sublist in results for projection_matrix in sublist]
+        else:
+            results = self.Time_loop(data=data, data_index=(0, len(self.numbers) - 1))
+
+        # Ordering the final result so that it is a np.ndarray
+        start_index = 0
+        total_nb_vals = sum(arr.shape[1] for arr in results)
+        final_results = np.empty((4, total_nb_vals), dtype='float64')
+        for t, result in enumerate(results):
+            nb_columns = result.shape[1]
+            final_results[0, start_index: start_index + nb_columns] = t
+            final_results[1:4, start_index: start_index + nb_columns] = result
+            start_index += nb_columns
+        return final_results
+
+    def Time_loop(self, data: np.ndarray | dict, data_index: tuple[int, int], index: int = 0, queue: QUEUE | None = None) -> None | list[np.ndarray]:
+        """
+        Loop over the time indexes so that I can multiprocess if needed be.
+        """
+
+        if self.multiprocessing:
+            shm = SharedMemory(name=data['shm.name'])
+            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+
+        result_list = []
+        for time in range(data_index[0], data_index[1] + 1):
+            data_filter = data[0, :] == time
+            result = data[1:4, data_filter]
+            center = np.array([0, 0, 0]).reshape(3, 1)  # TODO: need to change this when the code works. This is only to see where the sun center is
+            result = np.column_stack((result, center))  # adding the sun center to see if the translation is correct
+            satelitte_pos = self.sdo_pos[time]
+
+            # Centering the SDO pov on the Sun center
             sun_center = np.array([0, 0, 0])
-
+            # Defining the view direction vector
             viewing_direction = sun_center - satelitte_pos
             viewing_direction_norm = viewing_direction / np.linalg.norm(viewing_direction)
 
-            # Axis to center on the pov
+            # Defining the up vector and the normal vector to the projection
+            up_vector = np.array([0, 0, 1])
             target_axis = np.array([0, 0, 1])
 
-            # Axis of rotation
+            # Axis of rotation and angle
             rotation_axis = np.cross(viewing_direction_norm, target_axis)
-
-            # Angle of rotation
             cos_theta = np.dot(viewing_direction_norm, target_axis)
             theta = np.arccos(cos_theta)
 
             # Corresponding rotation matrix
-            rotation_matrix = self.Rodrigues_rotation(rotation_axis, theta)
+            rotation_matrix = self.Rodrigues_rotation(rotation_axis, -theta)
 
+            # up_vector in the new rotated matrix
+            up_vector_rotated = np.dot(rotation_matrix, up_vector)
+            theta = np.arctan2(up_vector_rotated[0], up_vector_rotated[1])
+            up_rotation_matrix = self.Rodrigues_rotation(target_axis, theta)
+            
+            # Final rotation matrix
+            rotation_matrix = np.matmul(up_rotation_matrix, rotation_matrix)
 
-            # As the data has original shape (3, n) for each cube I need to change it to (n,3) for the rotation
-            data = data.T
-
-            print(f'data transpose shape is {data.shape}')
-            print(f'rotation matrix shape is {rotation_matrix.shape}')
-            nw_data = []
-            for point in data:
-                # print(f'point shape is {point.shape}')
-
-                new_point = np.matmul(rotation_matrix, point)
-                # print(f'new_point shape is {new_point.shape}')
-                nw_data.append(new_point)
-            nw_data = np.stack(nw_data, axis=-1)
-            print(f"new_data shape is {nw_data.shape}")
-            data = nw_data
-            # rotated_data = np.dot(data, rotation_matrix.T)
-            # data = rotated_data.T
-            data_list.append(data)
-        return data_list
+            result = [np.matmul(rotation_matrix, point) for point in result.T]
+            result = np.stack(result, axis=-1)
+            result_list.append(result)
+        if not self.multiprocessing: return result_list
+        shm.close()
+        queue.put((index, result_list))
     
-    def Rodrigues_rotation(self, axis, angle):
+    def Rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
         """
         The Rodrigues's rotation formula to rotate matrices.
         """
@@ -832,88 +885,109 @@ class OrthographicalProjection:
             [axis[2], 0, -axis[0]],
             [-axis[1], axis[0], 0]
         ])
-
         return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
 
-    def Important_attributes(self):
+    def Saving_data(self, data: np.ndarray) -> None:
         """
-        To create the values of some of the class attributes.
-        """
-
-        # Initialisation
-        cube_pattern = re.compile(r'cube(\d{3})\.save')
-
-        # Class attributes
-        self.numbers = sorted([
-            int(cube_pattern.match(cube_name).group(1))
-            for cube_name in os.listdir(self.paths['cubes'])
-            if cube_pattern.match(cube_name)
-        ])
-        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                              for number in self.numbers]
-
-    def Cartesian_pos(self):
-        """
-        To calculate the heliographic cartesian positions of some of the objects.
+        Function to save the reprojection arrays.
+        The arrays saved have shape (4, n) as the whole 3D projection is saved for each time step (maybe the viewpoint depth might be useful later on).
         """
 
-        cubes_sparse_coords = np.copy(self.data).astype('float64')
+        np.save(os.path.join(self.paths['save'], self.saving_filename), data.astype('float64'))
 
-        # Initialisation
-        self.solar_r = 6.96e5  # in km
-        first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
-        dx = first_cube.dx  # in km
-        print(f'dx is {dx}')
-        print(f'one cube shape is {np.array(first_cube.cube).shape}')
-        dy = first_cube.dy
-        dz = first_cube.dz
-        x_min = first_cube.xt_min  # in km
-        y_min = first_cube.yt_min
-        z_min = first_cube.zt_min
-        # print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
-        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
-        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
-        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
-        # print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
-        print(f'x max and min {round(np.max(cubes_sparse_coords[1, :]))}  {round(np.min(cubes_sparse_coords[1, :]))}')
-        print(f'y max and min {round(np.max(cubes_sparse_coords[2, :]))}  {round(np.min(cubes_sparse_coords[2, :]))}')
-        print(f'z max and min {round(np.max(cubes_sparse_coords[3, :]))}  {round(np.min(cubes_sparse_coords[3, :]))}')
+        # STATS print
+        print(f"Saved array. Array shape is {data.shape} with size {round(data.nbytes / 2**20, 2)}Mb.")
 
-        self.cartesian_data_coords = cubes_sparse_coords
-        self.heliographic_cubes_origin = np.array([x_min, y_min, z_min]) 
-    
-    # def Main_structure(self):
-    #     """
-    #     Where the main functions are added together to make the code.
-    #     """
-
-
-    def SDO_pos(self):
+    def Plotting(self, data: np.ndarray) -> None:
         """
-        To get the important info out of the SDO data.
+        Function to plot the data.
+        """
+
+        if self.multiprocessing:
+            shm, data = self.Shared_memory(data) 
+            indexes = MultiProcessing.Pool_indexes(len(self.numbers), self.processes)
+            processes = [Process(target=self.Plotting_sub, kwargs={'data': data, 'data_index': index_tuple}) for index_tuple in indexes]
+            for p in processes: p.start()
+            for p in processes: p.join()
+            shm.unlink()
+        else:
+            self.Plotting_sub(data=data, data_index=(0, len(self.numbers) - 1))
+
+    def Plotting_sub(self, data: np.ndarray | dict, data_index: tuple[int, int]) -> None:
+        """
+        To be able to multiprocess the plotting.
         """
         
-        # Opening the fits to get the data
-        sdo_pos = []
-        for filepath in self.SDO_filepaths:
-            header = fits.getheader(filepath)
+        if self.multiprocessing:
+            shm = SharedMemory(name=data['shm.name'])
+            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
-            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
-                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
-                                                observer='self')
-            hec_coords = hec_coords.represent_as(CartesianRepresentation)
+        if self.plot_choices['envelop']: self.Envelop_preprocessing()
 
-            Xhec = hec_coords.x.value / (1000)
-            Yhec = hec_coords.y.value / (1000)
-            Zhec = hec_coords.z.value / (1000)
+        for time in range(data_index[0], data_index[1] + 1):
+            data_filter  = data[0, :] == time
+            result = data[1:4, data_filter]
 
-            sdo_pos.append((Xhec, Yhec, Zhec))
-        self.sdo_pos = sdo_pos
+            # Voxel positions
+            x, y, _ = result
+            image_nb = self.numbers[time]
 
+            if self.plot_choices['sdo image']: self.SDO_image(index=time)
 
+            if self.plot_choices['cartesian']:
+                # SDO projection plotting
+                plt.figure(figsize=(5, 5))
+                plt.scatter(x / self.solar_r, y / self.solar_r, s=0.7)
+                plt.title(f'SDO POV for image nb{image_nb}')
+                plt.xlabel('Solar X [au]')
+                plt.ylabel('Solar Y [au]')
+                plot_name = f'sdoprojection_{image_nb:03d}_{self.time_interval}.png'
+                plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
+                plt.close()
 
+            if self.plot_choices['polar']:
+                # Changing to polar coordinates
+                r = np.sqrt(x**2 + y**2)
+                theta = np.arctan2(y, x) - np.pi / 2
+                theta = np.where(theta < 0, theta + 2 * np.pi, theta)
+                theta = 2 * np.pi - theta  # clockwise
+                theta = np.where(theta >= 2 * np.pi, theta - 2 * np.pi, theta)  # modulo 2pi
+                theta = np.degrees(theta) 
+
+                # SDO polar projection plotting
+                plt.figure(figsize=(12, 5))
+                plt.scatter(theta, r / 10**3, s=0.7)
+                plt.xlim(245, 295)
+                plt.ylim(700, 870)
+                plt.title(f'SDO polar projection: {image_nb}')
+                plt.xlabel('Polar angle [degrees]')
+                plt.ylabel('Radial distance [Mm]')
+                plot_name = f'sdopolarprojection_{image_nb:03d}_{self.time_interval}.png'
+                plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
+                plt.close()
+
+            print(f'Plot nb{image_nb} finished.')
+
+    def Envelop_preprocessing(self):
+        """
+        Opens the two png images of the envelop in polar coordinates. Then, treats the data to use it in
+        the polar plots.
+        """
+
+        pass
+
+    def SDO_image(self, index: int):
+        """
+        To open the SDO image data, preprocess it and return it as an array for use in plots.
+        """
+
+        image = fits.getdata(self.SDO_filepaths[index], 1)
+        pass # TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
 
 class TESTING_STUFF:
+    """
+    Just to test the rotation matrix to see if it is doing it's job properly.
+    """
     
     @typechecked
     def __init__(self, coords: np.ndarray | None = None, data: np.ndarray | None = None, camera_position: np.ndarray | tuple | list = (1, 1, 1), 
@@ -932,7 +1006,7 @@ class TESTING_STUFF:
         self.Paths()
         self.Important_attributes()
 
-    def Random_data(self):
+    def Random_data(self) -> np.ndarray:
         """
         making data up
         """
@@ -953,7 +1027,7 @@ class TESTING_STUFF:
         # print(f'random data shape is {data.shape}')
         return data
 
-    def Paths(self):
+    def Paths(self) -> None:
         """
         Function where the filepaths dictionary is created.
         """
@@ -965,9 +1039,8 @@ class TESTING_STUFF:
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'curve fit': os.path.join(main_path, 'curveFitArrays'),
         }
-
     
-    def Matrix_rotation(self):
+    def Matrix_rotation(self) -> list[np.ndarray]:
         """
         To rotate the matrix so that it aligns with the satellite pov
         """
@@ -1014,13 +1087,7 @@ class TESTING_STUFF:
 
             # print(f'data transpose shape is {data.shape}')
             # print(f'rotation matrix shape is {rotation_matrix.shape}')
-            nw_data = []
-            for point in data:
-                # print(f'point shape is {point.shape}')
-
-                new_point = np.matmul(rotation_matrix, point)
-                # print(f'new_point shape is {new_point.shape}')
-                nw_data.append(new_point)
+            nw_data = [np.matmul(rotation_matrix, point) for point in data]
             nw_data = np.stack(nw_data, axis=-1)
             # print(f"new_data shape is {nw_data.shape}")
             data = nw_data
@@ -1029,7 +1096,7 @@ class TESTING_STUFF:
             data_list.append(data)
         return data_list
     
-    def Rodrigues_rotation(self, axis, angle):
+    def Rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
         """
         The Rodrigues's rotation formula to rotate matrices.
         """
@@ -1042,10 +1109,9 @@ class TESTING_STUFF:
             [axis[2], 0, -axis[0]],
             [-axis[1], axis[0], 0]
         ])
-
         return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
 
-    def Important_attributes(self):
+    def Important_attributes(self) -> None:
         """
         To create the values of some of the class attributes.
         """
@@ -1062,32 +1128,7 @@ class TESTING_STUFF:
         self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
                               for number in self.numbers]
 
-    # def Cartesian_pos(self):
-    #     """
-    #     To calculate the heliographic cartesian positions of some of the objects.
-    #     """
-
-    #     cubes_sparse_coords = np.copy(self.data).astype('float64')
-
-    #     # Initialisation
-    #     self.solar_r = 6.96e5  # in km
-    #     first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
-    #     dx = first_cube.dx  # in km
-    #     dy = first_cube.dy
-    #     dz = first_cube.dz
-    #     x_min = first_cube.xt_min  # in km
-    #     y_min = first_cube.yt_min
-    #     z_min = first_cube.zt_min
-    #     print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
-    #     cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
-    #     cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
-    #     cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
-    #     print(f'cubes_sparse_coords shape is {cubes_sparse_coords.shape}')
-
-    #     self.cartesian_data_coords = cubes_sparse_coords
-    #     self.heliographic_cubes_origin = np.array([x_min, y_min, z_min]) 
-
-    def SDO_pos(self):
+    def SDO_pos(self) -> None:
         """
         To get the important info out of the SDO data.
         """
@@ -1108,14 +1149,29 @@ class TESTING_STUFF:
 
             sdo_pos.append((Xhec, Yhec, Zhec))
         self.sdo_pos = sdo_pos
+    
+    def Saving_arrays(self, data: np.ndarray):
+        """
+        Function to save the reprojection arrays.
+        The arrays saved have shape (4, n) as the whole 3D projection is saved for each time step (maybe the viewpoint depth might be useful later on).
+        """
 
+        results = self.Matrix_rotation(data)
+        filename = "reprojection_sdo_pov.npy"
+        np.save(os.path.join(self.paths['save'], filename), results)
 
 
 
 if __name__=='__main__':
-    BarycenterCreation_4(datatype=['conv3dAll'], 
-                         polynomial_order=[2],
-                         integration_time='24h',
-                         multiprocessing=True,
-                         multiprocessing_multiplier=15, 
-                         multiprocessing_raw=6)
+    # BarycenterCreation(datatype=['raw'], 
+    #                      polynomial_order=[6],
+    #                      integration_time='24h',
+    #                      multiprocessing=True,
+    #                      multiprocessing_multiplier=12, 
+    #                      multiprocessing_raw=6)
+    
+    interpolations_filepath = os.path.join(os.getcwd(), '..', 'curveFitArrays', 'poly_raw_order6_24h.npy')
+    data = np.load(interpolations_filepath)
+    data = data[[0, 3, 2, 1]]  # TODO: will need to change this when I recreate the polynomial arrays taking into account the axis swapping whe opening a .save
+
+    Projection_test = OrthographicalProjection(data=data, saved_data=True, processes=12, saving_plots=True, time_interval='24h')

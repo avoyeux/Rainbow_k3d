@@ -209,15 +209,23 @@ class Data:
         pattern = re.compile(r'''poly_
                              (?P<datatype>[a-zA-Z0-9]+)_
                              (lim_(?P<conv_limit>\d+)_)?
-                             order(?P<order>\d+)
-                             \.npy''', re.VERBOSE)
+                             order(?P<order>\d+)_''', re.VERBOSE)
         
         files_dataNmatches = []
         for filename in os.listdir(self.paths['polynomials']):
             filename_match = pattern.match(filename)
 
             if filename_match:
-                file_data = np.load(os.path.join(self.paths['polynomials'], filename)).astype('uint16')
+                file_data = np.load(os.path.join(self.paths['polynomials'], filename))
+                print(f'file_data shape is {file_data.shape}')
+                print(f'max in order are {np.max(file_data[1, :])}, {np.max(file_data[2, :])}, {np.max(file_data[3, :])}')
+                print(f'min in order are {np.min(file_data[1, :])}, {np.min(file_data[2, :])}, {np.min(file_data[3, :])}')
+                print(f'shape is {self.cubes_shape}', flush=True)
+                file_data = np.abs(file_data.T)
+                file_data = np.unique(np.rint(file_data).astype('uint16'), axis=0).T
+                print(f'max in order are {np.max(file_data[1, :])}, {np.max(file_data[2, :])}, {np.max(file_data[3, :])}')
+                print(f'min in order are {np.min(file_data[1, :])}, {np.min(file_data[2, :])}, {np.min(file_data[3, :])}')
+                print(f'file data shape is {file_data.shape}', flush=True)
                 file_data = file_data[[0, 3, 2, 1]]
                 file_data = COO(coords=file_data, data=1, shape=self.cubes_shape)
                 files_dataNmatches.append((filename_match, file_data))

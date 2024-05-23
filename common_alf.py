@@ -68,18 +68,22 @@ class Decorators:
             result = func(*args, **kwargs)
             END_time = time.time()
             DIF_time = END_time - START_time
-            if DIF_time < 120:
-                DIF_time = f'{round(DIF_time, 2)}s'
+            seconds = DIF_time % 60
+            if DIF_time < 60:
+                DIF_time = f'{round(seconds, 2)}s'
             elif DIF_time < 3600:
                 DIF_time //= 60
-                DIF_time = f'{round(DIF_time)}min'
+                DIF_time = f'{round(DIF_time)}min{round(seconds):02d}s'
             elif DIF_time < 24 * 3600:
+                minutes = DIF_time // 60 % 60
                 DIF_time //= 3600
-                DIF_time = f'{round(DIF_time)}h'
+                DIF_time = f'{round(DIF_time)}h{round(minutes):02d}min{round(seconds):02d}s'
             else:
+                minutes = DIF_time // 60 % 60
+                hours = DIF_time // 3600 % 24
                 DIF_time //= 24 * 3600
                 end_str = 'days' if DIF_time > 1 else 'day'
-                DIF_time = f'{round(DIF_time)}' + end_str
+                DIF_time = f'{round(DIF_time)}{end_str}{hours:02d}h{minutes:02d}min{seconds:02d}s'
 
             print(f"\033[92m{func.__name__} ended on {time.ctime(END_time)} ({DIF_time}).\033[0m")
             return result
@@ -190,3 +194,21 @@ class MathematicalEquations:
                      for powers in product(range(loop_order + 1), repeat=3)
                      if sum(powers) == loop_order) + 1
         return nth_order_polynomial, nb_coeffs
+    
+
+class MultiProcessing:
+    """
+    Some functions that are useful when multiprocessing.
+    """
+
+    @typechecked
+    @staticmethod
+    def Pool_indexes(data_length: int, nb_processes: int = 4) -> list[tuple[int, int]]:
+        """
+        Gives out a list of tuples with the start and last data index for each process.
+        """
+
+        # Step per process
+        step = int(np.ceil(data_length / nb_processes))
+
+        return [(step * i, step * (i + 1) - 1 if i != nb_processes - 1 else data_length - 1) for i in range(nb_processes)]
