@@ -7,11 +7,11 @@ import numpy as np
 
 from functools import wraps
 from typeguard import typechecked
-from typing import Callable, TypeVar, Any 
+from typing import Callable, TypeVar
 
 # General function and decorator types
-F = TypeVar('F', bound=Callable[..., Any])
-D = Callable[[F], Any]
+F = TypeVar('F', bound=Callable[..., any])
+D = Callable[[F], any]
 
 @typechecked
 def ClassDecorator(decorator: D, functiontype: F | str = 'all') -> F:
@@ -210,5 +210,4 @@ class MultiProcessing:
 
         # Step per process
         step = int(np.ceil(data_length / nb_processes))
-
         return [(step * i, step * (i + 1) - 1 if i != nb_processes - 1 else data_length - 1) for i in range(nb_processes)]

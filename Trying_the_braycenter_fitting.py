@@ -12,12 +12,12 @@ import matplotlib.pyplot as plt
 
 from glob import glob
 from queue import Queue
+from typing import Callable
 from astropy.io import fits
 from scipy.io import readsav
+from threading import Thread
 from astropy import units as u
-from typing import Callable, Any
 from typeguard import typechecked
-from threading import Lock, Thread
 from scipy.optimize import curve_fit
 from scipy.ndimage import binary_erosion
 from sparse import COO, stack, concatenate
@@ -128,19 +128,19 @@ class BarycenterCreation:
             chunk = stack(chunk, axis=0)
             return COO.any(chunk, axis=0)
           
-    def Generate_nth_order_polynomial(self, n: int = 3) -> tuple[Callable[[np.ndarray, Any], int | float], int]:
+    def Generate_nth_order_polynomial(self, n: int = 3) -> tuple[Callable[[np.ndarray, any], np.ndarray], int]:
         """
         Creating a one variable n-th order polynomial.
         """
 
-        def nth_order_polynomial(t: np.ndarray, *coeffs) -> int | float:
+        def nth_order_polynomial(t: np.ndarray, coeffs: np.ndarray | list) -> np.ndarray:
             """
             The n-th order polynomial.
             """
 
             # Initialisation
             result = 0
-
+            
             # Calculating the polynomial
             for order in range(n + 1):
                 result += coeffs[order] * t**order 
@@ -149,6 +149,19 @@ class BarycenterCreation:
         nb_coeffs = n + 1
         return nth_order_polynomial, nb_coeffs
     
+    def Polynomial_derivative(self,  t: np.ndarray, coeffs: np.ndarray | list) -> np.ndarray:
+        """
+        Outputs the derivative of a n-th order polynomial given it's constants in order (i.e. order is a_0 + a_1 * t + ...)
+        """
+
+        # Initialisation
+        n_order = len(coeffs) - 1
+        result = 0
+
+        for order in range(1, n_order + 1):
+            result += order * coeffs[order] * t**[order-1]
+        return result
+
     def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:
         """
         Creating a shared memory object for storing a numpy array.
@@ -226,15 +239,14 @@ class BarycenterCreation:
         
         # Threading initialisation
         queue = Queue()
-        lock = Lock()
-        threads = []
-        results = []
+        threads = [None] * self.threads
+        results = [None] * len(filepaths)
 
         # Creating a set number of threads and starting them
-        for _ in range(self.threads):
-            t = Thread(target=self.File_reader, args=(queue, lock, results))
+        for i in range(self.threads):
+            t = Thread(target=self.File_reader, args=(queue, results))
             t.start()
-            threads.append(t)
+            threads[i] = t
 
         # Populating the queue
         for index, filepath in enumerate(filepaths): queue.put((index, filepath))
@@ -243,10 +255,9 @@ class BarycenterCreation:
 
         # Joining the threads
         for t in threads: t.join()
-        results.sort(key=lambda x: x[0])
-        return [result[1] for result in results]
+        return results
 
-    def File_reader(self, queue: Queue[tuple[int, str]], lock: Lock, results: list[tuple[int, str]]) -> None:
+    def File_reader(self, queue: Queue[tuple[int, str]], results: list[tuple[int, str]]) -> None:
         """
         Opens a .save file and saves it in a queue.Queue().
         """
@@ -260,7 +271,7 @@ class BarycenterCreation:
             index, filepath = item
             try:
                 data = readsav(filepath).cube.astype('uint8')
-                with lock: results.append((index, data))
+                results[index] = data
             except Exception as e:
                 raise TypeError(f'Filename {os.path.basename(filepath)} read error: {e}')
             finally:
@@ -374,7 +385,7 @@ class BarycenterCreation:
             for p in processes: p.start()
             for p in processes: p.join()
 
-            results = [None for _ in range(self.multiprocessing_raw)]
+            results = [None] * self.multiprocessing_raw
 
             while not queue.empty():
                 identifier, result = queue.get()
@@ -472,10 +483,9 @@ class BarycenterCreation:
 
             # Step an multiprocessing kwargs
             data_shape_0 = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
-            step = int(np.ceil(data_shape_0 / self.multiprocessing_multiplier))
+            indexes = MultiProcessing.Pool_indexes(data_shape_0, self.multiprocessing_multiplier)
             kwargs = {
                 'queue': queue,
-                'step': step,
                 'data': data,
                 'shared_array': True,
                 'contour': contour,
@@ -483,24 +493,20 @@ class BarycenterCreation:
                 'poly_index': index,
             }
             # Preping the processes
-            for i in range(self.multiprocessing_multiplier):
-                if not (i==self.multiprocessing_multiplier - 1):
-                    processes.append(Process(target=self.Time_loop, kwargs={'index': i, **kwargs}))
-                else:
-                    processes.append(Process(target=self.Time_loop, kwargs={'index': i, 'last': True, **kwargs}))
+            processes = [Process(target=self.Time_loop, kwargs={'index': i, 'data_index': index, **kwargs}) for i, index in enumerate(indexes)]
 
             for p in processes: p.start()
             for p in processes: p.join()
 
             if not shared_array: shm.unlink()
 
-            results = [None for _ in range(self.multiprocessing_multiplier)]
+            results = [None] * self.multiprocessing_multiplier
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
             results = np.concatenate(results, axis=1)
         else:
-            results = self.Time_loop(data=data, shared_array=shared_array, contour=contour, skeleton=skeleton, poly_index=index)
+            results = self.Time_loop(data=data, data_index=(0, data_shape_0 - 1), shared_array=shared_array, contour=contour, skeleton=skeleton, poly_index=index)
 
         # Saving the data in .npy files
         added_string = '' if conv_threshold is None else f'_lim_{conv_threshold}'
@@ -509,8 +515,8 @@ class BarycenterCreation:
 
         print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=True)
 
-    def Time_loop(self, poly_index: int, index: int | None = None, queue: None | QUEUE = None, step: int | None = None, last: bool = False, data: np.ndarray | None = None, shared_array: bool = False,
-                  contour: bool = False, skeleton: bool = False) -> None | np.ndarray:
+    def Time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None, 
+                  shared_array: bool = False,contour: bool = False, skeleton: bool = False) -> None | np.ndarray:
         """
         The for loop on the time axis.
         """
@@ -519,19 +525,9 @@ class BarycenterCreation:
             shm = SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
-        # If multiprocessing this part
-        if step:
-            first_index = step * index
-            if not last:
-                data = data[first_index:step * (index + 1)]
-            else:
-                data = data[first_index:]
-        else:
-            first_index = 0
-
         # Initialisation of the result list
-        results = []
-        for time in range(data.shape[0]): 
+        results = [None] * (data_index[1] - data_index[0] + 1)
+        for time in range(data_index[0], data_index[1] + 1): 
             # Selecting a slice of the data
             section = data[time]
 
@@ -554,11 +550,11 @@ class BarycenterCreation:
             t /= t[-1]  # normalisation
             t += 1
 
-            results.append(self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=first_index))
+            results[time - data_index[0]] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=data_index[0])
         results = np.concatenate(results, axis=1)
 
         if shared_array: shm.close()
-        if not step: return results  # if no multiprocessing
+        if queue is None: return results  # if no multiprocessing
         queue.put((index, results))
 
     def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int, first_time_index: int = 0) -> np.ndarray:
@@ -578,9 +574,9 @@ class BarycenterCreation:
 
             # Getting the curve
             t_fine = np.linspace(0.5, 2.5, 10**6)
-            x = polynomial(t_fine, *params_x)
-            y = polynomial(t_fine, *params_y)
-            z = polynomial(t_fine, *params_z)
+            x = polynomial(t_fine, params_x)
+            y = polynomial(t_fine, params_y)
+            z = polynomial(t_fine, params_z)
 
             # Taking away duplicates 
             data = np.vstack((x, y, z)).T.astype('float64')
@@ -594,6 +590,8 @@ class BarycenterCreation:
             unique_data = np.unique(data, axis=0).T
             time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
             unique_data = np.vstack((time_row, unique_data)).astype('float64')
+
+            params = np.array([params_x, params_y, params_z], dtype='float64')  # array of shape (3, n_order + 1)
             return unique_data
 
 
@@ -727,14 +725,13 @@ class OrthographicalProjection:
         if self.multiprocessing:
             manager = Manager()
             queue = manager.Queue()
-            results = []
             indexes = MultiProcessing.Pool_indexes(len(self.SDO_filepaths), self.processes)
 
             processes = [Process(target=self.SDO_pos_sub, kwargs={'queue':queue, 'index': index, 'data_index': data_index}) for index, data_index in enumerate(indexes)]
             for p in processes: p.start()
             for p in processes: p.join()
 
-            results = [None for _ in range(self.processes)]
+            results = [None] * self.processes
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
@@ -803,7 +800,7 @@ class OrthographicalProjection:
             shm.unlink()
 
             # Getting the results 
-            results = [None for _ in range(self.processes)]
+            results = [None] * self.processes
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
