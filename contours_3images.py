@@ -300,8 +300,8 @@ class FirstFigure:
         # For the contrast with the mask lines
         axs[2].imshow(avg_image, interpolation='none')
         ForPlotting.Grid_linesntext(axs[2], avg_image.shape, self.loncen, self.latcen, self.lonwidth, self.latwidth)
-        for line in lines:
-            axs[2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.3)
+        
+        for line in lines: axs[2].plot(line[1], line[0], color='r', linewidth=0.5, alpha=0.3)
         axs[2].axis('off')
         axs[2].set_title(f'avg{int(os.path.basename(self.avg_names[number]).rstrip(".png"))}, '
                          f'mask{int(os.path.basename(self.mask_names[loop]).lstrip("frame").rstrip(".png"))}')

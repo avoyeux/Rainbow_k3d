@@ -2,9 +2,9 @@
 Has functions that I regularly use.
 """
 
-import time
 import numpy as np
 
+from time import time, ctime
 from functools import wraps
 from typeguard import typechecked
 from typing import Callable, TypeVar
@@ -63,10 +63,10 @@ class Decorators:
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            START_time = time.time()
-            print(f"\033[94m{func.__name__} started on {time.ctime(START_time)}. \033[0m")
+            START_time = time()
+            print(f"\033[94m{func.__name__} started on {ctime(START_time)}. \033[0m")
             result = func(*args, **kwargs)
-            END_time = time.time()
+            END_time = time()
             DIF_time = END_time - START_time
             seconds = DIF_time % 60
             if DIF_time < 60:
@@ -85,7 +85,7 @@ class Decorators:
                 end_str = 'days' if DIF_time > 1 else 'day'
                 DIF_time = f'{round(DIF_time)}{end_str}{hours:02d}h{minutes:02d}min{seconds:02d}s'
 
-            print(f"\033[92m{func.__name__} ended on {time.ctime(END_time)} ({DIF_time}).\033[0m")
+            print(f"\033[92m{func.__name__} ended on {ctime(END_time)} ({DIF_time}).\033[0m")
             return result
         return wrapper
 
