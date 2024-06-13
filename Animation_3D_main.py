@@ -21,13 +21,17 @@ from typeguard import typechecked
 from IPython.display import display
 from sparse import COO, stack, concatenate
 from skimage.morphology import skeletonize_3d
-from multiprocessing.queues import Queue as QUEUE
 from multiprocessing import Process, Manager
 from multiprocessing.shared_memory import SharedMemory
 
 from common_alf import Decorators, MultiProcessing, ClassDecorator
 
 
+# Setting up the type for the multiprocessing.Manager().Queue()
+manager = Manager()
+queue = manager.Queue()
+QUEUE = type(queue)
+manager.unlink()
 
 class CustomDate:
     """
@@ -37,19 +41,19 @@ class CustomDate:
 
     @typechecked
     def __init__(self, date_str: str | bytes):
-        self.year = None
-        self.month = None
-        self.day = None
-        self.hour = None
-        self.minute = None
-        self.second = None
+        self.year: int
+        self.month: int
+        self.day: int
+        self.hour: int
+        self.minute: int
+        self.second: int
 
         if isinstance(date_str, str):
-            self.Parse_date_str(date_str=date_str)
+            self.parse_date_str(date_str=date_str)
         elif isinstance(date_str, bytes):
-            self.Parse_date_bytes(date_str=date_str)
+            self.parse_date_bytes(date_str=date_str)
 
-    def Parse_date_str(self, date_str: str) -> None:
+    def parse_date_str(self, date_str: str) -> None:
         """
         Separating a string in the format YYYY-MM-DDThh-mm-ss to get the different time attributes.
         """
@@ -58,7 +62,7 @@ class CustomDate:
         self.year, self.month, self.day = map(int, date_part.split("-"))
         self.hour, self.minute, self.second = map(int, time_part.split("-"))
     
-    def Parse_date_bytes(self, date_str: bytes) -> None:
+    def parse_date_bytes(self, date_str: bytes) -> None:
         """
         Separating a bytestring in the format YYYY/MM/DD hh:mm:ss to get the different date attributes.
         """
@@ -74,8 +78,8 @@ class Data:
     To upload and manipulate the data to then be inputted in the k3d library for 3D animations.
     """
 
-    @Decorators.running_time  # prints the start and the end time of the function
-    @typechecked  # checks the type for the inputs at runtime 
+    @Decorators.running_time  
+    @typechecked  
     def __init__(self, everything: bool = False, sun: bool = False, 
                  all_data: bool = False, duplicates: bool = False, no_duplicates: bool = False, line_of_sight: bool = False, 
                  trace_data: bool = False, trace_no_duplicates: bool = False, time_intervals_all_data: bool = False, 
@@ -161,18 +165,17 @@ class Data:
         self.SDO_pos: np.ndarray # same for SDO
 
         # Functions
-        self.Paths()
-        self.Names()
-        self.Sun_pos()
-        self.Dates_data()            
-        self.Choices()
+        self.paths_creation()
+        self.names()
+        self.sun_pos()
+        self.dates_data()            
+        self.choices()
 
         # Deleting the private class attributes
-        self.Attribute_deletion()
+        self.attribute_deletion()
 
-    def Paths(self) -> None:
-        """
-        Input and output paths manager.
+    def paths_creation(self) -> None:
+        """Input and output paths manager.
         """
 
         main_path = '../'
@@ -186,7 +189,7 @@ class Data:
             'screenshots': os.path.join(main_path, 'screenshots'),
             }    
     
-    def Choices(self) -> None:
+    def choices(self) -> None:
         """
         To choose what is computed and added depending on the arguments chosen.
         """
@@ -225,7 +228,7 @@ class Data:
         
         if self.make_screenshots: self.Complete_sparse_arrays()
 
-    def Names(self) -> None:
+    def names(self) -> None:
         """
         To get the filenames of all the cubes.
         """
@@ -239,7 +242,7 @@ class Data:
         self._cube_numbers = [int(pattern.match(cube_name).group(1)) for cube_name in self._cube_names] 
         self.cube_numbers_all = self._cube_numbers if not self.make_screenshots else np.arange(0, 413) # TODO: need to check noth these attributes as I have kindoff mixed them up...
 
-    def Dates_data(self) -> None:
+    def dates_data(self) -> None:
         """
         To get the dates and times corresponding to all the used cubes.
         To do so images where both numbers are in the filename are used.
@@ -662,7 +665,7 @@ class Data:
         self.cubes_no_duplicates_STEREO_new = cubes_no_duplicates_STEREO_new
         self.cubes_no_duplicates_SDO_new = cubes_no_duplicates_SDO_new
 
-    def Sun_pos(self) -> None:
+    def sun_pos(self) -> None:
         """
         To find the Sun's radius and the center position in the cubes reference frame.
         """
@@ -945,7 +948,6 @@ class Data:
                 file_data = np.load(os.path.join(self.paths['polynomials'], filename))
 
                 # Setting up the multiprocessing
-                init_time = time()
                 times = np.unique(file_data[0, :]).astype('uint16')  # Getting all the unique time values to then do a multiprocessed np.unique for each time value
                 manager = Manager()
                 queue = manager.Queue()
@@ -987,7 +989,7 @@ class Data:
         data = COO(coords=data, data=1, shape=self.cubes_shape)
         queue.put((position, data))
 
-    def Attribute_deletion(self) -> None:
+    def attribute_deletion(self) -> None:
         """
         To delete some of the attributes that are not used in the inherited class. Done to save some RAM.
         """
@@ -1074,19 +1076,19 @@ class K3dAnimation(Data):
         if version==0:
             kwargs = {'sun': True, 'sdo_pov': True, 'fov_center':'stereo', 'camera_fov': 'sdo', 'up_vector': (0, 0, 1), 
                       'make_screenshots': True, 'screenshot_version': 'v0', 'screenshot_scale': 2, 
-                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
+                      'sun_texture_resolution': 1920}
         elif version==1:
             kwargs = {'sun': True, 'stereo_pov': True, 'fov_center': 'stereo', 'camera_fov': 'stereo', 'up_vector': (0, 0, 1), 
                       'make_screenshots': True, 'screenshot_version': 'v1', 'screenshot_scale': 1, 
-                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}        
+                      'sun_texture_resolution': 1920}        
         elif version==2:
             kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (-0.7, 0.7, 0), 'up_vector': (0, 0, 1),
                       'make_screenshots': True, 'screenshot_version': 'v2', 'screenshot_scale': 1,
-                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}
+                      'sun_texture_resolution': 1920}
         elif version==3:
             kwargs = {'sun': True, 'fov_center': 'cubes', 'camera_pos': (0, 0, 1) , 'up_vector': (-1, 0, 0), 
                       'make_screenshots': True, 'screenshot_version': 'v3', 'screenshot_scale': 1, 
-                      'sun_texture_resolution': 1920, 'both_cubes': 'kar'}     
+                      'sun_texture_resolution': 1920}     
         else:
             raise ValueError(f"The integer 'version' needs to have value going from 0 to 3, not {version}.")
 
