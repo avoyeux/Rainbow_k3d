@@ -68,21 +68,22 @@ class Data:
                  sdo_pov: bool = False, stereo_pov: bool = False):
         
         # Arguments
-        self.first_cube = False  # visualising the first data set
-        self.second_cube = False  # for the second data set 
+        self.first_cube = False
+        self.second_cube = False
         if isinstance(both_cubes, bool):
-            self.both_cubes = (both_cubes or everything) # choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
+            both_cubes = (both_cubes or everything) # choosing to plot both STEREO masks (Alfred's/Elie's and Karine's)
         elif isinstance(both_cubes, str):
-            self.both_cubes = (False or everything) 
             if 'alf' in both_cubes.lower():
                 self.first_cube = True
-                self.second_cube = False
             elif 'kar' in both_cubes.lower():
-                self.first_cube = False
                 self.second_cube = True
-            else:
-                raise ValueError('Wrong value for argument both_cubes. If a string, it has to contain "alf" or "kar".')
-        if not (self.first_cube or self.second_cube):
+            elif not everything:
+                raise ValueError('Wrong string value for argument both_cubes. It has to contain "alf" or "kar".')
+            both_cubes = everything
+        if both_cubes:
+            self.first_cube = True
+            self.second_cube = True
+        elif not (self.first_cube or self.second_cube):
             self.first_cube = True  # To make sure something is plotted if both_cubes is not set    
         self.sun = (sun or everything)  # choosing to plot the Sun
         self.stars = (stars or everything)  # choosing to plot the stars
@@ -136,8 +137,7 @@ class Data:
         self.Paths()
         self.Names()
         self.Sun_pos()
-        self.Dates_all_data_sets()
-                
+        self.Dates_all_data_sets()            
         self.Choices()
 
     def Choices(self):
@@ -145,19 +145,21 @@ class Data:
         To choose what is computed and added depending on the arguments chosen.
         """
 
-        if self.both_cubes or self.first_cube:
+        if self.first_cube:
+            self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
             self.cubes_1, self.cubes_lineofsight_STEREO_1, self.cubes_lineofsight_SDO_1, self.cubes_all_data_1, \
                 self.cubes_no_duplicates_STEREO_1, self.cubes_no_duplicates_SDO_1, self.cubes_no_duplicate_1, \
                 self.trace_cubes_1, self.trace_no_duplicate_1, self.day_cubes_all_data_1, \
-                self.day_cubes_no_duplicate_1 = self.Uploading_data(self.paths['Cubes'], self._cubes_names_1) 
-            self.dates_1 = self.Dates_n_times(self._cube_numbers_1)
-        
-        if self.both_cubes or self.second_cube:
+                self.day_cubes_no_duplicate_1, self.day_indexes_1 \
+                    = self.Uploading_data(self.paths['Cubes'], self._cubes_names_1, self.dates_1) 
+            
+        if self.second_cube:
+            self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
             self.cubes_2, self.cubes_lineofsight_STEREO_2, self.cubes_lineofsight_SDO_2, self.cubes_all_data_2, \
                 self.cubes_no_duplicates_STEREO_2, self.cubes_no_duplicates_SDO_2, self.cubes_no_duplicate_2, \
                 self.trace_cubes_2, self.trace_no_duplicate_2, self.day_cubes_all_data_2, \
-                self.day_cubes_no_duplicate_2 = self.Uploading_data(self.paths['Cubes_karine'], self._cubes_names_2) 
-            self.dates_2 = self.Dates_n_times(self._cube_numbers_2)
+                self.day_cubes_no_duplicate_2, self.day_indexes_2 \
+                    = self.Uploading_data(self.paths['Cubes_karine'], self._cubes_names_2, self.dates_2) 
 
         if self.sun:
             self.Sun_texture()
@@ -169,8 +171,13 @@ class Data:
 
         if self.time_intervals_all_data or self.time_intervals_no_duplicate:
             self.Time_interval()
-            self.Time_chunks_choices()
-
+            if self.first_cube:
+                self.time_cubes_all_data_1, self.time_cubes_no_duplicate_1 = \
+                    self.Time_chunks_choices(self.dates_1, self.cubes_all_data_1, self.cubes_no_duplicate_1)
+            if self.second_cube:
+                self.time_cubes_all_data_2, self.time_cubes_no_duplicate_2 = \
+                    self.Time_chunks_choices(self.dates_2, self.cubes_all_data_2, self.cubes_no_duplicate_2)      
+                         
         if self.sdo_pov:
             self.SDO_stats()
         elif self.stereo_pov:
@@ -200,13 +207,13 @@ class Data:
         # The cube names
         cube_names = []
 
-        if self.both_cubes or self.first_cube:
+        if self.first_cube:
             cube_names.append([cube_name for cube_name in os.listdir(self.paths['Cubes']) \
                       if pattern.match(cube_name)])
             cube_names_1 = sorted(cube_names)  # first data set
             self._cube_numbers_1 = [int(pattern.match(cube_name).group(1)) for cube_name in cube_names_1]
 
-        if self.both_cubes or self.second_cube:
+        if self.second_cube:
             cube_names_2 = [cube_name for cube_name in os.listdir(self.paths['Cubes_karine']) \
                                if pattern.match(cube_name)] 
             cube_names.append(cube_names_2)
@@ -225,18 +232,18 @@ class Data:
         To do so images where both numbers are in the filename are used.
         """
 
-        pattern = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-        all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
+        self.pattern_int = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+        self.all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
 
         # Getting the corresponding filenames 
         filenames = []
         for number in self._cube_numbers_all: 
-            for filepath in all_filenames:
+            for filepath in self.all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        self.dates_all = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
+        self.dates_all = [CustomDate.parse_date(self.pattern_int.match(filename).group(1)) for filename in filenames]
 
     def Dates_n_times(self, cube_numbers):
         """
@@ -244,21 +251,18 @@ class Data:
         To do so images where both numbers are in the filename are used.
         """
 
-        pattern = re.compile(r'\d{4}_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-        all_filenames = glob.glob(os.path.join(self.paths['Intensities'], '*.png'))
-
         # Getting the corresponding filenames 
         filenames = []
         for number in cube_numbers:
-            for filepath in all_filenames:
+            for filepath in self.all_filenames:
                 filename = os.path.basename(filepath)
                 if filename[:4] == f'{number:04d}':
                     filenames.append(filename)
                     break
-        dates = [CustomDate.parse_date(pattern.match(filename).group(1)) for filename in filenames]
+        dates = [CustomDate.parse_date(self.pattern_int.match(filename).group(1)) for filename in filenames]
         return dates
 
-    def Uploading_data(self, cubes_path, cube_names):
+    def Uploading_data(self, cubes_path, cube_names, dates):
         """
         Uploading and preparing the data.
         """
@@ -278,6 +282,7 @@ class Data:
         trace_cubes_no_duplicate = None
         day_cubes_all_data = None
         day_cubes_no_duplicate = None
+        day_indexes = None
 
         # Importing line_of_sight_data
         if self.line_of_sight:  
@@ -308,35 +313,33 @@ class Data:
 
         # Trace by day 
         if self.day_trace:
-            day_cubes_all_data = self.Day_cubes(cubes)
+            day_cubes_all_data, day_indexes = self.Day_cubes(cubes, dates)
 
         if self.day_trace_no_duplicate:
-            day_cubes_no_duplicate = self.Day_cubes(cubes_no_duplicate)
+            day_cubes_no_duplicate, day_indexes = self.Day_cubes(cubes_no_duplicate, dates)
 
         return cubes, cubes_lineofsight_STEREO, cubes_lineofsight_SDO, cubes_all_data, \
                 cubes_no_duplicates_STEREO, cubes_no_duplicates_SDO, cubes_no_duplicate, trace_cubes, \
-                trace_cubes_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate
+                trace_cubes_no_duplicate, day_cubes_all_data, day_cubes_no_duplicate, day_indexes
         
-
     def Day_cubes(self, cubes, dates):
         """
         To integrate the data for each day.
         The input being the used data set and the output being an np.ndarray of axis0 length equal to the number of days.
         """
 
-        days_all = np.array([date.day for date in self.dates_all])
-        days_unique = np.unique(days_all)
+        days_unique = np.array([date.day for date in set(self.dates_all)])
+        days = np.array([date.day for date in dates])
 
         day_cubes = []
         days_indexes = []
         for day in days_unique:
-            day_indexes = np.where(days_all==day)[0]
+            day_indexes = np.where(days==day)[0]
             day_trace = np.any(cubes[day_indexes], axis=0)
             day_cubes.append(day_trace)
             days_indexes.append(day_indexes)
         
-        self.day_index = days_indexes
-        return np.array(day_cubes).astype('uint8')
+        return np.array(day_cubes).astype('uint8'), np.array(day_indexes)
 
     def Time_interval(self):
         """
@@ -356,29 +359,27 @@ class Data:
             elif 'd' in self.time_interval:
                 time_delta = number * 3600 * 24
             else:
-                print('Date interval format not supported. Please add min for minutes, h for hours and d for days.')
+                raise ValueError("Time_interval string value not supported. Add 'min' for minutes, 'h' for hours or 'd' for days.")
         else:
-            print('Date interval format not supported. Please add min for minutes, h for hours and d for days.')
+            raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
         
         self.time_interval = time_delta
     
-    def Time_chunks_choices(self):
+    def Time_chunks_choices(self, dates, cubes_all_data, cubes_no_duplicate):
         """
         To integrate the data given a time chunk. 
         """
 
         self.days_per_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        date = self.dates[0]
+        date = self.dates_all[0]
 
         if (date.year % 4 == 0 and date.year % 100 !=0) or (date.year % 400 == 0):  # Only works if the year doesn't change
             self.days_per_month[2] = 29  # for leap years
 
-        if self.time_intervals_all_data:
-            self.time_cubes_all_data = []
-        if self.time_intervals_no_duplicate:
-            self.time_cubes_no_duplicate = [] 
+        time_cubes_all_data = []
+        time_cubes_no_duplicate = [] 
 
-        for date in self.dates:
+        for date in self.dates_all:
             date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 \
                 + date.second
 
@@ -386,22 +387,23 @@ class Data:
             self._date_max = date_seconds + self.time_interval / 2
         
             if self.time_intervals_all_data:
-                self.time_cubes_all_data.append(self.Time_chunks(self.cubes_all_data))
+                time_cubes_all_data.append(self.Time_chunks(dates, cubes_all_data))
             if self.time_intervals_no_duplicate:
-                self.time_cubes_no_duplicate.append(self.Time_chunks(self.cubes_no_duplicate))
+                time_cubes_no_duplicate.append(self.Time_chunks(dates, cubes_no_duplicate))
         
         if self.time_intervals_all_data:
-            self.time_cubes_all_data = np.array([np.any(data, axis=0) for data in self.time_cubes_all_data]).astype('uint8')
+            time_cubes_all_data = np.array([np.any(data, axis=0) for data in time_cubes_all_data]).astype('uint8')
         if self.time_intervals_no_duplicate:
-            self.time_cubes_no_duplicate = np.array([np.any(data, axis=0) for data in self.time_cubes_no_duplicate]).astype('uint8')
+            time_cubes_no_duplicate = np.array([np.any(data, axis=0) for data in time_cubes_no_duplicate]).astype('uint8')
+        return time_cubes_all_data, time_cubes_no_duplicate
 
-    def Time_chunks(self, cubes):
+    def Time_chunks(self, dates, cubes):
         """
         To select the data in the time chunk given the data chosen for the integration.
         """
 
         chunk = []
-        for date2, data2 in zip(self.dates, cubes):
+        for date2, data2 in zip(dates, cubes):
             date_seconds2 = (((self.days_per_month[date2.month] + date2.day) * 24 + date2.hour) * 60 + date2.minute) * 60 \
                 + date2.second
 
@@ -419,7 +421,7 @@ class Data:
         """
 
         # Reference data 
-        first_cube_name = os.path.join(self.paths['Cubes'], self._cube_names_all[0])
+        first_cube_name = os.path.join(self.paths['Cubes_karine'], self._cube_names_all[0])
 
         # Initial data values
         solar_r = 6.96e5 
@@ -461,6 +463,7 @@ class Data:
         # Replacing nan values to the lower_cut 
         nw_image = np.where(np.isnan(image), lower_cut, image)  # TODO: would need to change the nan values to the interpolation for the pole
         nw_image = np.flip(nw_image, axis=0)
+
         # Changing values to a logarithmic scale
         self.sun_texture = np.log(nw_image)
 
@@ -533,7 +536,7 @@ class Data:
 
 
         SDO_fits_names = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                           for number in self._cube_numbers]
+                           for number in self._cube_numbers_all]
         
         SDO_pos = []
 
@@ -571,7 +574,7 @@ class Data:
         data = readsav(os.path.join(self.paths['Main'], 'rainbow_stereob_304.save')).datainfos
         stereo_pos = []
 
-        for number in self._cube_numbers:
+        for number in self._cube_numbers_all:
             stereo_lon = data[number].lon
             stereo_lat = data[number].lat
             stereo_dsun = data[number].dist
