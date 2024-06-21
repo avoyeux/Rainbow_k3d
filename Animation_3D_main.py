@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import re
 import k3d
-from time import time
 
 import numpy as np
 import ipywidgets as widgets
@@ -17,21 +16,18 @@ from time import sleep
 from threading import Timer
 from astropy.io import fits
 from scipy.io import readsav
+from astropy import units as u
 from typeguard import typechecked
 from IPython.display import display
 from sparse import COO, stack, concatenate
 from skimage.morphology import skeletonize_3d
 from multiprocessing import Process, Manager
+from multiprocessing.queues import Queue as QUEUE
 from multiprocessing.shared_memory import SharedMemory
+from astropy.coordinates import CartesianRepresentation
+from sunpy.coordinates.frames import  HeliographicCarrington
 
-from common_alf import Decorators, MultiProcessing, ClassDecorator
-
-
-# Setting up the type for the multiprocessing.Manager().Queue()
-manager = Manager()
-queue = manager.Queue()
-QUEUE = type(queue)
-manager.unlink()
+from Common import Decorators, MultiProcessing
 
 class CustomDate:
     """
@@ -859,10 +855,6 @@ class Data:
         To get the position of SDO given the fits filepath.
         Done like this as the computation is I/O bound and so the paths are separated in sections for multiprocessing.
         """
-
-        from astropy import units as u
-        from astropy.coordinates import CartesianRepresentation
-        from sunpy.coordinates.frames import  HeliographicCarrington
 
         SDO_pos = []
         for fits_name in paths:

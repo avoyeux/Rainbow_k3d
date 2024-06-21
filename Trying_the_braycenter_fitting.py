@@ -1,5 +1,4 @@
-"""
-Trying to see if I can fit a n-th order polynomial in the convolved (i.e. smooth banana shape)
+"""Trying to see if I can fit a n-th order polynomial in the convolved (i.e. smooth banana shape)
 Rainbow protuberance.
 """
 
@@ -29,7 +28,7 @@ from astropy.coordinates import CartesianRepresentation
 from sunpy.coordinates.frames import  HeliographicCarrington
 
 from Animation_3D_main import CustomDate
-from common_alf import Decorators, MultiProcessing, ClassDecorator
+from Common import Decorators, MultiProcessing, ClassDecorator
 
 
 class BarycenterCreation:
@@ -142,8 +141,7 @@ class BarycenterCreation:
             result = 0
             
             # Calculating the polynomial
-            for order in range(n + 1):
-                result += coeffs[order] * t**order 
+            for order in range(n + 1): result += coeffs[order] * t**order 
             return result
         
         nb_coeffs = n + 1
@@ -158,8 +156,7 @@ class BarycenterCreation:
         n_order = len(coeffs) - 1
         result = 0
 
-        for order in range(1, n_order + 1):
-            result += order * coeffs[order] * t**[order-1]
+        for order in range(1, n_order + 1): result += order * coeffs[order] * t**[order-1]
         return result
 
     def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:

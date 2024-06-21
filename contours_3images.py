@@ -16,7 +16,7 @@ from PIL import Image
 from glob import glob
 from astropy.io import fits
 
-from common_alf import PlotFunctions, Decorators
+from Common import Decorators, PlotFunctions
 
 
 class ForPlotting:
