@@ -159,24 +159,6 @@ class BarycenterCreation:
         for order in range(1, n_order + 1): result += order * coeffs[order] * t**[order-1]
         return result
 
-    def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:
-        """
-        Creating a shared memory object for storing a numpy array.
-        Only saves a dictionary with the necessary information to access the shared array.
-        """
-
-        shm = SharedMemory(create=True, size=data.nbytes)
-        shared_array = np.ndarray(data.shape, dtype=data.dtype, buffer=shm.buf)
-        np.copyto(shared_array, data)
-
-        info = {
-            'shm.name': shm.name,
-            'data.shape': data.shape,
-            'data.dtype': data.dtype,
-        }
-        shm.close()
-        return shm, info
-
     @Decorators.running_time
     def Loader(self) -> None:
         """
@@ -195,14 +177,14 @@ class BarycenterCreation:
         if any(item in conv_name_list for item in self.datatype):
             data_conv = np.load(os.path.join(self.paths['main'], 'conv3dRainbow.npy')).astype('uint8')
 
-            if multiprocessing: shm_conv, data_conv = self.Shared_memory(data_conv)
+            if multiprocessing: shm_conv, data_conv = MultiProcessing.shared_memory(data_conv)
 
         # Pre-loading if raw data needed
         raw_name_list = ['raw', 'rawContours']
         if any(item in raw_name_list for item in self.datatype):
             data_raw = self.Getting_IDL_cubes()
 
-            if multiprocessing: shm_raw, data_raw = self.Shared_memory(data_raw)
+            if multiprocessing: shm_raw, data_raw = MultiProcessing.shared_memory(data_raw)
 
         for datatype in self.datatype:
             kwargs = {
@@ -441,7 +423,7 @@ class BarycenterCreation:
         multiprocessing = True if (self.multiprocessing and len(self.n) > 1) else False
         processes = []
 
-        if multiprocessing: shm, data = self.Shared_memory(data)
+        if multiprocessing: shm, data = MultiProcessing.shared_memory(data)
 
         kwargs = {
             'data': data,
@@ -471,7 +453,7 @@ class BarycenterCreation:
         multiprocessing = True if (self.multiprocessing and self.multiprocessing_multiplier > 1) else False
 
         if multiprocessing:
-            if not shared_array: shm, data = self.Shared_memory(data)
+            if not shared_array: shm, data = MultiProcessing.shared_memory(data)
 
             # Initialisation
             processes = []
@@ -480,7 +462,7 @@ class BarycenterCreation:
 
             # Step an multiprocessing kwargs
             data_shape_0 = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
-            indexes = MultiProcessing.Pool_indexes(data_shape_0, self.multiprocessing_multiplier)
+            indexes = MultiProcessing.pool_indexes(data_shape_0, self.multiprocessing_multiplier)
             kwargs = {
                 'queue': queue,
                 'data': data,
@@ -592,7 +574,7 @@ class BarycenterCreation:
             return unique_data
 
 
-@ClassDecorator(Decorators.running_time)
+# @ClassDecorator(Decorators.running_time)
 class OrthographicalProjection:
     """
     Does the 2D projection of a 3D volume.
@@ -722,7 +704,7 @@ class OrthographicalProjection:
         if self.multiprocessing:
             manager = Manager()
             queue = manager.Queue()
-            indexes = MultiProcessing.Pool_indexes(len(self.SDO_filepaths), self.processes)
+            indexes = MultiProcessing.pool_indexes(len(self.SDO_filepaths), self.processes)
 
             processes = [Process(target=self.SDO_pos_sub, kwargs={'queue':queue, 'index': index, 'data_index': data_index}) for index, data_index in enumerate(indexes)]
             for p in processes: p.start()
@@ -755,23 +737,6 @@ class OrthographicalProjection:
         
         if self.multiprocessing: queue.put((index, sdo_pos))
         return sdo_pos
-        
-    def Shared_memory(self, data: np.ndarray) -> tuple[SharedMemory, dict]:
-        """
-        To initialise a shared memory when multiprocessing.
-        """
-
-        shm = SharedMemory(create=True, size=data.nbytes)
-        shared_array = np.ndarray(data.shape, dtype=data.dtype, buffer=shm.buf)
-        np.copyto(shared_array, data)
-
-        info = {
-            'shm.name': shm.name,
-            'data.shape': data.shape,
-            'data.dtype': data.dtype,
-        }
-        shm.close()
-        return shm, info
 
     def Matrix_rotation(self, data: np.ndarray) -> np.ndarray:
         """
@@ -782,10 +747,10 @@ class OrthographicalProjection:
             # Initialisation of the multiprocessing
             manager = Manager()
             queue = manager.Queue()
-            shm, data = self.Shared_memory(data.astype('float64'))
+            shm, data = MultiProcessing.shared_memory(data.astype('float64'))
 
             # Setting up each process
-            indexes = MultiProcessing.Pool_indexes(len(self.numbers), self.processes)
+            indexes = MultiProcessing.pool_indexes(len(self.numbers), self.processes)
             kwargs = {
                 'queue': queue, 
                 'data': data,
@@ -898,8 +863,8 @@ class OrthographicalProjection:
         """
 
         if self.multiprocessing:
-            shm, data = self.Shared_memory(data) 
-            indexes = MultiProcessing.Pool_indexes(len(self.numbers), self.processes)
+            shm, data = MultiProcessing.shared_memory(data) 
+            indexes = MultiProcessing.pool_indexes(len(self.numbers), self.processes)
             processes = [Process(target=self.Plotting_sub, kwargs={'data': data, 'data_index': index_tuple}) for index_tuple in indexes]
             for p in processes: p.start()
             for p in processes: p.join()

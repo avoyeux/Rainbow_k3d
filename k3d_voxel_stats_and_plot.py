@@ -29,7 +29,7 @@ class Stats(Data):
     """
 
     @typechecked
-    def __init__(self, everything: bool = True, edges: bool = False,  **kwargs):
+    def __init__(self, edges: bool = False,  **kwargs):
 
         super().__init__(all_data=True, no_duplicate=True, 
                          both_cubes='kar', make_screenshots=True, cube_version='both', 
