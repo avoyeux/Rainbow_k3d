@@ -6,7 +6,7 @@ plt.savefig plot. Also creates the corresponding GIF object.
 # Imports 
 import os
 import re
-import sunpy.map
+import warnings
 
 import numpy as np
 import imageio.v3 as iio3
@@ -20,17 +20,19 @@ from typing import Match
 from astropy.io import fits
 from typeguard import typechecked
 from sunpy.coordinates import frames
+from sunpy.map import Map, sources, GenericMap
 
-
+from Common import Decorators
 
 class ImageFinder:
 
     @typechecked
-    def __init__(self, interval: str | None = None, multiprocessing: bool = False):
+    def __init__(self, interval: str | None = None, processes: int = 4):
         
         # Arguments
         self.interval = interval
-        self.multiprocessing = multiprocessing
+        self.multiprocessing = True if processes > 1 else False
+        self.processes = processes
 
         # Functions
         self.Paths()
@@ -116,6 +118,7 @@ class ImageFinder:
             timestamp_to_path[timestamp] = path + '/S00000/image_lev1.fits'
         self.sdo_timestamp = timestamp_to_path
     
+    @Decorators.running_time
     def Main_loop(self) -> None:
         """
         Loop for the STEREO images.
@@ -204,7 +207,7 @@ class ImageFinder:
             else:
                 raise ValueError(f"The filename {os.path.basename(filepath)} doesn't match the MP4 pattern.")
 
-
+    @Decorators.running_time
     def Multiprocessing(self) -> None:
         """
         For the multiprocessing.
@@ -218,7 +221,7 @@ class ImageFinder:
         self.screenshot_pattern = None
 
         if self.multiprocessing:
-            pool = mp.Pool(processes=14)
+            pool = mp.Pool(processes=self.processes)
             args = [(group_str,) for group_str in self.groups]
             pool.starmap(self.Plotting, args)
             pool.close()
@@ -255,9 +258,25 @@ class ImageFinder:
         """
 
         full_image = Image.open(os.path.join(self.paths['MP4'], filename))
-        full_image = np.split(np.array(full_image), 2, axis=1)
-        stereo_image = Image.fromarray(full_image[0])
+        stereo_image = np.split(np.array(full_image), 2, axis=1)[0]
+        # stereo_image = np.flip(full_image[0], axis=1)
+        stereo_image = Image.fromarray(stereo_image)
         return np.array(stereo_image.resize((512, 512), Image.Resampling.LANCZOS))
+
+    def map_section(self, sunpy_map: GenericMap) -> GenericMap:
+        
+        dimensions = sunpy_map.dimensions
+
+        # Setting up the sub_map borders so that you get the middle left section of a ninth of the original image
+        x1 = 0  # left edge
+        x2 = dimensions.x.value / 3
+        y1 = dimensions.y.value / 3
+        y2 = 2 * dimensions.y.value / 3  # middle section
+
+        # Corresponding corner position in the coordinate frame
+        bottom_left = sunpy_map.pixel_to_world(x1 * u.pix, y1 * u.pix)
+        top_right = sunpy_map.pixel_to_world(x2 * u.pix, y2 * u.pix)
+        return sunpy_map.submap(bottom_left=bottom_left, top_right=top_right)
     
     def Plotting(self, group_str: list[str]) -> None:
         """
@@ -267,11 +286,14 @@ class ImageFinder:
         # Separation of the different image string IDs
         sdo_str, stereo_str, screen_str, MP4_str = group_str
 
-        # Preparation of the SDO carrington map
-        hdul = fits.open(self.sdo_timestamp[sdo_str])
-        hdul[1].verify('fix')
-        decompressed_sdo = hdul[1].data
-        sdo_map = sunpy.map.sources.AIAMap(decompressed_sdo, hdul[1].header)
+        # Not printing the VerifyWarning from astropy.is.fits
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', fits.verify.VerifyWarning)
+            # Preparation of the SDO carrington map
+            hdul = fits.open(self.sdo_timestamp[sdo_str])
+            hdul[1].verify('fix')
+            decompressed_sdo = hdul[1].data
+            aia_map = sources.AIAMap(decompressed_sdo, hdul[1].header)
 
         # Creation of the re.Match items
         self.Patterns()
@@ -281,7 +303,7 @@ class ImageFinder:
 
         # Opening and preprocessing of the SDO and STEREO images
         stereo_image = self.STEREO_preprocessing(MP4_str)
-        sdo_image = self.SDO_prepocessing(np.array(decompressed_sdo))
+        # sdo_image = self.SDO_prepocessing(np.array(decompressed_sdo))
         hdul.close()
 
         # Opening the images
@@ -297,22 +319,32 @@ class ImageFinder:
         screenshot3 = screenshot3.resize((512, 512), Image.Resampling.LANCZOS)
 
         # Plot setup
-        fig, axs = plt.subplots(2, 3, figsize=(6, 4), subplot_kw={'projection': sdo_map})
+        aia_sub_map = self.map_section(aia_map)
+        fig, axs = plt.subplots(2, 3, figsize=(6, 4))
 
         # Plotting the carringtion map for STEREO
-        sdo_map.plot(axes=axs[0, 0], clip_interval=(1, 99.99) * u.percent)
-        sdo_map.draw_grid(axes=axs[0, 0])
+        ax_with_wcs = plt.subplot(2, 3, 1, projection = aia_sub_map.wcs)  # top left subplot
+        aia_sub_map.plot(axes=ax_with_wcs, clip_interval=(1, 99.99) * u.percent, annotate=False, title=False, interpolation='none',
+                         cmap='gray')
+        # Taking out the ticks and labels
+        ax_with_wcs.grid(False)
+        ax_with_wcs.coords[0].set_axislabel('')
+        ax_with_wcs.coords[1].set_axislabel('')
+        ax_with_wcs.coords[0].set_ticks_visible(False)
+        ax_with_wcs.coords[1].set_ticks_visible(False)
+        ax_with_wcs.coords[0].set_ticklabel_visible(False)
+        ax_with_wcs.coords[1].set_ticklabel_visible(False)
+        aia_sub_map.draw_grid(axes=ax_with_wcs, grid_spacing=15*u.deg, annotate=False, system='carrington')
 
         # Choosing the images
-        # axs[0, 0].imshow(sdo_image, interpolation='none', cmap='gray')
         axs[0, 1].imshow(sdo_screenshot, interpolation='none')
         axs[0, 2].imshow(screenshot2, interpolation='none')
         axs[1, 0].imshow(stereo_image, interpolation='none')
         axs[1, 1].imshow(stereo_screenshot, interpolation='none')
         axs[1, 2].imshow(screenshot3, interpolation='none')
 
-        # Taking out the axes
-        for ax in axs.flat: ax.axis('off')
+        # # Taking out the axes
+        # for ax in axs.flat: ax.axis('off')
         
         # Adding the date text
         axs[0, 0].text(260, 500, f"2012-07-{sdo_groups.group('day')} {sdo_groups.group('hour')}:{sdo_groups.group('minute')}",
@@ -365,7 +397,7 @@ class MP4_making:
         iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
-    ImageFinder(interval='1h', multiprocessing=False)
+    ImageFinder(interval='1h', processes=20)
     # MP4_making(interval='1h', fps=10)
 
 
