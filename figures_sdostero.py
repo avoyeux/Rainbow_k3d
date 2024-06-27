@@ -19,7 +19,6 @@ from PIL import Image
 from typing import Match
 from astropy.io import fits
 from typeguard import typechecked
-from sunpy.coordinates import frames
 from sunpy.map import Map, sources, GenericMap
 
 from Common import Decorators
@@ -259,7 +258,6 @@ class ImageFinder:
 
         full_image = Image.open(os.path.join(self.paths['MP4'], filename))
         stereo_image = np.split(np.array(full_image), 2, axis=1)[0]
-        # stereo_image = np.flip(full_image[0], axis=1)
         stereo_image = Image.fromarray(stereo_image)
         return np.array(stereo_image.resize((512, 512), Image.Resampling.LANCZOS))
 
@@ -293,7 +291,7 @@ class ImageFinder:
             hdul = fits.open(self.sdo_timestamp[sdo_str])
             hdul[1].verify('fix')
             decompressed_sdo = hdul[1].data
-            aia_map = sources.AIAMap(decompressed_sdo, hdul[1].header)
+            aia_map = Map(decompressed_sdo, hdul[1].header)
 
         # Creation of the re.Match items
         self.Patterns()
