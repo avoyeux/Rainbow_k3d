@@ -35,20 +35,21 @@ from Common import Decorators, MultiProcessing, ClassDecorator
 class BarycenterCreation:
 
     @typechecked
-    def __init__(self, datatype: str | list = 'surface', conv_threshold: int | list | tuple = 125, polynomial_order: int | list | tuple = 3, 
-                 integration_time: int | str = '24h', multiprocessing: bool = True, multiprocessing_multiplier: int = 2, threads: int = 5,
-                 multiprocessing_raw: int = 5):
+    def __init__(self, datatype: str | list = 'raw', polynomial_order: int | list | tuple = 3, integration_time: int | str = '24h', 
+                 multiprocessing: bool = True, multiprocessing_multiplier: int = 2, threads: int = 5, multiprocessing_raw: int = 5,
+                 verbose: int = 1, flush: bool = False):
         
         # Arguments
-        self.datatype = datatype if not isinstance(datatype, str) else [datatype]  # what data is fitted - 'conv3dAll', 'conv3dSkele', 'raw', 'rawContours'
-        self.conv_thresholds = conv_threshold if not isinstance(conv_threshold, int) else [conv_threshold]  # minimum threshold to convert the conv3d data to binary
+        self.datatype = datatype if isinstance(datatype, list) else [datatype]  # what data is fitted - 'raw', 'rawContours'
         self.n = polynomial_order if not isinstance(polynomial_order, int) else [polynomial_order]  # the polynomial order
-        self.time_interval = integration_time
+        self.time_interval_int = integration_time
         self.time_interval_str = integration_time
         self.multiprocessing = multiprocessing
         self.multiprocessing_multiplier = multiprocessing_multiplier
         self.threads = threads
         self.multiprocessing_raw = multiprocessing_raw
+        self.verbose = verbose
+        self.flush = flush
 
         # Attributes
         self.paths: dict[str, str]  # the different folder paths
@@ -65,9 +66,9 @@ class BarycenterCreation:
         Path creation.
         """
 
-        main_path = '..'
+        main_path = os.path.join(os.getcwd(), '..')
         self.paths = {
-            'main': os.path.join(main_path, 'test_conv3d_array'), 
+            'main': main_path, 
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'intensities': os.path.join(main_path, 'STEREO', 'int'),
             'save': os.path.join(main_path, 'curveFitArrays_with_feet'),
@@ -79,23 +80,23 @@ class BarycenterCreation:
         Checking the date interval type an assigning a value to be used in another function to get the min and max date.
         """
 
-        if isinstance(self.time_interval, int):
-            time_delta = self.time_interval * 3600
-        elif isinstance(self.time_interval, str):
-            number = re.search(r'\d+', self.time_interval)
+        if isinstance(self.time_interval_int, int):
+            time_delta = self.time_interval_int * 3600
+        elif isinstance(self.time_interval_int, str):
+            number = re.search(r'\d+', self.time_interval_int)
             number = int(number.group())
-            self.time_interval = self.time_interval.lower()
-            if 'min' in self.time_interval: 
+            self.time_interval_int = self.time_interval_int.lower()
+            if 'min' in self.time_interval_int: 
                 time_delta = number * 60
-            elif 'h' in self.time_interval:
+            elif 'h' in self.time_interval_int:
                 time_delta = number * 3600
-            elif 'd' in self.time_interval:
+            elif 'd' in self.time_interval_int:
                 time_delta = number * 3600 * 24
             else:
                 raise ValueError("Time_interval string value not supported. Add 'min' for minutes, 'h' for hours or 'd' for days.")
         else:
             raise TypeError('Problem for time interval. Typeguard should have already raised an error.')
-        self.time_interval = time_delta
+        self.time_interval_int = time_delta
 
     def Time_chunks(self, dates, cubes: np.ndarray | dict, date_max: int, date_min: int, shared_array: bool = False) -> COO:
         """
@@ -168,48 +169,31 @@ class BarycenterCreation:
         """
 
         # Multiprocessing set up
-        shm_conv = None
-        shm_raw = None
         multiprocessing = True if (self.multiprocessing and len(self.datatype) > 1) else False
         processes = []
 
-        # Pre-loading the convolution data if needed
-        conv_name_list = ['conv3dAll', 'conv3dSkele']
-        if any(item in conv_name_list for item in self.datatype):
-            data_conv = np.load(os.path.join(self.paths['main'], 'conv3dRainbow.npy')).astype('uint8')
-
-            if multiprocessing: shm_conv, data_conv = MultiProcessing.shared_memory(data_conv)
-
-        # Pre-loading if raw data needed
-        raw_name_list = ['raw', 'rawContours']
-        if any(item in raw_name_list for item in self.datatype):
-            data_raw = self.Getting_IDL_cubes()
-
-            if multiprocessing: shm_raw, data_raw = MultiProcessing.shared_memory(data_raw)
+        # Loading the raw data
+        data_raw = self.Getting_IDL_cubes()
+        if multiprocessing: shm_raw, data_raw = MultiProcessing.shared_memory(data_raw)
 
         for datatype in self.datatype:
             kwargs = {
+                'data': data_raw,
                 'datatype': datatype,
-                'shared_array': multiprocessing,
                       }
-            if 'Contours' in datatype:
-                kwargs['contour'] = True
-            elif 'Skele' in datatype:
-                kwargs['skeleton'] = True
-
-            kwargs['data'] = data_conv if 'conv3d' in datatype else data_raw
+            
+            if 'Contours' in datatype: kwargs['contour'] = True
 
             if multiprocessing:
                 processes.append(Process(target=self.Main_structure, kwargs=kwargs))
             else:
                 self.Main_structure(**kwargs)
 
+        if not multiprocessing: return
+
         for p in processes: p.start()
         for p in processes: p.join()
-
-        if multiprocessing: 
-            if shm_conv is not None: shm_conv.unlink()
-            if shm_raw is not None: shm_raw.unlink()
+        shm_raw.unlink()
 
     @Decorators.running_time
     def File_opening_threads(self, filepaths: str) -> list[np.ndarray]:
@@ -276,8 +260,8 @@ class BarycenterCreation:
         for date in dates_section:
             date_seconds = (((self.days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
-            date_min = date_seconds - self.time_interval / 2
-            date_max = date_seconds + self.time_interval / 2
+            date_min = date_seconds - self.time_interval_int / 2
+            date_max = date_seconds + self.time_interval_int / 2
             time_cubes_no_duplicate.append(self.Time_chunks(dates=dates, cubes=data, date_max=date_max, date_min=date_min, shared_array=shared_array))
         time_cubes_no_duplicate = stack(time_cubes_no_duplicate, axis=0).astype('uint8')
 
@@ -495,72 +479,37 @@ class BarycenterCreation:
         return sky_coords_list, dx
 
     @Decorators.running_time
-    def Main_structure(self, datatype: str, data: np.ndarray | dict, shared_array: bool = False, contour: bool = False, skeleton: bool = False) -> None:
-        """
-        Class' main function.
-        """
+    def Main_structure(self, datatype: str, data: np.ndarray | dict, contour: bool = False) -> None:
 
         # Defining the reference if using shared arrays
-        if shared_array:
-            shm = SharedMemory(name=data['shm.name'])
-            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
-
-        # Defining the conv_threshold list if the right datatype
-        conv_thresholds = [] if 'conv3dSkele' not in datatype else self.conv_thresholds
-
-        if len(conv_thresholds) != 0:
-            # Creating a list of arrays depending on the thresholds chosen
-            data = [data > threshold for threshold in conv_thresholds]  # WARNING: This could take a lot of RAM
-        elif shared_array:
-            data = [np.copy(data)]
-        else:
-            data = [data]
-        
-        if shared_array: shm.close()
-
-        # Setting up the multiprocessing 
-        multiprocessing = True if (self.multiprocessing and len(data) > 1) else False
-        processes = []
- 
-        if multiprocessing:
-            processes = [Process(target=self.Processing_4D_binary, args=(datatype, binary_cube, contour, skeleton)) for binary_cube in data]
-        else:
-            for binary_cube in data: self.Processing_4D_binary(datatype, binary_cube, contour, skeleton)
-
-        for p in processes: p.start()
-        for p in processes: p.join()
-
-    def Processing_4D_binary(self, datatype: str, data: np.ndarray | None, contour: bool = False, skeleton: bool = False) -> None:
-        """
-        The processing of one 4D binary data cube.
-        """
-
-        # Multiprocessing set-up
         multiprocessing = True if (self.multiprocessing and len(self.n) > 1) else False
-        processes = []
-
-        if multiprocessing: shm, data = MultiProcessing.shared_memory(data)
-
         kwargs = {
-            'data': data,
             'datatype': datatype,
             'contour': contour,
-            'skeleton': skeleton,
-            'shared_array': multiprocessing,
         }
 
         if multiprocessing:
-            processes = [Process(target=self.Time_multiprocessing, kwargs={'index': i, **kwargs}) for i in range(len(self.n))]
+            if not isinstance(data, dict): 
+                shm, data = MultiProcessing.shared_memory(data)  
+            else:
+                shm = None
+
+            processes = [Process(target=self.Time_multiprocessing, kwargs={'index': i, 'data': data, **kwargs}) for i in range(len(self.n))]
+            for p in processes: p.start()
+            for p in processes: p.join()
+
+            if shm is not None: shm.unlink()
         else:
-            for i in range(len(self.n)): self.Time_multiprocessing(index=i, **kwargs)
+            if isinstance(data, dict):
+                shm = SharedMemory(name=data['shm.name'])
+                data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+                data = np.copy(data)
 
-        for p in processes: p.start()
-        for p in processes: p.join()
-        
-        if multiprocessing: shm.unlink()
+                shm.close()          
 
-    def Time_multiprocessing(self, data: np.ndarray | dict, datatype: str, shared_array: bool, index: int, conv_threshold: int | None = None, 
-                  contour: bool = False, skeleton: bool = False) -> None:
+            for i in range(len(self.n)): self.Time_multiprocessing(index=i, data=data, **kwargs)
+
+    def Time_multiprocessing(self, data: np.ndarray | dict, datatype: str, index: int, contour: bool = False) -> None:
         """
         The for loop on the time axis.
         """
@@ -569,7 +518,12 @@ class BarycenterCreation:
         multiprocessing = True if (self.multiprocessing and self.multiprocessing_multiplier > 1) else False
 
         if multiprocessing:
-            if not shared_array: shm, data = MultiProcessing.shared_memory(data)
+            if not isinstance(data, dict): 
+                shm, data = MultiProcessing.shared_memory(data)
+                indexes = MultiProcessing.pool_indexes(data['data.shape'][0], self.multiprocessing_multiplier)
+            else: 
+                shm = None
+                indexes = MultiProcessing.pool_indexes(data.shape[0], self.multiprocessing_multiplier)
 
             # Initialisation
             processes = []
@@ -577,23 +531,18 @@ class BarycenterCreation:
             queue = manager.Queue()
 
             # Step an multiprocessing kwargs
-            data_shape_0 = data['data.shape'][0] if isinstance(data, dict) else data.shape[0]
-            indexes = MultiProcessing.pool_indexes(data_shape_0, self.multiprocessing_multiplier)
             kwargs = {
                 'queue': queue,
                 'data': data,
-                'shared_array': True,
                 'contour': contour,
-                'skeleton': skeleton,
                 'poly_index': index,
             }
-            # Preping the processes
-            processes = [Process(target=self.Time_loop, kwargs={'index': i, 'data_index': index, **kwargs}) for i, index in enumerate(indexes)]
 
+            processes = [Process(target=self.Time_loop, kwargs={'index': i, 'data_index': index, **kwargs}) for i, index in enumerate(indexes)]
             for p in processes: p.start()
             for p in processes: p.join()
 
-            if not shared_array: shm.unlink()
+            if shm is not None: shm.unlink()
 
             results = [None] * self.multiprocessing_multiplier
             while not queue.empty():
@@ -601,24 +550,26 @@ class BarycenterCreation:
                 results[identifier] = result
             results = np.concatenate(results, axis=1)
         else:
-            results = self.Time_loop(data=data, data_index=(0, data.shape[0] - 1), shared_array=shared_array, contour=contour, skeleton=skeleton, poly_index=index)
+            results = self.Time_loop(data=data, data_index=(0, data.shape[0] - 1), contour=contour, poly_index=index)
 
         # Saving the data in .npy files
-        added_string = '' if conv_threshold is None else f'_lim_{conv_threshold}'
-        filename = f'poly_{datatype}' + added_string + f'_order{self.n[index]}_{self.time_interval_str}.npy'
+        filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npy'
         np.save(os.path.join(self.paths['save'], filename), results.astype('float64'))
 
-        print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=True)
+        if self.verbose > 0:
+            print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
 
-    def Time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None, 
-                  shared_array: bool = False,contour: bool = False, skeleton: bool = False) -> None | np.ndarray:
+    def Time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
+                  contour: bool = False) -> None | np.ndarray:
         """
         The for loop on the time axis.
         """
 
-        if shared_array:
+        if isinstance(data, dict):
             shm = SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+        else: 
+            shm = None
 
         # Initialisation of the result list
         results = [None] * (data_index[1] - data_index[0] + 1)
@@ -630,9 +581,6 @@ class BarycenterCreation:
                 # Prepocessing to only keep the contours
                 eroded_data = binary_erosion(section)
                 section = section.astype('uint8') - eroded_data.astype('uint8')
-            elif skeleton:
-                # Preprocessing to only fit the skeleton
-                section = skeletonize(section)
 
             # Setting up the data
             x, y, z = np.where(section)
@@ -640,15 +588,14 @@ class BarycenterCreation:
 
             # Calculating the cumulative distance
             t = np.zeros(points.shape[0])
-            for i in range(1, points.shape[0]):
-                t[i] = t[i-1] + np.linalg.norm(points[i] - points[i - 1])
+            for i in range(1, points.shape[0]): t[i] = t[i-1] + np.linalg.norm(points[i] - points[i - 1])
             t /= t[-1]  # normalisation
             t += 1
 
             results[time - data_index[0]] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=data_index[0])
         results = np.concatenate(results, axis=1)
 
-        if shared_array: shm.close()
+        if shm is not None: shm.close()
         if queue is None: return results  # if no multiprocessing
         queue.put((index, results))
 
