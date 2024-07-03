@@ -76,7 +76,7 @@ class BarycenterCreation:
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'intensities': os.path.join(main_path, 'STEREO', 'int'),
             'cubes_feet': os.path.join(main_path, 'Cubes_karine_feet'),
-            'save': os.path.join(main_path, 'curveFitArrays_with_feet'),
+            'save': os.path.join(main_path, 'curveFitArrays_without_feet'),
         }
         os.makedirs(self.paths['save'], exist_ok=True)
         os.makedirs(self.paths['cubes_feet'], exist_ok=True)
@@ -366,11 +366,11 @@ class BarycenterCreation:
 
         if self.verbose > 1: print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
-        results, data_info = self.cubes_feet(results)
+        # results, data_info = self.cubes_feet(results)
 
         if self.verbose> 0: print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
-        if self.saving_feet: self.saving_cubes(results, data_info)
+        # if self.saving_feet: self.saving_cubes(results, data_info)
 
         if multiprocessing: shm.unlink()
         return results.astype('uint16').todense()
@@ -428,12 +428,7 @@ class BarycenterCreation:
             foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
             foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
 
-            # print(f'for 0, max x, y, z is {np.max(foot_skycoords_0.cartesian.x.value)}, {np.max(foot_skycoords_0.cartesian.y.value)}, {np.max(foot_skycoords_0.cartesian.z.value)}')
-            # print(f'for 1, max x, y, z is {np.max(foot_skycoords_1.cartesian.x.value)}, {np.max(foot_skycoords_1.cartesian.y.value)}, {np.max(foot_skycoords_1.cartesian.z.value)}')
-            # print(f'for cube, max x, y, z is {np.max(skycoords[i].cartesian.x.value)}, {np.max(skycoords[i].cartesian.y.value)}, {np.max(skycoords[i].cartesian.z.value)}')
-
             skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
-            # print(f'for the concat, max x, y, z is {np.max(skycoord_concat.cartesian.x.value)}, {np.max(skycoord_concat.cartesian.y.value)}, {np.max(skycoord_concat.cartesian.z.value)}')
 
             # Getting the position np.ndarray
             x = skycoord_concat.cartesian.x.value
@@ -478,19 +473,14 @@ class BarycenterCreation:
         """
 
         d_deg = np.rad2deg(d_theta)
-        # print(f'd_deg is {d_deg}')
 
         lon_values = np.arange(foot_lonlat[0] - self.foot_width / 2, foot_lonlat[0] + self.foot_width / 2 + d_deg*0.1, d_deg)
         lat_values = np.arange(foot_lonlat[1] - self.foot_width / 2, foot_lonlat[1] + self.foot_width / 2 + d_deg*0.1, d_deg)
-
-        # print(f'lon, lat shape is {lon_values.shape}, {lat_values.shape}')
-        # print(f'number of points is {nb_of_points}')
 
         # Setting 68% of the values to be in the middle quarter of the grid
         gaussian_std = self.foot_width / 2
         gaussian_distribution = np.exp( - ((lon_values[:, None] - foot_lonlat[0])**2 + (lat_values[None, :] - foot_lonlat[1])**2) / (2 * gaussian_std**2))
         
-        # print(f'initial gaussian distribution max is {gaussian_distribution.max()}')
         # Resetting the gaussian so the sum of its values is equal to nb_of_points
         gaussian_distribution = nb_points * gaussian_distribution / np.sum(gaussian_distribution)
 
@@ -506,14 +496,9 @@ class BarycenterCreation:
         foot_positions[1, :] = np.deg2rad(foot_positions[1, :] * d_deg + foot_lonlat[1])
         foot_positions[2, :] = foot_positions[2, :] * self.dx + self.solar_r
 
-        # print(f'gaussian 3D distribution shape is {gaussian_distribution_3D.shape}')
-        # print(f'foot position shape is {foot_positions.shape} with max {np.max(foot_positions)} and min {np.min(foot_positions)}')
-
         # Creating the corresponding skycoord object
         coords = SkyCoord(foot_positions[0, :] * u.rad, foot_positions[1, :] * u.rad, foot_positions[2, :] * u.km, frame=HeliographicCarrington)
         cartesian = coords.represent_as(CartesianRepresentation)
-
-        # print(f'the cartesian max are {np.max(cartesian.x.value)}, {np.max(cartesian.y.value)}, {np.max(cartesian.z.value)}')
         return SkyCoord(cartesian, frame=coords.frame, representation_type='cartesian')
 
     @Decorators.running_time
@@ -621,9 +606,8 @@ class BarycenterCreation:
         filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
         np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
 
-        if self.verbose > 0:
-            print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
-            print(f'The max are {np.max(results, axis=1)}', flush=self.flush)
+        if self.verbose > 0: print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
+        if self.verbose> 1: print(f'interp n{self.n[index]} max indexes are {np.max(results, axis=1)}', flush=self.flush)
 
     def Time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
                   contour: bool = False) -> None | np.ndarray:
@@ -661,9 +645,6 @@ class BarycenterCreation:
             results[loop] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index)
         results = np.concatenate(results, axis=1)
 
-        # print(f'after concatenation, the data shape is {results.shape}')
-        # print(f'the max after concatenation is {np.max(results, axis=1)}', flush=self.flush)
-
         if shm is not None: shm.close()
         if queue is None: return results  # if no multiprocessing
         queue.put((index, results))
@@ -692,20 +673,14 @@ class BarycenterCreation:
             # Taking away duplicates 
             data = np.vstack((x, y, z)).astype('float64')
 
-            # print(f'the data shape is {data.shape}')
-            # print(f'the data max are {np.max(data, axis=1)}')
-            # print(f'the cubes shape should be {self.cubes_shape}', flush=self.flush)
-
             # Cutting away the values that are outside the initial cube shape
             conditions_upper = (data[0, :] >= self.cubes_shape[1] - 1) | (data[1, :] >= self.cubes_shape[2] - 1) | (data[2, :] >= self.cubes_shape[3] - 1) 
             # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later  
             conditions_lower = np.any(data < 0, axis=0)
             conditions = conditions_upper | conditions_lower
             data = data[:, ~conditions]       
-            # print(f'after filters, the data shape is {data.shape}', flush=self.flush)
 
             unique_data = np.unique(data, axis=1)
-            # print(f'after unique the data shape is {unique_data.shape}', flush=self.flush)
             time_row = np.full((1, unique_data.shape[1]), time)
             unique_data = np.vstack((time_row, unique_data)).astype('float64')
 
@@ -1268,7 +1243,7 @@ if __name__=='__main__':
                          multiprocessing=True,
                          multiprocessing_multiplier=8, 
                          multiprocessing_raw=4,
-                         saving_with_feet=True, 
+                         saving_with_feet=False, 
                          verbose=2,
                          flush=True)
     
