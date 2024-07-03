@@ -20,7 +20,6 @@ from typeguard import typechecked
 from scipy.optimize import curve_fit
 from scipy.ndimage import binary_erosion
 from sparse import COO, stack, concatenate
-from skimage.morphology import skeletonize
 from multiprocessing import Process, Manager
 from multiprocessing.queues import Queue as QUEUE
 from multiprocessing.shared_memory import SharedMemory
@@ -113,7 +112,7 @@ class BarycenterCreation:
         if shared_array:
             shm = SharedMemory(name=cubes['shm.name'])
             coords = np.ndarray(cubes['data.shape'], dtype=cubes['data.dtype'], buffer=shm.buf)
-            cubes = COO(coords=coords, data=1, shape=cubes['cubes.shape'])
+            cubes = COO(coords=coords.astype('uint16'), data=1, shape=cubes['cubes.shape'])
 
         chunk = []
         for date, data in zip(dates, cubes):
@@ -365,11 +364,17 @@ class BarycenterCreation:
         else:
             results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False)
 
-        if self.verbose > 1: print(f'initial cubes - shape:{results.shape} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+        if self.verbose > 1: 
+            print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+            print(f'intial cubes is {results}')
+            print(f'coords shape is {results.coords.shape} with dtype {results.coords.dtype}')
 
         results, data_info = self.cubes_feet(results)
 
-        if self.verbose> 0: print(f'cubes with feet - shape:{results.shape} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+        if self.verbose> 0: 
+            print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+            print(f'cubes with feet is {results}')
+            print(f'coords shape is {results.coords.shape} with dtype {results.coords.dtype}')
         if self.saving_feet: self.saving_cubes(results, data_info)
 
         if multiprocessing: shm.unlink()
@@ -422,14 +427,20 @@ class BarycenterCreation:
         
         # Getting the corresponding angle if dx is at one solar radius
         # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
-        d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 1.1  # * 1.1 just to make sure I have enough points as the foot rectangle is curved in cartesian space
+        d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
 
         cubes_coords = [None] * len(weight_per_foot)
         for i, nb_points in enumerate(weight_per_foot):
             # Setting up the SkyCoord object
             foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
             foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
+
+            # print(f'for 0, max x, y, z is {np.max(foot_skycoords_0.cartesian.x.value)}, {np.max(foot_skycoords_0.cartesian.y.value)}, {np.max(foot_skycoords_0.cartesian.z.value)}')
+            # print(f'for 1, max x, y, z is {np.max(foot_skycoords_1.cartesian.x.value)}, {np.max(foot_skycoords_1.cartesian.y.value)}, {np.max(foot_skycoords_1.cartesian.z.value)}')
+            # print(f'for cube, max x, y, z is {np.max(skycoords[i].cartesian.x.value)}, {np.max(skycoords[i].cartesian.y.value)}, {np.max(skycoords[i].cartesian.z.value)}')
+
             skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
+            # print(f'for the concat, max x, y, z is {np.max(skycoord_concat.cartesian.x.value)}, {np.max(skycoord_concat.cartesian.y.value)}, {np.max(skycoord_concat.cartesian.z.value)}')
 
             # Getting the position np.ndarray
             x = skycoord_concat.cartesian.x.value
@@ -455,6 +466,8 @@ class BarycenterCreation:
         # Creation of the corresponding COO object
         shape = np.max(cubes_coords, axis=1) + 1
 
+        self.cubes_shape = shape
+
         # Saving the data 'metadata'
         data_info = {
             'shape': shape,
@@ -462,7 +475,7 @@ class BarycenterCreation:
             'y_min': y_min,
             'z_min': z_min,
         }
-        return COO(coords=cubes_coords, data=1, shape=shape), data_info
+        return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
 
     def foot_grid_make(self, foot_lonlat: tuple[int | float], nb_points: int, d_theta: float):
         """To create the positions of the voxel in carrington space for each foot
@@ -495,16 +508,19 @@ class BarycenterCreation:
         for value in range(max_val): gaussian_distribution_3D[:, :, value] = (gaussian_distribution >= value + 1)
 
         # Swapping the distribution values to the corresponding carrington heliographic coordinates
-        foot_positions = COO(gaussian_distribution_3D).coords
+        foot_positions = COO(gaussian_distribution_3D).coords.astype('float64')
         foot_positions[0, :] = np.deg2rad(foot_positions[0, :] * d_deg + foot_lonlat[0])
         foot_positions[1, :] = np.deg2rad(foot_positions[1, :] * d_deg + foot_lonlat[1])
         foot_positions[2, :] = foot_positions[2, :] * self.dx + self.solar_r
 
         # print(f'gaussian 3D distribution shape is {gaussian_distribution_3D.shape}')
+        # print(f'foot position shape is {foot_positions.shape} with max {np.max(foot_positions)} and min {np.min(foot_positions)}')
 
         # Creating the corresponding skycoord object
         coords = SkyCoord(foot_positions[0, :] * u.rad, foot_positions[1, :] * u.rad, foot_positions[2, :] * u.km, frame=HeliographicCarrington)
         cartesian = coords.represent_as(CartesianRepresentation)
+
+        # print(f'the cartesian max are {np.max(cartesian.x.value)}, {np.max(cartesian.y.value)}, {np.max(cartesian.z.value)}')
         return SkyCoord(cartesian, frame=coords.frame, representation_type='cartesian')
 
     @Decorators.running_time
@@ -513,7 +529,7 @@ class BarycenterCreation:
         To get the cartesian coordinates of every points in the cubes.
         """
 
-        cubes_sparse_coords = data.coords.astype('float64')
+        cubes_sparse_coords = data.coords.astype('float64')[[0, 3, 2, 1], :]
 
         # Initialisation in cartesian carrington heliographic coordinates
         first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.cube_numbers[0]:03d}.save'))
@@ -611,8 +627,8 @@ class BarycenterCreation:
             results = self.Time_loop(data=data, data_index=(0, data.shape[0] - 1), contour=contour, poly_index=index)
 
         # Saving the data in .npy files
-        filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npy'
-        np.save(os.path.join(self.paths['save'], filename), results.astype('float64'))
+        filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
+        np.savez(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
 
         if self.verbose > 0:
             print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)

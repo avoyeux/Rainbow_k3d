@@ -922,7 +922,7 @@ class Data:
 
     def Preprocessing_polynomial_data(self) -> None:
         """
-        Code to get the .npy barycenter filenames
+        Code to get the .npy barycenter filenames.
         """
 
         pattern = re.compile(r'''poly_
