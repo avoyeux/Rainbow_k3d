@@ -364,17 +364,12 @@ class BarycenterCreation:
         else:
             results = self.Time_integration(dates=dates, data=cubes_no_duplicate, shared_array=False)
 
-        if self.verbose > 1: 
-            print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
-            print(f'intial cubes is {results}')
-            print(f'coords shape is {results.coords.shape} with dtype {results.coords.dtype}')
+        if self.verbose > 1: print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
         results, data_info = self.cubes_feet(results)
 
-        if self.verbose> 0: 
-            print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
-            print(f'cubes with feet is {results}')
-            print(f'coords shape is {results.coords.shape} with dtype {results.coords.dtype}')
+        if self.verbose> 0: print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+
         if self.saving_feet: self.saving_cubes(results, data_info)
 
         if multiprocessing: shm.unlink()
