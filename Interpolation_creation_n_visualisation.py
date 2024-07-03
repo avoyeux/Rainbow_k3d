@@ -399,9 +399,7 @@ class BarycenterCreation:
         unit = np.array(['km'])
 
         filename = f'sparse_cubes_with_feet.npz'
-        np.savez(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, shape=shape, dx=dx, unit=unit)
-
-        np.savez_compressed(os.path.join(self.paths['cubes_feet'], 'compressed_' + filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, 
+        np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, 
                             shape=shape, dx=dx, unit=unit)
         
         if self.verbose > 0: print(f'File {filename} saved - main coords shape:{coords.shape} - dtype:{coords.dtype} - size:{round(coords.nbytes / 2 ** 20, 2)}Mb')
@@ -629,7 +627,8 @@ class BarycenterCreation:
         np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
 
         if self.verbose > 0:
-            print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
+            print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
+            print(f'The max are {np.max(results, axis=1)}', flush=self.flush)
 
     def Time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
                   contour: bool = False) -> None | np.ndarray:
@@ -645,7 +644,7 @@ class BarycenterCreation:
 
         # Initialisation of the result list
         results = [None] * (data_index[1] - data_index[0] + 1)
-        for time in range(data_index[0], data_index[1] + 1): 
+        for loop, time in enumerate(range(data_index[0], data_index[1] + 1)): 
             # Selecting a slice of the data
             section = data[time]
 
@@ -664,7 +663,7 @@ class BarycenterCreation:
             t /= t[-1]  # normalisation
             t += 1
 
-            results[time - data_index[0]] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=data_index[0])
+            results[loop] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index)
         results = np.concatenate(results, axis=1)
 
         # print(f'after concatenation, the data shape is {results.shape}')
@@ -674,7 +673,7 @@ class BarycenterCreation:
         if queue is None: return results  # if no multiprocessing
         queue.put((index, results))
 
-    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int, first_time_index: int = 0) -> np.ndarray:
+    def Fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int) -> np.ndarray:
             """
             Where the fitting of the curve actually takes place.
             """
@@ -712,7 +711,7 @@ class BarycenterCreation:
 
             unique_data = np.unique(data, axis=1)
             # print(f'after unique the data shape is {unique_data.shape}', flush=self.flush)
-            time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
+            time_row = np.full((1, unique_data.shape[1]), time)
             unique_data = np.vstack((time_row, unique_data)).astype('float64')
 
             params = np.array([params_x, params_y, params_z], dtype='float64')  # array of shape (3, n_order + 1)
