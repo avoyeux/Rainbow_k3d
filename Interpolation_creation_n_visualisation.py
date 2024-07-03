@@ -594,11 +594,9 @@ class BarycenterCreation:
         if multiprocessing:
             if not isinstance(data, dict): 
                 shm, data = MultiProcessing.shared_memory(data)
-                indexes = MultiProcessing.pool_indexes(data['data.shape'][0], self.multiprocessing_multiplier)
             else: 
-                shm = None
-                indexes = MultiProcessing.pool_indexes(data.shape[0], self.multiprocessing_multiplier)
-
+                shm = None         
+            indexes = MultiProcessing.pool_indexes(data['data.shape'][0], self.multiprocessing_multiplier)
             # Initialisation
             processes = []
             manager = Manager()
@@ -669,8 +667,8 @@ class BarycenterCreation:
             results[time - data_index[0]] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=data_index[0])
         results = np.concatenate(results, axis=1)
 
-        print(f'after concatenation, the data shape is {results.shape}')
-        print(f'the max after concatenation is {np.max(results, axis=1)}', flush=self.flush)
+        # print(f'after concatenation, the data shape is {results.shape}')
+        # print(f'the max after concatenation is {np.max(results, axis=1)}', flush=self.flush)
 
         if shm is not None: shm.close()
         if queue is None: return results  # if no multiprocessing
@@ -700,9 +698,9 @@ class BarycenterCreation:
             # Taking away duplicates 
             data = np.vstack((x, y, z)).astype('float64')
 
-            print(f'the data shape is {data.shape}')
-            print(f'the data max are {np.max(data, axis=1)}')
-            print(f'the cubes shape should be {self.cubes_shape}', flush=self.flush)
+            # print(f'the data shape is {data.shape}')
+            # print(f'the data max are {np.max(data, axis=1)}')
+            # print(f'the cubes shape should be {self.cubes_shape}', flush=self.flush)
 
             # Cutting away the values that are outside the initial cube shape
             conditions_upper = (data[0, :] >= self.cubes_shape[1] - 1) | (data[1, :] >= self.cubes_shape[2] - 1) | (data[2, :] >= self.cubes_shape[3] - 1) 
@@ -710,10 +708,10 @@ class BarycenterCreation:
             conditions_lower = np.any(data < 0, axis=0)
             conditions = conditions_upper | conditions_lower
             data = data[:, ~conditions]       
-            print(f'after filters, the data shape is {data.shape}', flush=self.flush)
+            # print(f'after filters, the data shape is {data.shape}', flush=self.flush)
 
             unique_data = np.unique(data, axis=1)
-            print(f'after unique the data shape is {unique_data.shape}', flush=self.flush)
+            # print(f'after unique the data shape is {unique_data.shape}', flush=self.flush)
             time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
             unique_data = np.vstack((time_row, unique_data)).astype('float64')
 
