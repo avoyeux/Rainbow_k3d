@@ -626,9 +626,9 @@ class BarycenterCreation:
         else:
             results = self.Time_loop(data=data, data_index=(0, data.shape[0] - 1), contour=contour, poly_index=index)
 
-        # Saving the data in .npy files
+        # Saving the data in .npz files 
         filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
-        np.savez(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
+        np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
 
         if self.verbose > 0:
             print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
@@ -669,6 +669,9 @@ class BarycenterCreation:
             results[time - data_index[0]] = self.Fitting_polynomial(time=time, t=t, data=points, index=poly_index, first_time_index=data_index[0])
         results = np.concatenate(results, axis=1)
 
+        print(f'after concatenation, the data shape is {results.shape}')
+        print(f'the max after concatenation is {np.max(results, axis=1)}', flush=self.flush)
+
         if shm is not None: shm.close()
         if queue is None: return results  # if no multiprocessing
         queue.put((index, results))
@@ -695,15 +698,22 @@ class BarycenterCreation:
             z = polynomial(t_fine, *params_z)
 
             # Taking away duplicates 
-            data = np.vstack((x, y, z)).T.astype('float64')
+            data = np.vstack((x, y, z)).astype('float64')
+
+            print(f'the data shape is {data.shape}')
+            print(f'the data max are {np.max(data, axis=1)}')
+            print(f'the cubes shape should be {self.cubes_shape}', flush=self.flush)
 
             # Cutting away the values that are outside the initial cube shape
-            conditions_upper = (data[:, 0] >= self.cubes_shape[1]) | (data[:, 1] >= self.cubes_shape[2]) | (data[:, 2] >= self.cubes_shape[3]) 
-            conditions_lower = np.any(data < 0, axis=1)
+            conditions_upper = (data[0, :] >= self.cubes_shape[1] - 1) | (data[1, :] >= self.cubes_shape[2] - 1) | (data[2, :] >= self.cubes_shape[3] - 1) 
+            # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later  
+            conditions_lower = np.any(data < 0, axis=0)
             conditions = conditions_upper | conditions_lower
-            data = data[~conditions]       
+            data = data[:, ~conditions]       
+            print(f'after filters, the data shape is {data.shape}', flush=self.flush)
 
-            unique_data = np.unique(data, axis=0).T
+            unique_data = np.unique(data, axis=1)
+            print(f'after unique the data shape is {unique_data.shape}', flush=self.flush)
             time_row = np.full((1, unique_data.shape[1]), time + first_time_index)
             unique_data = np.vstack((time_row, unique_data)).astype('float64')
 
@@ -1261,13 +1271,14 @@ class TESTING_STUFF:
 
 if __name__=='__main__':
     BarycenterCreation(datatype=['raw'], 
-                         polynomial_order=[6],
+                         polynomial_order=[3, 4, 6, 8],
                          integration_time='24h',
                          multiprocessing=True,
                          multiprocessing_multiplier=8, 
                          multiprocessing_raw=4,
                          saving_with_feet=True, 
-                         verbose=2)
+                         verbose=2,
+                         flush=True)
     
     # interpolations_filepath = os.path.join(os.getcwd(), '..', 'curveFitArrays', 'poly_raw_order6_24h.npy')
     # data = np.load(interpolations_filepath)
