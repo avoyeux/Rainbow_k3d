@@ -698,7 +698,7 @@ class BarycenterCreation:
             data = np.vstack((x, y, z)).T.astype('float64')
 
             # Cutting away the values that are outside the initial cube shape
-            conditions_upper = (data[:, 0] >= 318) | (data[:, 1] >= 225) | (data[:, 2] >= 185) 
+            conditions_upper = (data[:, 0] >= self.cubes_shape[1]) | (data[:, 1] >= self.cubes_shape[2]) | (data[:, 2] >= self.cubes_shape[3]) 
             conditions_lower = np.any(data < 0, axis=1)
             conditions = conditions_upper | conditions_lower
             data = data[~conditions]       
@@ -1263,9 +1263,9 @@ if __name__=='__main__':
     BarycenterCreation(datatype=['raw'], 
                          polynomial_order=[6],
                          integration_time='24h',
-                         multiprocessing=False,
-                         multiprocessing_multiplier=6, 
-                         multiprocessing_raw=2,
+                         multiprocessing=True,
+                         multiprocessing_multiplier=8, 
+                         multiprocessing_raw=4,
                          saving_with_feet=True, 
                          verbose=2)
     
