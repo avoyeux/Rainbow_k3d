@@ -367,15 +367,23 @@ class BarycenterCreation:
         if self.verbose > 1: print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
         # results, data_info = self.cubes_feet(results)
+        self.cubes_feet(results)
+        self.cubes_shape = results.shape
+        data_info = {
+            'x_min': self.x_min,
+            'y_min': self.y_min,
+            'z_min': self.z_min,
+            'shape': self.cubes_shape,
+        }
 
         if self.verbose> 0: print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
-        # if self.saving_feet: self.saving_cubes(results, data_info)
+        if self.saving_feet: self.saving_cubes(results, data_info, feet=False)
 
         if multiprocessing: shm.unlink()
         return results.astype('uint16').todense()
     
-    def saving_cubes(self, data:COO, data_info: dict[str, any]) -> None:
+    def saving_cubes(self, data:COO, data_info: dict[str, any], feet: bool = True) -> None:
         """To save the cubes when the feet have been added.
 
         Args:
@@ -393,7 +401,7 @@ class BarycenterCreation:
         dx = np.array([self.dx])
         unit = np.array(['km'])
 
-        filename = f'sparse_cubes_with_feet.npz'
+        filename = 'sparse_cubes_with_feet.npz' if feet else 'sparse_cubes.npz'
         np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, 
                             shape=shape, dx=dx, unit=unit)
         
@@ -418,52 +426,52 @@ class BarycenterCreation:
         # The data coords in heliographic cartesian coordinates
         skycoords = self.carrington_skycoords(data)
         
-        # Getting the corresponding angle if dx is at one solar radius
-        # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
-        d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
+        # # Getting the corresponding angle if dx is at one solar radius
+        # # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
+        # d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
 
-        cubes_coords = [None] * len(weight_per_foot)
-        for i, nb_points in enumerate(weight_per_foot):
-            # Setting up the SkyCoord object
-            foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
-            foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
+        # cubes_coords = [None] * len(weight_per_foot)
+        # for i, nb_points in enumerate(weight_per_foot):
+        #     # Setting up the SkyCoord object
+        #     foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
+        #     foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
 
-            skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
+        #     skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
 
-            # Getting the position np.ndarray
-            x = skycoord_concat.cartesian.x.value
-            y = skycoord_concat.cartesian.y.value
-            z = skycoord_concat.cartesian.z.value
-            cube = np.stack([x, y, z], axis=0)
+        #     # Getting the position np.ndarray
+        #     x = skycoord_concat.cartesian.x.value
+        #     y = skycoord_concat.cartesian.y.value
+        #     z = skycoord_concat.cartesian.z.value
+        #     cube = np.stack([x, y, z], axis=0)
 
-            # Setting up the 4D coords array
-            time_row = np.full((1, cube.shape[1]), i)
-            cubes_coords[i] = np.vstack((time_row, cube))
-        cubes_coords = np.hstack(cubes_coords)
+        #     # Setting up the 4D coords array
+        #     time_row = np.full((1, cube.shape[1]), i)
+        #     cubes_coords[i] = np.vstack((time_row, cube))
+        # cubes_coords = np.hstack(cubes_coords)
 
-        # Set up to get the voxel coords
-        _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
-        cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.dx
-        cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.dx
-        cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.dx
-        cubes_coords = np.round(cubes_coords).astype('uint16')
+        # # Set up to get the voxel coords
+        # _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
+        # cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.dx
+        # cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.dx
+        # cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.dx
+        # cubes_coords = np.round(cubes_coords).astype('uint16')
 
-        # Cleaning up any pixel that have the same position (if there are any)
-        cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
+        # # Cleaning up any pixel that have the same position (if there are any)
+        # cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
 
-        # Creation of the corresponding COO object
-        shape = np.max(cubes_coords, axis=1) + 1
+        # # Creation of the corresponding COO object
+        # shape = np.max(cubes_coords, axis=1) + 1
 
-        self.cubes_shape = shape
+        # self.cubes_shape = shape
 
-        # Saving the data 'metadata'
-        data_info = {
-            'shape': shape,
-            'x_min': x_min,
-            'y_min': y_min,
-            'z_min': z_min,
-        }
-        return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
+        # # Saving the data 'metadata'
+        # data_info = {
+        #     'shape': shape,
+        #     'x_min': x_min,
+        #     'y_min': y_min,
+        #     'z_min': z_min,
+        # }
+        # return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
 
     def foot_grid_make(self, foot_lonlat: tuple[int | float], nb_points: int, d_theta: float):
         """To create the positions of the voxel in carrington space for each foot
@@ -513,23 +521,23 @@ class BarycenterCreation:
         first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.cube_numbers[0]:03d}.save'))
         self.dx = first_cube.dx  # in km
         self.x_min = first_cube.xt_min  # in km
-        y_min = first_cube.yt_min
-        z_min = first_cube.zt_min
+        self.y_min = first_cube.yt_min
+        self.z_min = first_cube.zt_min
 
-        cubes_sparse_coords[1, :] = cubes_sparse_coords[1, :] * self.dx + self.x_min
-        cubes_sparse_coords[2, :] = cubes_sparse_coords[2, :] * self.dx + y_min
-        cubes_sparse_coords[3, :] = cubes_sparse_coords[3, :] * self.dx + z_min
+        # cubes_sparse_coords[1, :] = cubes_sparse_coords[1, :] * self.dx + self.x_min
+        # cubes_sparse_coords[2, :] = cubes_sparse_coords[2, :] * self.dx + self.y_min
+        # cubes_sparse_coords[3, :] = cubes_sparse_coords[3, :] * self.dx + self.z_min
 
-        # Creating the SkyCoord object for each 3D slice
-        time_indexes = list(set(cubes_sparse_coords[0, :]))
-        sky_coords_list = [None] * len(time_indexes)
-        for i, time in enumerate(time_indexes):
-            time_filter = cubes_sparse_coords[0, :] == time
-            sparse_coords_section = cubes_sparse_coords[:, time_filter]
-            sky_coords = SkyCoord(sparse_coords_section[1, :], sparse_coords_section[2, :], sparse_coords_section[3, :], 
-                                unit=u.km, frame=HeliographicCarrington, representation_type='cartesian')
-            sky_coords_list[i] = sky_coords
-        return sky_coords_list
+        # # Creating the SkyCoord object for each 3D slice
+        # time_indexes = list(set(cubes_sparse_coords[0, :]))
+        # sky_coords_list = [None] * len(time_indexes)
+        # for i, time in enumerate(time_indexes):
+        #     time_filter = cubes_sparse_coords[0, :] == time
+        #     sparse_coords_section = cubes_sparse_coords[:, time_filter]
+        #     sky_coords = SkyCoord(sparse_coords_section[1, :], sparse_coords_section[2, :], sparse_coords_section[3, :], 
+        #                         unit=u.km, frame=HeliographicCarrington, representation_type='cartesian')
+        #     sky_coords_list[i] = sky_coords
+        # return sky_coords_list
 
     @Decorators.running_time
     def Main_structure(self, datatype: str, data: np.ndarray | dict, contour: bool = False) -> None:
@@ -1243,7 +1251,7 @@ if __name__=='__main__':
                          multiprocessing=True,
                          multiprocessing_multiplier=8, 
                          multiprocessing_raw=4,
-                         saving_with_feet=False, 
+                         saving_with_feet=True, 
                          verbose=2,
                          flush=True)
     
