@@ -161,9 +161,8 @@ class BarycenterCreation:
         cube_names = sorted(cube_names) 
         self.cube_numbers = [int(pattern_cubes.match(cube_name).group(1)) for cube_name in cube_names]
 
-        cubes = self.file_opening_threads([os.path.join(self.paths['cubes'], cube_name)
-                                           for cube_name in cube_names])
-        cubes = np.array(cubes, dtype='uint8')
+        cubes = self.file_opening_threads([os.path.join(self.paths['cubes'], cube_name) for cube_name in cube_names])
+        cubes = np.stack(cubes, axis=0)
 
         # Resetting the axis order as IDL swaps the order
         cubes = np.transpose(cubes, (0, 3, 2, 1))
@@ -350,7 +349,7 @@ class BarycenterCreation:
                 shm.close()          
             for i in range(len(self.n)): self.time_multiprocessing(index=i, data=data, **kwargs)
 
-    def time_multiprocessing(self, data: np.ndarray | dict, datatype: str, index: int, contour: bool = False) -> None:
+    def time_multiprocessing(self, data: np.ndarray | dict[str, any], datatype: str, index: int, contour: bool = False) -> None:
         """For a given polynomial order, this function encloses the interpolation creation of the data cubes.
 
         Args:
@@ -389,19 +388,22 @@ class BarycenterCreation:
             if shm is not None: shm.unlink()
 
             results = [None] * self.multiprocessing_multiplier
+            params = [None] * self.multiprocessing_multiplier
             while not queue.empty():
-                identifier, result = queue.get()
+                identifier, result, param = queue.get()
                 results[identifier] = result
+                params[identifier] = param
             results = np.concatenate(results, axis=1)
+            params = np.concatenate(params, axis=0)
         else:
-            results = self.time_loop(data=data, data_index=(0, data.shape[0] - 1), contour=contour, poly_index=index)
+            results, params = self.time_loop(data=data, data_index=(0, data.shape[0] - 1), contour=contour, poly_index=index)
 
         # Saving the data in .npz files 
         filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
-        np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float64'), shape=self.cubes_shape)
+        np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float32'), shape=self.cubes_shape, params=params.astype('float64'))
 
         if self.verbose > 0: print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
-        if self.verbose> 1: print(f'interp n{self.n[index]} max indexes are {np.max(results, axis=1)}', flush=self.flush)
+        if self.verbose> 1: print(f'Interpolation order{self.n[index]}: max indexes are {np.max(results, axis=1)} and params shape is {params.shape}', flush=self.flush)
 
     def time_chunks(self, dates, cubes: np.ndarray | dict, date_max: int, date_min: int, shared_array: bool = False) -> COO:
         """
@@ -454,7 +456,7 @@ class BarycenterCreation:
         nb_coeffs = n + 1
         return nth_order_polynomial, nb_coeffs
     
-    def Polynomial_derivative(self,  t: np.ndarray, coeffs: np.ndarray | list) -> np.ndarray:
+    def polynomial_derivative(self,  t: np.ndarray, coeffs: np.ndarray | list) -> np.ndarray:
         """
         Outputs the derivative of a n-th order polynomial given it's constants in order (i.e. order is a_0 + a_1 * t + ...)
         """
@@ -464,12 +466,11 @@ class BarycenterCreation:
         result = 0
 
         for order in range(1, n_order + 1): result += order * coeffs[order] * t**[order-1]
-        return result
+        return result  #TODO: this whole function is not used. Didn't delete it as I don't remember what I had in mind when creating it...
 
-    def time_integration(self, dates: list, data: np.ndarray | dict, queue: QUEUE = None, index: int | None = None, step: int | None = None, 
+    def time_integration(self, dates: list, data: np.ndarray | dict[str, any], queue: QUEUE = None, index: int | None = None, step: int | None = None, 
                          shared_array: bool = False, last: bool = False) -> None | COO:
-        """
-        To integrate the cubes for a given time interval and the file dates in seconds.
+        """To integrate the cubes for a given time interval and the file dates in seconds.
         """
 
         # If multiprocessed the parent function.
@@ -512,8 +513,7 @@ class BarycenterCreation:
         unit = np.array(['km'])
 
         filename = 'sparse_cubes_with_feet.npz' if feet else 'sparse_cubes.npz'
-        np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, 
-                            shape=shape, dx=dx, unit=unit)
+        np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, shape=shape, dx=dx, unit=unit)
         
         if self.verbose > 0: print(f'File {filename} saved - main coords shape:{coords.shape} - dtype:{coords.dtype} - size:{round(coords.nbytes / 2 ** 20, 2)}Mb')
 
@@ -531,57 +531,57 @@ class BarycenterCreation:
 
         # Set up to determine the number of values needed for the feet
         sum_per_slice = COO.sum(data, axis=(1, 2, 3)).todense()
-        weight_per_foot = np.round(sum_per_slice / 18)  # number of points per foot for each slice as I want each feet to represent 5% of the final total data.
+        weight_per_foot = np.round(sum_per_slice / 54)  # number of points per foot for each slice as I want each feet to represent 5% of the final total data.
 
         # The data coords in heliographic cartesian coordinates
         skycoords = self.carrington_skycoords(data)
         
-        # Getting the corresponding angle if dx is at one solar radius
-        # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
-        d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
+        # # Getting the corresponding angle if dx is at one solar radius
+        # # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
+        # d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
 
-        cubes_coords = [None] * len(weight_per_foot)
-        for i, nb_points in enumerate(weight_per_foot):
-            # Setting up the SkyCoord object
-            foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
-            foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
+        # cubes_coords = [None] * len(weight_per_foot)
+        # for i, nb_points in enumerate(weight_per_foot):
+        #     # Setting up the SkyCoord object
+        #     foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
+        #     foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
 
-            skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
+        #     skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
 
-            # Getting the position np.ndarray
-            x = skycoord_concat.cartesian.x.value
-            y = skycoord_concat.cartesian.y.value
-            z = skycoord_concat.cartesian.z.value
-            cube = np.stack([x, y, z], axis=0)
+        #     # Getting the position np.ndarray
+        #     x = skycoord_concat.cartesian.x.value
+        #     y = skycoord_concat.cartesian.y.value
+        #     z = skycoord_concat.cartesian.z.value
+        #     cube = np.stack([x, y, z], axis=0)
 
-            # Setting up the 4D coords array
-            time_row = np.full((1, cube.shape[1]), i)
-            cubes_coords[i] = np.vstack((time_row, cube))
-        cubes_coords = np.hstack(cubes_coords)
+        #     # Setting up the 4D coords array
+        #     time_row = np.full((1, cube.shape[1]), i)
+        #     cubes_coords[i] = np.vstack((time_row, cube))
+        # cubes_coords = np.hstack(cubes_coords)
 
-        # Set up to get the voxel coords
-        _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
-        cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.dx
-        cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.dx
-        cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.dx
-        cubes_coords = np.round(cubes_coords).astype('uint16')
+        # # Set up to get the voxel coords
+        # _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
+        # cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.dx
+        # cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.dx
+        # cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.dx
+        # cubes_coords = np.round(cubes_coords).astype('uint16')
 
-        # Cleaning up any pixel that have the same position (if there are any)
-        cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
+        # # Cleaning up any pixel that have the same position (if there are any)
+        # cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
 
-        # Creation of the corresponding COO object
-        shape = np.max(cubes_coords, axis=1) + 1
+        # # Creation of the corresponding COO object
+        # shape = np.max(cubes_coords, axis=1) + 1
 
-        self.cubes_shape = shape
+        # self.cubes_shape = shape
 
-        # Saving the data 'metadata'
-        data_info = {
-            'shape': shape,
-            'x_min': x_min,
-            'y_min': y_min,
-            'z_min': z_min,
-        }
-        return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
+        # # Saving the data 'metadata'
+        # data_info = {
+        #     'shape': shape,
+        #     'x_min': x_min,
+        #     'y_min': y_min,
+        #     'z_min': z_min,
+        # }
+        # return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
 
     def foot_grid_make(self, foot_lonlat: tuple[int | float], nb_points: int, d_theta: float):
         """To create the positions of the voxel in carrington space for each foot
@@ -595,8 +595,8 @@ class BarycenterCreation:
         lon_values = np.arange(foot_lonlat[0] - self.foot_width / 2, foot_lonlat[0] + self.foot_width / 2 + d_deg*0.1, d_deg)
         lat_values = np.arange(foot_lonlat[1] - self.foot_width / 2, foot_lonlat[1] + self.foot_width / 2 + d_deg*0.1, d_deg)
 
-        # Setting 68% of the values to be in the middle quarter of the grid
-        gaussian_std = self.foot_width / 2
+        # Setting 68% of the values to be in the middle ninth of the grid
+        gaussian_std = self.foot_width / 9
         gaussian_distribution = np.exp( - ((lon_values[:, None] - foot_lonlat[0])**2 + (lat_values[None, :] - foot_lonlat[1])**2) / (2 * gaussian_std**2))
         
         # Resetting the gaussian so the sum of its values is equal to nb_of_points
@@ -649,7 +649,7 @@ class BarycenterCreation:
             sky_coords_list[i] = sky_coords
         return sky_coords_list
 
-    def time_loop(self, data: np.ndarray | dict, poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
+    def time_loop(self, data: np.ndarray | dict[str, any], poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
                   contour: bool = False) -> None | np.ndarray:
         """
         The for loop on the time axis.
@@ -663,6 +663,7 @@ class BarycenterCreation:
 
         # Initialisation of the result list
         results = [None] * (data_index[1] - data_index[0] + 1)
+        params = [None] * (data_index[1] - data_index[0] + 1)
         for loop, time in enumerate(range(data_index[0], data_index[1] + 1)): 
             # Selecting a slice of the data
             section = data[time]
@@ -682,20 +683,21 @@ class BarycenterCreation:
             t /= t[-1]  # normalisation
             t += 1
 
-            results[loop] = self.fitting_polynomial(time=time, t=t, data=points, index=poly_index)
+            results[loop], params[loop] = self.fitting_polynomial(time=time, t=t, data=points, index=poly_index)
         results = np.concatenate(results, axis=1)
+        params = np.stack(params, axis=0)
 
         if shm is not None: shm.close()
-        if queue is None: return results  # if no multiprocessing
-        queue.put((index, results))
+        if queue is None: return results, params  # if no multiprocessing
+        queue.put((index, results, params))
 
-    def fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray | dict, index: int) -> np.ndarray:
+    def fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray, index: int) -> np.ndarray:
             """
             Where the fitting of the curve actually takes place.
             """
 
             # Getting the data ready
-            x, y, z = data[:, 0], data[:, 1], data[:, 2]
+            x, y, z = data[:, 0], data[:, 1], data[:, 2]  #TODO: can the error arise from here?
             polynomial = self.polynomial_list[index]
             params = self.params_list[index]
 
@@ -722,10 +724,10 @@ class BarycenterCreation:
 
             unique_data = np.unique(data, axis=1)
             time_row = np.full((1, unique_data.shape[1]), time)
-            unique_data = np.vstack((time_row, unique_data)).astype('float64')
+            unique_data = np.vstack((time_row, unique_data)).astype('float32')
 
-            params = np.array([params_x, params_y, params_z], dtype='float64')  # array of shape (3, n_order + 1)
-            return unique_data
+            params = np.stack([params_x, params_y, params_z], axis=0)  # array of shape (3, n_order + 1)
+            return unique_data, params
 
 
 # @ClassDecorator(Decorators.running_time)
@@ -1282,9 +1284,10 @@ if __name__=='__main__':
                          integration_time='24h',
                          multiprocessing=True,
                          multiprocessing_multiplier=8, 
-                         multiprocessing_raw=4,
+                         multiprocessing_raw=5,
                          saving_with_feet=True, 
                          verbose=2,
+                         foot_width=2,
                          flush=True)
     
     # interpolations_filepath = os.path.join(os.getcwd(), '..', 'curveFitArrays', 'poly_raw_order6_24h.npy')

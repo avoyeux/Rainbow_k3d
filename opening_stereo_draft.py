@@ -25,9 +25,11 @@ class RainbowStereoImages:
         _type_: _description_
     """
 
-    def __init__(self, date_interval: tuple[str, str] = ('2012/07/23 00:06:00', '2012/07/25 11:57:00')):
+    def __init__(self, date_interval: tuple[str, str] = ('2012/07/23 00:06:00', '2012/07/25 11:57:00'), 
+                 roi_width: int | float = 2):
 
         self.date_interval = date_interval
+        self.roi_width = roi_width
         
         self.path = os.path.join('..', 'opening_stereo_tests')
         os.makedirs(self.path, exist_ok=True)
@@ -78,15 +80,15 @@ class RainbowStereoImages:
         top_right = SkyCoord(coords.lon + width / 2, coords.lat + width / 2, frame=coords.frame)
         return aia_map.submap(bottom_left=bottom_left, top_right=top_right)
     
-    def rainbow_feet_visualisation(self, ax, sunpy_map: GenericMap, feet_pos: list[tuple[float | int]] = [(-177, 15), (-163, -16)], width_deg: int | float = 4):
+    def rainbow_feet_visualisation(self, ax, sunpy_map: GenericMap, feet_pos: list[tuple[float | int]] = [(-177, 15), (-163, -16)]):
 
         left_foot = (feet_pos[0] * u.deg).to(u.arcsec)
         right_foot = (feet_pos[1] * u.deg).to(u.arcsec)
-        width = (width_deg * u.deg).to(u.arcsec)
+        width = (self.roi_width * u.deg).to(u.arcsec)
         
         rsun_arcsec = sunpy_map.rsun_obs
-        distance_to_sun = sunpy_map.dsun.to(u.km)
-        z = (np.sin(rsun_arcsec.to(u.rad).value) * distance_to_sun.value) * u.km
+        distance_to_sun = sunpy_map.dsun.to(u.km).value
+        z = (np.sin(rsun_arcsec.to(u.rad).value) * distance_to_sun) * u.km
 
         # Setting up the wcs frames
         observer = sunpy_map.observer_coordinate
