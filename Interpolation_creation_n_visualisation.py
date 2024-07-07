@@ -17,6 +17,7 @@ from scipy.io import readsav
 from threading import Thread
 from astropy import units as u
 from typeguard import typechecked
+from numpy.lib.npyio import NpzFile
 from scipy.optimize import curve_fit
 from scipy.ndimage import binary_erosion
 from sparse import COO, stack, concatenate
@@ -30,8 +31,9 @@ from sunpy.coordinates.frames import HeliographicCarrington
 from Animation_3D_main import CustomDate
 from Common import Decorators, MultiProcessing, ClassDecorator
 
+#TODO: IMPORTANT - need to understand why when I do a transpose, then the interpolations are completely wrong. Probably because of the order of t values. need to sort the x, y, z before??
 
-class BarycenterCreation:
+class FeetNInterpolationCreation:
     """To create feet for the 3D rainbow cubes and pass an interpolation through it. Can save the cubes with feet in and the interpolation in .npz files.
 
     Raises:
@@ -81,7 +83,7 @@ class BarycenterCreation:
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'intensities': os.path.join(main_path, 'STEREO', 'int'),
             'cubes_feet': os.path.join(main_path, 'Cubes_karine_feet'),
-            'save': os.path.join(main_path, 'curveFitArrays_without_feet'),
+            'save': os.path.join(main_path, 'curveFitArrays_with_feet'),
         }
         os.makedirs(self.paths['save'], exist_ok=True)
         os.makedirs(self.paths['cubes_feet'], exist_ok=True)
@@ -238,19 +240,23 @@ class BarycenterCreation:
 
         if self.verbose > 1: print(f'Initial cubes - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
-        # results, data_info = self.cubes_feet(results)
-        self.cubes_feet(results)
-        self.cubes_shape = results.shape
-        data_info = {
-            'x_min': self.x_min,
-            'y_min': self.y_min,
-            'z_min': self.z_min,
-            'shape': self.cubes_shape,
-        }
+        results = self.cubes_feet(results)
+
+        # self.cubes_feet(results)
+        # self.cubes_shape = results.shape
+        # data_info = {
+        #     'x_min': self.x_min,
+        #     'y_min': self.y_min,
+        #     'z_min': self.z_min,
+        #     'shape': self.cubes_shape,
+        # }
 
         if self.verbose> 0: print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
-        if self.saving_feet: self.saving_cubes(results, data_info, feet=False)
+        if self.saving_feet: self.saving_cubes(results, feet=True)
+
+        # Resetting the result axes for the interpolation
+        results = results.transpose((0, 3, 2, 1))  # TODO: doing this as the interpolation seems to have a preferred order. need to understand why later.
 
         if multiprocessing: shm.unlink()
         return results.astype('uint16').todense()
@@ -400,10 +406,23 @@ class BarycenterCreation:
 
         # Saving the data in .npz files 
         filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
-        np.savez_compressed(os.path.join(self.paths['save'], filename), data=results.astype('float32'), shape=self.cubes_shape, params=params.astype('float64'))
+        npz_data = {
+            'coords': results[[0, 3, 2, 1]].astype('float32'),
+            'shape': self.data_info['shape'],
+            'x_min': np.array(self.data_info['x_min']),
+            'y_min': np.array(self.data_info['y_min']),
+            'z_min': np.array(self.data_info['z_min']),
+            'dx': np.array(self.data_info['dx']),
+            'unit': np.array(self.data_info['unit']),
+            'params': params[:, [2, 1, 0], :].astype('float64'),
+        }
+        np.savez_compressed(os.path.join(self.paths['save'], filename), **npz_data)
 
-        if self.verbose > 0: print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
-        if self.verbose> 1: print(f'Interpolation order{self.n[index]}: max indexes are {np.max(results, axis=1)} and params shape is {params.shape}', flush=self.flush)
+        if self.verbose > 0: 
+            results = results[[0, 3, 2, 1]]
+            print(f'File {filename} saved - shape:{results.shape} - dtype:{results.dtype} - size:{round(results.nbytes / 2 ** 20, 2)}Mb', flush=self.flush)
+
+            if self.verbose> 1: print(f'Interpolation order{self.n[index]}: max indexes are {np.max(results, axis=1)} and params shape is {params.shape}', flush=self.flush)
 
     def time_chunks(self, dates, cubes: np.ndarray | dict, date_max: int, date_min: int, shared_array: bool = False) -> COO:
         """
@@ -494,7 +513,7 @@ class BarycenterCreation:
         if not shared_array: return time_cubes_no_duplicate
         queue.put((index, time_cubes_no_duplicate))
     
-    def saving_cubes(self, data:COO, data_info: dict[str, any], feet: bool = True) -> None:
+    def saving_cubes(self, data:COO, feet: bool = True) -> None:
         """To save the cubes when the feet have been added.
 
         Args:
@@ -504,18 +523,22 @@ class BarycenterCreation:
             _type_: _description_
         """
 
-        coords = data.coords.astype('uint16')
-        x_min = np.array(data_info['x_min'])
-        y_min = np.array(data_info['y_min'])
-        z_min = np.array(data_info['z_min'])
-        shape = data_info['shape']
-        dx = np.array([self.dx])
-        unit = np.array(['km'])
-
         filename = 'sparse_cubes_with_feet.npz' if feet else 'sparse_cubes.npz'
-        np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), data=coords, x_min=x_min, y_min=y_min, z_min=z_min, shape=shape, dx=dx, unit=unit)
+
+        npz_data = {
+            'coords': data.coords.astype('uint16'),
+            'shape': np.array(self.data_info['shape']),
+            'x_min': np.array(self.data_info['x_min']),
+            'y_min': np.array(self.data_info['y_min']),
+            'z_min': np.array(self.data_info['z_min']),
+            'dx': np.array(self.data_info['dx']),
+            'unit': np.array(self.data_info['unit']),
+        }     
+        np.savez_compressed(os.path.join(self.paths['cubes_feet'], filename), **npz_data)
         
-        if self.verbose > 0: print(f'File {filename} saved - main coords shape:{coords.shape} - dtype:{coords.dtype} - size:{round(coords.nbytes / 2 ** 20, 2)}Mb')
+        if self.verbose > 0: 
+            coords = npz_data['coords']
+            print(f'File {filename} saved - main coords shape:{coords.shape} - dtype:{coords.dtype} - size:{round(coords.nbytes / 2 ** 20, 2)}Mb')
 
     @Decorators.running_time
     def cubes_feet(self, data: COO) -> COO:
@@ -531,57 +554,57 @@ class BarycenterCreation:
 
         # Set up to determine the number of values needed for the feet
         sum_per_slice = COO.sum(data, axis=(1, 2, 3)).todense()
-        weight_per_foot = np.round(sum_per_slice / 54)  # number of points per foot for each slice as I want each feet to represent 5% of the final total data.
+        weight_per_foot = np.round(sum_per_slice * 0.075)  # number of points per foot for each slice as I want each feet to represent 7.5% of the final total data.
 
         # The data coords in heliographic cartesian coordinates
         skycoords = self.carrington_skycoords(data)
         
-        # # Getting the corresponding angle if dx is at one solar radius
-        # # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
-        # d_theta = 2 * np.sin(self.dx / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
+        # Getting the corresponding angle if dx is at one solar radius
+        # d_theta = np.arccos(1 - dx**2 / (2 * solar_r**2))  
+        d_theta = 2 * np.sin(self.data_info['dx'] / (2 * self.solar_r)) * 0.9  # * 0.9 just to make sure I have enough points as the foot rectangle is curved in cartesian space
 
-        # cubes_coords = [None] * len(weight_per_foot)
-        # for i, nb_points in enumerate(weight_per_foot):
-        #     # Setting up the SkyCoord object
-        #     foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
-        #     foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
+        cubes_coords = [None] * len(weight_per_foot)
+        for i, nb_points in enumerate(weight_per_foot):
+            # Setting up the SkyCoord object
+            foot_skycoords_0 = self.foot_grid_make(self.feet_lonlat[0], nb_points=nb_points, d_theta=d_theta)
+            foot_skycoords_1 = self.foot_grid_make(self.feet_lonlat[1], nb_points=nb_points, d_theta=d_theta)
 
-        #     skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
+            skycoord_concat = astro_concatenate([skycoords[i], foot_skycoords_0, foot_skycoords_1])
 
-        #     # Getting the position np.ndarray
-        #     x = skycoord_concat.cartesian.x.value
-        #     y = skycoord_concat.cartesian.y.value
-        #     z = skycoord_concat.cartesian.z.value
-        #     cube = np.stack([x, y, z], axis=0)
+            # Getting the position np.ndarray
+            x = skycoord_concat.cartesian.x.value
+            y = skycoord_concat.cartesian.y.value
+            z = skycoord_concat.cartesian.z.value
+            cube = np.stack([x, y, z], axis=0)
 
-        #     # Setting up the 4D coords array
-        #     time_row = np.full((1, cube.shape[1]), i)
-        #     cubes_coords[i] = np.vstack((time_row, cube))
-        # cubes_coords = np.hstack(cubes_coords)
+            # Setting up the 4D coords array
+            time_row = np.full((1, cube.shape[1]), i)
+            cubes_coords[i] = np.vstack((time_row, cube))
+        cubes_coords = np.hstack(cubes_coords)
 
-        # # Set up to get the voxel coords
-        # _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
-        # cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.dx
-        # cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.dx
-        # cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.dx
-        # cubes_coords = np.round(cubes_coords).astype('uint16')
+        # Set up to get the voxel coords
+        _, x_min, y_min, z_min = np.min(cubes_coords, axis=1)
+        cubes_coords[1, :] = (cubes_coords[1, :] - x_min) / self.data_info['dx']
+        cubes_coords[2, :] = (cubes_coords[2, :] - y_min) / self.data_info['dx']
+        cubes_coords[3, :] = (cubes_coords[3, :] - z_min) / self.data_info['dx']
+        cubes_coords = np.round(cubes_coords).astype('uint16')
 
-        # # Cleaning up any pixel that have the same position (if there are any)
-        # cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
+        # Cleaning up any pixel that have the same position (if there are any)
+        cubes_coords = np.unique(cubes_coords, axis=1).astype('uint16')
 
-        # # Creation of the corresponding COO object
-        # shape = np.max(cubes_coords, axis=1) + 1
+        # Creation of the corresponding COO object
+        shape = np.max(cubes_coords, axis=1) + 1
 
-        # self.cubes_shape = shape
-
-        # # Saving the data 'metadata'
-        # data_info = {
-        #     'shape': shape,
-        #     'x_min': x_min,
-        #     'y_min': y_min,
-        #     'z_min': z_min,
-        # }
-        # return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8'), data_info
+        # Saving the data 'metadata'
+        self.data_info = {
+            'shape': shape,
+            'x_min': x_min,
+            'y_min': y_min,
+            'z_min': z_min,
+            'dx': self.data_info['dx'],
+            'unit': 'km',
+        }
+        return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8')
 
     def foot_grid_make(self, foot_lonlat: tuple[int | float], nb_points: int, d_theta: float):
         """To create the positions of the voxel in carrington space for each foot
@@ -596,7 +619,7 @@ class BarycenterCreation:
         lat_values = np.arange(foot_lonlat[1] - self.foot_width / 2, foot_lonlat[1] + self.foot_width / 2 + d_deg*0.1, d_deg)
 
         # Setting 68% of the values to be in the middle ninth of the grid
-        gaussian_std = self.foot_width / 9
+        gaussian_std = self.foot_width / 1
         gaussian_distribution = np.exp( - ((lon_values[:, None] - foot_lonlat[0])**2 + (lat_values[None, :] - foot_lonlat[1])**2) / (2 * gaussian_std**2))
         
         # Resetting the gaussian so the sum of its values is equal to nb_of_points
@@ -612,7 +635,7 @@ class BarycenterCreation:
         foot_positions = COO(gaussian_distribution_3D).coords.astype('float64')
         foot_positions[0, :] = np.deg2rad(foot_positions[0, :] * d_deg + foot_lonlat[0])
         foot_positions[1, :] = np.deg2rad(foot_positions[1, :] * d_deg + foot_lonlat[1])
-        foot_positions[2, :] = foot_positions[2, :] * self.dx + self.solar_r
+        foot_positions[2, :] = foot_positions[2, :] * self.data_info['dx'] + self.solar_r
 
         # Creating the corresponding skycoord object
         coords = SkyCoord(foot_positions[0, :] * u.rad, foot_positions[1, :] * u.rad, foot_positions[2, :] * u.km, frame=HeliographicCarrington)
@@ -629,14 +652,24 @@ class BarycenterCreation:
 
         # Initialisation in cartesian carrington heliographic coordinates
         first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.cube_numbers[0]:03d}.save'))
-        self.dx = first_cube.dx  # in km
-        self.x_min = first_cube.xt_min  # in km
-        self.y_min = first_cube.yt_min
-        self.z_min = first_cube.zt_min
+        dx = first_cube.dx  # in km
+        x_min = first_cube.xt_min  # in km
+        y_min = first_cube.yt_min
+        z_min = first_cube.zt_min
 
-        cubes_sparse_coords[1, :] = cubes_sparse_coords[1, :] * self.dx + self.x_min
-        cubes_sparse_coords[2, :] = cubes_sparse_coords[2, :] * self.dx + self.y_min
-        cubes_sparse_coords[3, :] = cubes_sparse_coords[3, :] * self.dx + self.z_min
+        cubes_sparse_coords[1, :] = cubes_sparse_coords[1, :] * dx + x_min
+        cubes_sparse_coords[2, :] = cubes_sparse_coords[2, :] * dx + y_min
+        cubes_sparse_coords[3, :] = cubes_sparse_coords[3, :] * dx + z_min
+
+        # Saving the important data info in a instance attribute dict
+        self.data_info = {
+            'shape': (len(self.cube_numbers), *first_cube.cube.shape),
+            'x_min': x_min,
+            'y_min': y_min,
+            'z_min': z_min,
+            'dx': dx,            
+            'unit': 'km',
+        }
 
         # Creating the SkyCoord object for each 3D slice
         time_indexes = list(set(cubes_sparse_coords[0, :]))
@@ -716,7 +749,8 @@ class BarycenterCreation:
             data = np.vstack((x, y, z)).astype('float64')
 
             # Cutting away the values that are outside the initial cube shape
-            conditions_upper = (data[0, :] >= self.cubes_shape[1] - 1) | (data[1, :] >= self.cubes_shape[2] - 1) | (data[2, :] >= self.cubes_shape[3] - 1) 
+            shape = self.data_info['shape'][[0, 3, 2, 1]]
+            conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1) 
             # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later  
             conditions_lower = np.any(data < 0, axis=0)
             conditions = conditions_upper | conditions_lower
@@ -739,15 +773,10 @@ class OrthographicalProjection:
     """
 
     @typechecked
-    def __init__(self, data: np.ndarray | COO | None = None, processes: int = 0, saving_data: bool = False, time_interval: str = '24h',
+    def __init__(self, data_path: str, processes: int = 0, saving_data: bool = False, time_interval: str = '24h',
                  saving_plots: bool = False, saved_data: bool = False, saving_filename: str = 'k3d_projection_cubes.npy',
-                 plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial']):
-        
-        # Data arguments
-        if isinstance(data, COO):
-            data = data.coords
-        elif data.shape[0] not in [3, 4]:
-            data = COO(data).coords
+                 plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial'], 
+                 verbose: int = 1, flush: bool = False):
 
         # Arguments
         self.time_interval = time_interval
@@ -755,17 +784,43 @@ class OrthographicalProjection:
         self.processes = processes
         self.saving_filename = os.path.splitext(saving_filename)[0] + f'_{self.time_interval}.npy'
         self.solar_r = 6.96e5  # in km
-        self.plot_choices = self.Plot_choices(plot_choices if isinstance(plot_choices, list) else [plot_choices])
-
-        # Input print
-        if data is not None: print(f"The input data shape is {data.shape} with size {round(data.nbytes / 2**20, 2)}Mb.")
+        self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
+        self.verbose = verbose
+        self.flush = flush
 
         # Functions
-        self.Paths()
-        self.Important_attributes()
-        self.Choices(data, saving_data, saving_plots, saved_data)
+        data = self.data_setup(data_path)
+        self.path()
+        self.attributes_setup()
+        self.choices(data, saving_data, saving_plots, saved_data)
 
-    def Plot_choices(self, plot_choices: list[str]) -> dict[str, bool]:
+    def data_setup(self, data: str) -> np.ndarray:
+        """To set up the initial data and corresponding data info.
+
+        Args:
+            data (str): fullpath to the interpolation data.
+
+        Returns:
+            np.ndarray: the positions of the curve with shape (4, m) representing the time, x_index, y_index, z_index.
+        """
+        
+        loader = np.load(data)
+
+        self.data_info = {
+            'shape': loader['shape'],
+            'x_min': loader['x_min'],
+            'y_min': loader['y_min'], 
+            'z_min': loader['z_min'],
+            'dx': loader['dx'],
+            'unit': loader['unit'],
+        }
+        data = loader['coords']
+        loader.close()
+
+        if self.verbose > 0: print(f"DATA INFO - sparse shape:{data.shape} - dense shape:{self.data_info['shape']} - size:{round(data.nbytes / 2**20, 2)}Mb.", flush=self.flush)
+        return data
+
+    def plot_choices_creation(self, plot_choices: list[str]) -> dict[str, bool]:
         """
         To check the values given for the plot_choices argument
         """
@@ -780,10 +835,10 @@ class OrthographicalProjection:
             else: 
                 raise ValueError(f"Value for the 'plot_choices' argument not recognised.") 
             
-        if 'envelop' in plot_choices.keys(): plot_choices_kwargs['polar'] = True
+        if 'envelop' in plot_choices: plot_choices_kwargs['polar'] = True
         return plot_choices_kwargs
 
-    def Paths(self) -> None:
+    def path(self) -> None:
         """
         Function where the filepaths dictionary is created.
         """
@@ -794,11 +849,12 @@ class OrthographicalProjection:
             'SDO': os.path.join(main_path, 'sdo'),
             'cubes': os.path.join(main_path, 'Cubes_karine'),
             'curve fit': os.path.join(main_path, 'curveFitArrays'),
-            'save': os.path.join(main_path, 'projection_results'),
+            'envelope': os.path.join(main_path, 'Projection', 'Envelope'),
+            'save': os.path.join(main_path, 'Projection' ,'Projection_results'),
         }
         os.makedirs(self.paths['save'], exist_ok=True)
     
-    def Important_attributes(self) -> None:
+    def attributes_setup(self) -> None:
         """
         To create the values of some of the class attributes.
         """
@@ -812,26 +868,27 @@ class OrthographicalProjection:
             for cube_name in os.listdir(self.paths['cubes'])
             if cube_pattern.match(cube_name)
         ])
-        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                              for number in self.numbers]
+        self.sdo_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz') for number in self.numbers]
     
-    def Choices(self, data: np.ndarray | None, saving_data: bool, saving_plots: bool, saved_data: bool) -> None:
+    @Decorators.running_time
+    def choices(self, data: np.ndarray, saving_data: bool, saving_plots: bool, saved_data: bool) -> None:
         """
         To call the right class functions depending on the class arguments.
         The function is here just to not overpopulate __init__.
         """
 
         if not saved_data:
-            self.SDO_pos()
-            data = self.Cartesian_pos(data)
-            data = self.Matrix_rotation(data)
-            if saving_data: self.Saving_data(data)
+            self.finding_sdo()
+            data = self.cartesian_pos(data)
+            data = self.matrix_rotation(data)
+            if saving_data: self.saving_data(data)
         else:
             data = np.load(os.path.join(self.paths['save'], self.saving_filename))
 
-        if saving_plots: self.Plotting(data)  
+        if saving_plots: self.plotting(data)  
 
-    def Cartesian_pos(self, data: np.ndarray) -> np.ndarray:
+    @Decorators.running_time
+    def cartesian_pos(self, data: np.ndarray) -> np.ndarray:
         """
         To calculate the heliographic cartesian positions of some of the objects.
         """
@@ -839,21 +896,14 @@ class OrthographicalProjection:
         cubes_sparse_coords = data.astype('float64')
 
         # Initialisation
-        first_cube = readsav(os.path.join(self.paths['cubes'], f'cube{self.numbers[0]:03d}.save'))
-        dx = first_cube.dx  # in km
-        dy = first_cube.dy
-        dz = first_cube.dz
-        x_min = first_cube.xt_min  # in km
-        y_min = first_cube.yt_min
-        z_min = first_cube.zt_min
-        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * dx + x_min) 
-        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * dy + y_min) 
-        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * dz + z_min)
+        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * self.data_info['dx'] + self.data_info['x_min']) 
+        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * self.data_info['dx'] + self.data_info['y_min']) 
+        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * self.data_info['dx'] + self.data_info['z_min'])
    
-        self.heliographic_cubes_origin = np.array([x_min, y_min, z_min], dtype='float64')
+        self.heliographic_cubes_origin = np.array([self.data_info['x_min'], self.data_info['y_min'], self.data_info['z_min']], dtype='float64')
         return cubes_sparse_coords
 
-    def SDO_pos(self) -> None:
+    def finding_sdo(self) -> None:
         """
         To get the position of the SDO satellite.
         """
@@ -861,9 +911,9 @@ class OrthographicalProjection:
         if self.multiprocessing:
             manager = Manager()
             queue = manager.Queue()
-            indexes = MultiProcessing.pool_indexes(len(self.SDO_filepaths), self.processes)
+            indexes = MultiProcessing.pool_indexes(len(self.sdo_filepaths), self.processes)
 
-            processes = [Process(target=self.SDO_pos_sub, kwargs={'queue':queue, 'index': index, 'data_index': data_index}) for index, data_index in enumerate(indexes)]
+            processes = [Process(target=self.sdo_pos_sub, kwargs={'queue':queue, 'index': index, 'data_index': data_index}) for index, data_index in enumerate(indexes)]
             for p in processes: p.start()
             for p in processes: p.join()
 
@@ -873,15 +923,15 @@ class OrthographicalProjection:
                 results[identifier] = result
             self.sdo_pos = [one_result for sub_results in results for one_result in sub_results]
         else:
-            self.sdo_pos = self.SDO_pos_sub((0, len(self.SDO_filepaths) - 1))
+            self.sdo_pos = self.sdo_pos_sub((0, len(self.sdo_filepaths) - 1))
     
-    def SDO_pos_sub(self, data_index: tuple[int, int], queue: QUEUE | None = None, index: int | None = None) -> None:
+    def sdo_pos_sub(self, data_index: tuple[int, int], queue: QUEUE | None = None, index: int | None = None) -> None:
         """
         For the multithreading when opening the files
         """
         
         sdo_pos = []
-        for filepath in self.SDO_filepaths[data_index[0]:data_index[1] + 1]:
+        for filepath in self.sdo_filepaths[data_index[0]:data_index[1] + 1]:
             header = fits.getheader(filepath)
             hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
                                                 header['DSUN_OBS'] * u.km, obstime=header['DATE-OBS'], observer='self')
@@ -895,7 +945,8 @@ class OrthographicalProjection:
         if self.multiprocessing: queue.put((index, sdo_pos))
         return sdo_pos
 
-    def Matrix_rotation(self, data: np.ndarray) -> np.ndarray:
+    @Decorators.running_time
+    def matrix_rotation(self, data: np.ndarray) -> np.ndarray:
         """
         To rotate the matrix so that it aligns with the satellite pov
         """
@@ -912,7 +963,7 @@ class OrthographicalProjection:
                 'queue': queue, 
                 'data': data,
             }
-            processes = [Process(target=self.Time_loop, kwargs={'index': i, 'data_index': index_tuple, **kwargs}) for i, index_tuple in enumerate(indexes)]
+            processes = [Process(target=self.time_loop, kwargs={'index': i, 'data_index': index_tuple, **kwargs}) for i, index_tuple in enumerate(indexes)]
             for p in processes: p.start()
             for p in processes: p.join()
             
@@ -925,7 +976,7 @@ class OrthographicalProjection:
                 results[identifier] = result
             results = [projection_matrix for sublist in results for projection_matrix in sublist]
         else:
-            results = self.Time_loop(data=data, data_index=(0, len(self.numbers) - 1))
+            results = self.time_loop(data=data, data_index=(0, len(self.numbers) - 1))
 
         # Ordering the final result so that it is a np.ndarray
         start_index = 0
@@ -938,7 +989,7 @@ class OrthographicalProjection:
             start_index += nb_columns
         return final_results
 
-    def Time_loop(self, data: np.ndarray | dict, data_index: tuple[int, int], index: int = 0, queue: QUEUE | None = None) -> None | list[np.ndarray]:
+    def time_loop(self, data: np.ndarray | dict, data_index: tuple[int, int], index: int = 0, queue: QUEUE | None = None) -> None | list[np.ndarray]:
         """
         Loop over the time indexes so that I can multiprocess if needed be.
         """
@@ -971,12 +1022,12 @@ class OrthographicalProjection:
             theta = np.arccos(cos_theta)
 
             # Corresponding rotation matrix
-            rotation_matrix = self.Rodrigues_rotation(rotation_axis, -theta)
+            rotation_matrix = self.rodrigues_rotation(rotation_axis, -theta)
 
             # up_vector in the new rotated matrix
             up_vector_rotated = np.dot(rotation_matrix, up_vector)
             theta = np.arctan2(up_vector_rotated[0], up_vector_rotated[1])
-            up_rotation_matrix = self.Rodrigues_rotation(target_axis, theta)
+            up_rotation_matrix = self.rodrigues_rotation(target_axis, theta)
             
             # Final rotation matrix
             rotation_matrix = np.matmul(up_rotation_matrix, rotation_matrix)
@@ -988,7 +1039,7 @@ class OrthographicalProjection:
         shm.close()
         queue.put((index, result_list))
     
-    def Rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
+    def rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
         """
         The Rodrigues's rotation formula to rotate matrices.
         """
@@ -1003,7 +1054,7 @@ class OrthographicalProjection:
         ])
         return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
 
-    def Saving_data(self, data: np.ndarray) -> None:
+    def saving_data(self, data: np.ndarray) -> None:
         """
         Function to save the reprojection arrays.
         The arrays saved have shape (4, n) as the whole 3D projection is saved for each time step (maybe the viewpoint depth might be useful later on).
@@ -1012,9 +1063,10 @@ class OrthographicalProjection:
         np.save(os.path.join(self.paths['save'], self.saving_filename), data.astype('float64'))
 
         # STATS print
-        print(f"Saved array. Array shape is {data.shape} with size {round(data.nbytes / 2**20, 2)}Mb.")
+        if self.verbose > 0: print(f"SAVING - filename:{self.saving_filename} - shape:{data.shape} - nbytes:{round(data.nbytes / 2**20, 2)}Mb.", flush=self.flush)
 
-    def Plotting(self, data: np.ndarray) -> None:
+    @Decorators.running_time
+    def plotting(self, data: np.ndarray) -> None:
         """
         Function to plot the data.
         """
@@ -1022,14 +1074,14 @@ class OrthographicalProjection:
         if self.multiprocessing:
             shm, data = MultiProcessing.shared_memory(data) 
             indexes = MultiProcessing.pool_indexes(len(self.numbers), self.processes)
-            processes = [Process(target=self.Plotting_sub, kwargs={'data': data, 'data_index': index_tuple}) for index_tuple in indexes]
+            processes = [Process(target=self.plotting_sub, kwargs={'data': data, 'data_index': index_tuple}) for index_tuple in indexes]
             for p in processes: p.start()
             for p in processes: p.join()
             shm.unlink()
         else:
-            self.Plotting_sub(data=data, data_index=(0, len(self.numbers) - 1))
+            self.plotting_sub(data=data, data_index=(0, len(self.numbers) - 1))
 
-    def Plotting_sub(self, data: np.ndarray | dict, data_index: tuple[int, int]) -> None:
+    def plotting_sub(self, data: np.ndarray | dict, data_index: tuple[int, int]) -> None:
         """
         To be able to multiprocess the plotting.
         """
@@ -1038,7 +1090,7 @@ class OrthographicalProjection:
             shm = SharedMemory(name=data['shm.name'])
             data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
 
-        if self.plot_choices['envelop']: self.Envelop_preprocessing()
+        if self.plot_choices['envelop']: self.envelop_preprocessing()
 
         for time in range(data_index[0], data_index[1] + 1):
             data_filter  = data[0, :] == time
@@ -1048,7 +1100,7 @@ class OrthographicalProjection:
             x, y, _ = result
             image_nb = self.numbers[time]
 
-            if self.plot_choices['sdo image']: self.SDO_image(index=time)
+            # if self.plot_choices['sdo image']: self.sdo_image(index=time)
 
             if self.plot_choices['cartesian']:
                 # SDO projection plotting
@@ -1082,9 +1134,9 @@ class OrthographicalProjection:
                 plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
                 plt.close()
 
-            print(f'Plot nb{image_nb} finished.')
+            if self.verbose > 1: print(f'SAVED - filename:{plot_name}', flush=self.flush)
 
-    def Envelop_preprocessing(self):
+    def envelop_preprocessing(self):
         """
         Opens the two png images of the envelop in polar coordinates. Then, treats the data to use it in
         the polar plots.
@@ -1092,206 +1144,29 @@ class OrthographicalProjection:
 
         pass
 
-    def SDO_image(self, index: int):
+    def sdo_image(self, index: int):
         """
         To open the SDO image data, preprocess it and return it as an array for use in plots.
         """
 
-        image = fits.getdata(self.SDO_filepaths[index], 1)
+        image = fits.getdata(self.sdo_filepaths[index], 1)
         pass # TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
-
-class TESTING_STUFF:
-    """
-    Just to test the rotation matrix to see if it is doing it's job properly.
-    """
-    
-    @typechecked
-    def __init__(self, coords: np.ndarray | None = None, data: np.ndarray | None = None, camera_position: np.ndarray | tuple | list = (1, 1, 1), 
-                 center_of_interest: np.ndarray | tuple | list = (0, 0, 0), camera_fov: int | float | str = '1deg'):
-    
-        # Data arguments
-        self.data = self.Random_data()
-
-        # Camera arguments
-        self.center_of_interest = np.stack(center_of_interest, axis=0) if isinstance(center_of_interest, (tuple, list)) else center_of_interest
-        self.camera_position = np.stack(camera_position, axis=0) if isinstance(camera_position, (tuple, list)) else camera_position  # TODO: need to check for when the camera is a list but only the x, y, z, value
-        self.camera_fov = camera_fov
-
-        # Functions
-        # self.Checks()  # checks if the arguments had the expected shapes
-        self.Paths()
-        self.Important_attributes()
-
-    def Random_data(self) -> np.ndarray:
-        """
-        making data up
-        """
-
-        data = np.zeros((4, 220 * 3))
-        data[0, ::3] = np.arange(0, 220)
-        data[1, ::3] = 1
-        data[2, ::3] = 1
-        data[3, ::3] = 1
-        data[0, 1::3] = np.arange(0, 220)
-        data[1, 1::3] = 0
-        data[2, 1::3] = 0
-        data[3, 1::3] = 0
-        data[0, 2::3] = np.arange(0, 220)
-        data[1, 2::3] = 1
-        data[2, 2::3] = 0
-        data[3, 2::3] = 0
-        # print(f'random data shape is {data.shape}')
-        return data
-
-    def Paths(self) -> None:
-        """
-        Function where the filepaths dictionary is created.
-        """
-
-        main_path = os.path.join(os.getcwd(), '..')
-        self.paths = {
-            'main': main_path, 
-            'SDO': os.path.join(main_path, 'sdo'),
-            'cubes': os.path.join(main_path, 'Cubes_karine'),
-            'curve fit': os.path.join(main_path, 'curveFitArrays'),
-        }
-    
-    def Matrix_rotation(self) -> list[np.ndarray]:
-        """
-        To rotate the matrix so that it aligns with the satellite pov
-        """
-        data_list = []
-        satelitte_poss = np.array([
-            [5, 5, 5],
-            [8, 8, 8],
-            [1, 0, 0],
-            [0, 1, 0], 
-            [10, 20, 30],
-        ])
-        for i, test_time in enumerate([0, 5, 40, 90, 200]):
-            # data_filter = self.cartesian_data_coords[0, :] == test_time
-            data_filter = self.data[0, :] == test_time
-
-            # data = self.cartesian_data_coords[1:4, data_filter]
-            data = self.data[1:4, data_filter]
-            # satelitte_pos = self.sdo_pos[test_time]
-            satelitte_pos = satelitte_poss[i]
-            print(f'satellite pos is {satelitte_pos}')
-            # print(f'data is {data} with shape {data.shape}')
-            # print(f'satellite_pos shape is {satelitte_pos.shape}')
-            sun_center = np.array([0, 0, 0])
-
-            viewing_direction = sun_center - satelitte_pos
-            viewing_direction_norm = viewing_direction / np.linalg.norm(viewing_direction)
-
-            # Axis to center on the pov
-            target_axis = np.array([0, 0, 1])
-
-            # Axis of rotation
-            rotation_axis = np.cross(viewing_direction_norm, target_axis)
-
-            # Angle of rotation
-            cos_theta = np.dot(viewing_direction_norm, target_axis)
-            theta = np.arccos(cos_theta)
-
-            # Corresponding rotation matrix
-            rotation_matrix = self.Rodrigues_rotation(rotation_axis, theta)
-
-
-            # As the data has original shape (3, n) for each cube I need to change it to (n,3) for the rotation
-            data = data.T
-
-            # print(f'data transpose shape is {data.shape}')
-            # print(f'rotation matrix shape is {rotation_matrix.shape}')
-            nw_data = [np.matmul(rotation_matrix, point) for point in data]
-            nw_data = np.stack(nw_data, axis=-1)
-            # print(f"new_data shape is {nw_data.shape}")
-            data = nw_data
-            # rotated_data = np.dot(data, rotation_matrix.T)
-            # data = rotated_data.T
-            data_list.append(data)
-        return data_list
-    
-    def Rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
-        """
-        The Rodrigues's rotation formula to rotate matrices.
-        """
-
-        # Normalisation
-        axis = axis / np.linalg.norm(axis)
-
-        matrix = np.array([
-            [0, -axis[2], axis[1]],
-            [axis[2], 0, -axis[0]],
-            [-axis[1], axis[0], 0]
-        ])
-        return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
-
-    def Important_attributes(self) -> None:
-        """
-        To create the values of some of the class attributes.
-        """
-
-        # Initialisation
-        cube_pattern = re.compile(r'cube(\d{3})\.save')
-
-        # Class attributes
-        self.numbers = sorted([
-            int(cube_pattern.match(cube_name).group(1))
-            for cube_name in os.listdir(self.paths['cubes'])
-            if cube_pattern.match(cube_name)
-        ])
-        self.SDO_filepaths = [os.path.join(self.paths['SDO'], f'AIA_fullhead_{number:03d}.fits.gz')
-                              for number in self.numbers]
-
-    def SDO_pos(self) -> None:
-        """
-        To get the important info out of the SDO data.
-        """
-        
-        # Opening the fits to get the data
-        sdo_pos = []
-        for filepath in self.SDO_filepaths:
-            header = fits.getheader(filepath)
-
-            hec_coords = HeliographicCarrington(header['CRLN_OBS']* u.deg, header['CRLT_OBS'] * u.deg, 
-                                                header['DSUN_OBS'] * u.m, obstime=header['DATE-OBS'], 
-                                                observer='self')
-            hec_coords = hec_coords.represent_as(CartesianRepresentation)
-
-            Xhec = hec_coords.x.value / (1000)
-            Yhec = hec_coords.y.value / (1000)
-            Zhec = hec_coords.z.value / (1000)
-
-            sdo_pos.append((Xhec, Yhec, Zhec))
-        self.sdo_pos = sdo_pos
-    
-    def Saving_arrays(self, data: np.ndarray):
-        """
-        Function to save the reprojection arrays.
-        The arrays saved have shape (4, n) as the whole 3D projection is saved for each time step (maybe the viewpoint depth might be useful later on).
-        """
-
-        results = self.Matrix_rotation(data)
-        filename = "reprojection_sdo_pov.npy"
-        np.save(os.path.join(self.paths['save'], filename), results)
 
 
 
 if __name__=='__main__':
-    BarycenterCreation(datatype=['raw'], 
-                         polynomial_order=[3, 4, 6, 8],
+    FeetNInterpolationCreation(datatype=['raw'], 
+                         polynomial_order=[6, 7, 8],
                          integration_time='24h',
                          multiprocessing=True,
                          multiprocessing_multiplier=8, 
-                         multiprocessing_raw=5,
+                         multiprocessing_raw=8,
                          saving_with_feet=True, 
-                         verbose=2,
-                         foot_width=2,
+                         verbose=3,
+                         foot_width=3,
                          flush=True)
     
-    # interpolations_filepath = os.path.join(os.getcwd(), '..', 'curveFitArrays', 'poly_raw_order6_24h.npy')
-    # data = np.load(interpolations_filepath)
+    interpolations_filepath = os.path.join(os.getcwd(), '..', 'curveFitArrays_with_feet', 'poly_raw_order6_24h.npz')
     # data = data[[0, 3, 2, 1]]  # TODO: will need to change this when I recreate the polynomial arrays taking into account the axis swapping whe opening a .save
 
-    # Projection_test = OrthographicalProjection(data=data, saved_data=True, processes=12, saving_plots=True, time_interval='24h')
+    Projection_test = OrthographicalProjection(data_path=interpolations_filepath, saved_data=False, processes=60, saving_plots=True, time_interval='24h', verbose=2, flush=True)
