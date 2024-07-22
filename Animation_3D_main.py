@@ -27,7 +27,7 @@ from multiprocessing.shared_memory import SharedMemory
 from astropy.coordinates import CartesianRepresentation
 from sunpy.coordinates.frames import  HeliographicCarrington
 
-from Common import Decorators, MultiProcessing
+from .Common import Decorators, MultiProcessing
 
 class CustomDate:
     """

@@ -19,9 +19,11 @@ from PIL import Image
 from typing import Match
 from astropy.io import fits
 from typeguard import typechecked
-from sunpy.map import Map, sources, GenericMap
+from sunpy.map import Map, GenericMap
 
-from Common import Decorators
+from Common import Decorators, SSHMirroredFilesystem
+
+
 
 class ImageFinder:
 
@@ -47,15 +49,13 @@ class ImageFinder:
         """
 
         main_path = os.path.join(os.getcwd(), '..')
-
         self.paths = {
             'Main': main_path,
             'STEREO': os.path.join(main_path, 'STEREO', 'int'),
             'Screenshots': os.path.join(main_path, 'texture_screenshots'),
             'MP4': os.path.join(main_path, 'MP4_saves'),
             'Save': os.path.join(main_path, 'k3d_final_plots'),
-            }
-            
+            }      
         os.makedirs(self.paths['Save'], exist_ok=True)
 
     def Images(self) -> None:
@@ -108,15 +108,28 @@ class ImageFinder:
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
         """
 
-        with open('SDO_timestamps.txt', 'r') as files: strings = files.read().splitlines()
+        # Setup
+        filepath_end = '/S00000/image_lev1.fits'
+        with open('SDO_timestamps.txt', 'r') as files:
+            strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
         
-        timestamp_to_path = {}
-        for s in tuple_list:
-            path, timestamp = s
-            timestamp_to_path[timestamp] = path + '/S00000/image_lev1.fits'
+        # Looking for the data
+        first_path = os.path.join(tuple_list[0][0], filepath_end)
+        if os.path.exists(first_path):
+            timestamp_to_path = {}
+            for s in tuple_list:
+                path, timestamp = s
+                timestamp_to_path[timestamp[:-3]] = path + filepath_end
+        else:
+            server = SSHMirroredFilesystem(verbose=3)
+            timestamp_to_path = {}
+            for s in tuple_list:
+                path, timestamp = s
+                timestamp_to_path[timestamp[:-3]] = server.mirror(path + filepath_end, strip_level=1)
+            server.close()
         self.sdo_timestamp = timestamp_to_path
-    
+
     @Decorators.running_time
     def Main_loop(self) -> None:
         """
@@ -359,6 +372,7 @@ class ImageFinder:
         plt.savefig(os.path.join(self.paths['Save'], figname), dpi=300)
         plt.close()
         print('one plot done.')
+
 
 class MP4_making:
     """

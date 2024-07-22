@@ -14,12 +14,12 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 from sunpy.map import Map, GenericMap, sources
 
-from Common import StereoUtils, Decorators
+from .Common import StereoUtils, Decorators
 
 
 
 class RainbowStereoImages:
-    """To get the Rainbow even relevent stereo images.
+    """To get the Rainbow even relevant stereo images.
 
     Returns:
         _type_: _description_
@@ -42,7 +42,6 @@ class RainbowStereoImages:
         catalogue_df = catalogue_df[catalogue_df['dateobs'] > self.date_interval[0]]
         catalogue_df = catalogue_df[catalogue_df['dateobs'] < self.date_interval[1]]
         catalogue_df = catalogue_df[catalogue_df['polar'] == 171].reset_index(drop=True)
-
         return catalogue_df['filename']
     
     def sunpy_map_section(self, aia_map: GenericMap) -> GenericMap:

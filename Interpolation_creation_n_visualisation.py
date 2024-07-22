@@ -21,6 +21,7 @@ from numpy.lib.npyio import NpzFile
 from scipy.optimize import curve_fit
 from scipy.ndimage import binary_erosion
 from sparse import COO, stack, concatenate
+from skimage.morphology import skeletonize
 from multiprocessing import Process, Manager
 from multiprocessing.queues import Queue as QUEUE
 from multiprocessing.shared_memory import SharedMemory
@@ -29,12 +30,13 @@ from astropy.coordinates import concatenate as astro_concatenate
 from sunpy.coordinates.frames import HeliographicCarrington
 
 from Animation_3D_main import CustomDate
-from Common import Decorators, MultiProcessing, ClassDecorator
+from .Common import Decorators, MultiProcessing, ClassDecorator
 
 #TODO: IMPORTANT - need to understand why when I do a transpose, then the interpolations are completely wrong. Probably because of the order of t values. need to sort the x, y, z before??
 
 class FeetNInterpolationCreation:
-    """To create feet for the 3D rainbow cubes and pass an interpolation through it. Can save the cubes with feet in and the interpolation in .npz files.
+    """
+    To create feet for the 3D rainbow cubes and pass an interpolation through it. Can save the cubes with feet in and the interpolation in .npz files.
 
     Raises:
         ValueError: if the string value of 'time_interval' is wrong.
@@ -48,7 +50,7 @@ class FeetNInterpolationCreation:
                  solar_r: int | float = 6.96e5, verbose: int = 1, flush: bool = False, saving_with_feet: bool = False):
         
         # Arguments
-        self.datatype = datatype if isinstance(datatype, list) else [datatype]  # what data is fitted - 'raw', 'rawContours'
+        self.datatype = datatype if isinstance(datatype, list) else [datatype]  # what data is fitted - 'raw', 'rawContours', 'skele'
         self.n = polynomial_order if not isinstance(polynomial_order, int) else [polynomial_order]  # the polynomial order
         self.time_interval_int = integration_time
         self.time_interval_str = integration_time if isinstance(integration_time, str) else f'{integration_time}h'
@@ -74,7 +76,8 @@ class FeetNInterpolationCreation:
         self.main()
 
     def path(self) -> None:
-        """Creates an instance argument paths: dict[str, str] which gives the paths to the different needed directories.
+        """
+        Creates an instance argument paths: dict[str, str] which gives the paths to the different needed directories.
         """
 
         main_path = os.path.join(os.getcwd(), '..')
@@ -89,7 +92,8 @@ class FeetNInterpolationCreation:
         os.makedirs(self.paths['cubes_feet'], exist_ok=True)
 
     def time_interval(self) -> None:
-        """Changes the time_interval class argument to an int representing the corresponding number of seconds.
+        """
+        Changes the time_interval class argument to an int representing the corresponding number of seconds.
 
         Raises:
             ValueError: When the time_interval argument is a string without 'min', 'h' or 'd' inside it.
@@ -98,7 +102,7 @@ class FeetNInterpolationCreation:
         if isinstance(self.time_interval_int, int):
             time_delta = self.time_interval_int * 3600
         elif isinstance(self.time_interval_int, str):
-            number = re.search(r'\d+', self.time_interval_int)
+            number = re.search(r'zd+', self.time_interval_int)
             number = int(number.group())
             self.time_interval_int = self.time_interval_int.lower()
             if 'min' in self.time_interval_int: 
@@ -113,7 +117,8 @@ class FeetNInterpolationCreation:
 
     @Decorators.running_time
     def main(self) -> None:
-        """Parent function that calls other functions to get the data and run multiprocess depending on the number of 'datatypes' (class argument).
+        """
+        Parent function that calls other functions to get the data and run multiprocess depending on the number of 'datatypes' (class argument).
         """
 
         # Multiprocessing set up
@@ -128,9 +133,10 @@ class FeetNInterpolationCreation:
             kwargs = {
                 'data': data_raw,
                 'datatype': datatype,
-                      }
+            }
             
             if 'Contours' in datatype: kwargs['contour'] = True
+            if 'Skele' in datatype: kwargs['skeleton'] = True
 
             if multiprocessing:
                 processes.append(Process(target=self.main_sub, kwargs=kwargs))
@@ -145,7 +151,8 @@ class FeetNInterpolationCreation:
 
     @Decorators.running_time
     def getting_IDL_cubes(self) -> np.ndarray:
-        """Opens the .save data cubes and returns the time integrated (without the feet) cubes.
+        """
+        Opens the .save data cubes and returns the time integrated (without the feet) cubes.
 
         Returns:
             np.ndarray: a 4D ndarray with the time integrated data cubes
@@ -242,15 +249,6 @@ class FeetNInterpolationCreation:
 
         results = self.cubes_feet(results)
 
-        # self.cubes_feet(results)
-        # self.cubes_shape = results.shape
-        # data_info = {
-        #     'x_min': self.x_min,
-        #     'y_min': self.y_min,
-        #     'z_min': self.z_min,
-        #     'shape': self.cubes_shape,
-        # }
-
         if self.verbose> 0: print(f'Cubes with feet - shape:{results.shape} - dtype:{results.dtype} - nnz:{results.nnz} - size:{round(results.nbytes / 2 ** 20, 2)}Mb')
 
         if self.saving_feet: self.saving_cubes(results, feet=True)
@@ -263,7 +261,8 @@ class FeetNInterpolationCreation:
 
     @Decorators.running_time
     def file_opening_threads(self, filepaths: list[str]) -> list[np.ndarray]:
-        """Set up to open the .save data files with threads
+        """
+        Set up to open the .save data files with threads
 
         Args:
             filepaths (list[str]): the fullpath to the .save data files.
@@ -293,7 +292,8 @@ class FeetNInterpolationCreation:
         return results
 
     def file_reader(self, queue: Queue[tuple[int, str]], results: list[np.ndarray | None]) -> None:
-        """Reads the .save file to save the data as uint8 ndarray.
+        """
+        Reads the .save file to save the data as uint8 ndarray.
 
         Args:
             queue (Queue[tuple[int, str]]): queue.Queue() object with the position index and the fullpath to each .save file.
@@ -319,8 +319,9 @@ class FeetNInterpolationCreation:
                 queue.task_done()
 
     @Decorators.running_time
-    def main_sub(self, datatype: str, data: np.ndarray | dict[str, any], contour: bool = False) -> None:
-        """If multiprocessing, creates as many processes as there are polynomial orders 
+    def main_sub(self, datatype: str, data: np.ndarray | dict[str, any], contour: bool = False, skeleton: bool = False) -> None:
+        """
+        If multiprocessing, creates as many processes as there are polynomial orders 
 
         Args:
             datatype (str): _description_
@@ -333,6 +334,7 @@ class FeetNInterpolationCreation:
         kwargs = {
             'datatype': datatype,
             'contour': contour,
+            'skeleton': skeleton,
         }
 
         if multiprocessing:
@@ -355,8 +357,9 @@ class FeetNInterpolationCreation:
                 shm.close()          
             for i in range(len(self.n)): self.time_multiprocessing(index=i, data=data, **kwargs)
 
-    def time_multiprocessing(self, data: np.ndarray | dict[str, any], datatype: str, index: int, contour: bool = False) -> None:
-        """For a given polynomial order, this function encloses the interpolation creation of the data cubes.
+    def time_multiprocessing(self, data: np.ndarray | dict[str, any], datatype: str, index: int, contour: bool = False, skeleton: bool = False) -> None:
+        """
+        For a given polynomial order, this function encloses the interpolation creation of the data cubes.
 
         Args:
             data (np.ndarray | dict[str, any]): the 4D data cubes or the corresponding needed data info to access the SharedMemory.
@@ -384,6 +387,7 @@ class FeetNInterpolationCreation:
                 'queue': queue,
                 'data': data,
                 'contour': contour,
+                'skeleton': skeleton,
                 'poly_index': index,
             }
 
@@ -406,6 +410,7 @@ class FeetNInterpolationCreation:
 
         # Saving the data in .npz files 
         filename = f'poly_{datatype}_order{self.n[index]}_{self.time_interval_str}.npz'
+        if skeleton: filename = 'skele_' + filename
         npz_data = {
             'coords': results[[0, 3, 2, 1]].astype('float32'),
             'shape': self.data_info['shape'],
@@ -489,7 +494,8 @@ class FeetNInterpolationCreation:
 
     def time_integration(self, dates: list, data: np.ndarray | dict[str, any], queue: QUEUE = None, index: int | None = None, step: int | None = None, 
                          shared_array: bool = False, last: bool = False) -> None | COO:
-        """To integrate the cubes for a given time interval and the file dates in seconds.
+        """
+        To integrate the cubes for a given time interval and the file dates in seconds.
         """
 
         # If multiprocessed the parent function.
@@ -514,7 +520,8 @@ class FeetNInterpolationCreation:
         queue.put((index, time_cubes_no_duplicate))
     
     def saving_cubes(self, data:COO, feet: bool = True) -> None:
-        """To save the cubes when the feet have been added.
+        """
+        To save the cubes when the feet have been added.
 
         Args:
             data (COO): _description_
@@ -527,6 +534,7 @@ class FeetNInterpolationCreation:
 
         npz_data = {
             'coords': data.coords.astype('uint16'),
+            'values': data.data.astype('uint16'),
             'shape': np.array(self.data_info['shape']),
             'x_min': np.array(self.data_info['x_min']),
             'y_min': np.array(self.data_info['y_min']),
@@ -542,7 +550,8 @@ class FeetNInterpolationCreation:
 
     @Decorators.running_time
     def cubes_feet(self, data: COO) -> COO:
-        """Adding the feet to the cubes so that the interpolation is forced to pass through there. 
+        """
+        Adding the feet to the cubes so that the interpolation is forced to pass through there. 
         Also, I would also need to define the feet as the end of the interpolation.
 
         Args:
@@ -607,7 +616,8 @@ class FeetNInterpolationCreation:
         return COO(coords=cubes_coords, data=1, shape=shape).astype('uint8')
 
     def foot_grid_make(self, foot_lonlat: tuple[int | float], nb_points: int, d_theta: float):
-        """To create the positions of the voxel in carrington space for each foot
+        """
+        To create the positions of the voxel in carrington space for each foot
 
         Args:
             foot_pos (_type_): _description_
@@ -683,7 +693,7 @@ class FeetNInterpolationCreation:
         return sky_coords_list
 
     def time_loop(self, data: np.ndarray | dict[str, any], poly_index: int, data_index: tuple[int, int], index: int | None = None, queue: None | QUEUE = None,
-                  contour: bool = False) -> None | np.ndarray:
+                  contour: bool = False, skeleton: bool = False) -> None | np.ndarray:
         """
         The for loop on the time axis.
         """
@@ -705,6 +715,9 @@ class FeetNInterpolationCreation:
                 # Prepocessing to only keep the contours
                 eroded_data = binary_erosion(section)
                 section = section.astype('uint8') - eroded_data.astype('uint8')
+            elif skeleton:
+                # Preprocessing to only keep the skeleton
+                section = skeletonize(section)
 
             # Setting up the data
             x, y, z = np.where(section)

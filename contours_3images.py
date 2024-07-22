@@ -4,7 +4,7 @@ Also adds the gridlines showing the latitude and longitude.
 It's quite an old code so needs a lot of improvements. Will change it when I use it again.
 """
 
-# Imports
+# IMPORTS
 import os
 import re
 
@@ -16,7 +16,8 @@ from PIL import Image
 from glob import glob
 from astropy.io import fits
 
-from Common import Decorators, PlotFunctions
+# Personal libraries
+from Common import Decorators, PlotFunctions, SSHMirroredFilesystem
 
 
 class ForPlotting:
@@ -157,20 +158,34 @@ class FirstFigure:
                                          (?P<minute>\d{2})-
                                          \d{2}\.000\.png''', re.VERBOSE)
     
+    @Decorators.running_time
     def SDO_image_finder(self):
         """
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
         """
 
+        # Setup
+        filepath_end = '/S00000/image_lev1.fits'
         with open('SDO_timestamps.txt', 'r') as files:
             strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
         
-        timestamp_to_path = {}
-        for s in tuple_list:
-            path, timestamp = s
-            timestamp_to_path[timestamp[:-3]] = path + '/S00000/image_lev1.fits'
+        # Looking for the data
+        first_path = os.path.join(tuple_list[0][0], filepath_end)
+        if os.path.exists(first_path):
+            timestamp_to_path = {}
+            for s in tuple_list:
+                path, timestamp = s
+                timestamp_to_path[timestamp[:-3]] = path + filepath_end
+        else:
+            server = SSHMirroredFilesystem(verbose=3)
+            timestamp_to_path = {}
+            for s in tuple_list:
+                path, timestamp = s
+                timestamp_to_path[timestamp[:-3]] = server.mirror(path + filepath_end, strip_level=1)
+            server.close()
         self.sdo_timestamp = timestamp_to_path
+        
 
     def Data_fullnames(self):
         """
@@ -224,6 +239,9 @@ class FirstFigure:
 
             else:
                 raise ValueError(f'The string {os.path.basename(stereo_name)} has the wrong format.')
+        
+        # Cleaning up the temporary filesystem if used
+        SSHMirroredFilesystem.cleanup()
 
     def SDO_mask(self, number):
         """
