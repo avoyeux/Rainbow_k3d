@@ -240,6 +240,7 @@ class ImageFinder:
             pool.join()
         else:
             for arg in self.groups: self.Plotting(arg)
+        SSHMirroredFilesystem.cleanup()
 
     def SDO_prepocessing(self, image: np.ndarray) -> Image:
         """
