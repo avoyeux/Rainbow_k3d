@@ -459,7 +459,7 @@ class FeetNInterpolationCreation:
             chunk = stack(chunk, axis=0)
             return COO.any(chunk, axis=0)
           
-    def generate_nth_order_polynomial(self, n: int = 3) -> tuple[Callable[[np.ndarray, any], np.ndarray], int]:
+    def generate_nth_order_polynomial(self, n: int = 3) -> tuple[Callable[..., np.ndarray], int]:
         """
         Creating a one variable n-th order polynomial.
         """
@@ -719,7 +719,7 @@ class FeetNInterpolationCreation:
                 section = skeletonize(section)
 
             # Setting up the data
-            x, y, z = np.where(section)
+            x, y, z = np.nonzero(section)
             points = np.stack((x, y, z), axis=1)
 
             # Calculating the cumulative distance
@@ -737,43 +737,43 @@ class FeetNInterpolationCreation:
         queue.put((index, results, params))
 
     def fitting_polynomial(self, time: int, t: np.ndarray, data: np.ndarray, index: int) -> np.ndarray:
-            """
-            Where the fitting of the curve actually takes place.
-            """
+        """
+        Where the fitting of the curve actually takes place.
+        """
 
-            # Getting the data ready
-            x, y, z = data[:, 0], data[:, 1], data[:, 2]  #TODO: can the error arise from here?
-            polynomial = self.polynomial_list[index]
-            params = self.params_list[index]
+        # Getting the data ready
+        x, y, z = data[:, 0], data[:, 1], data[:, 2]  #TODO: can the error arise from here?
+        polynomial = self.polynomial_list[index]
+        params = self.params_list[index]
 
-            # Finding the best parameters
-            params_x, _ = curve_fit(polynomial, t, x, p0=params)
-            params_y, _ = curve_fit(polynomial, t, y, p0=params)          
-            params_z, _ = curve_fit(polynomial, t, z, p0=params)     
+        # Finding the best parameters
+        params_x, _ = curve_fit(polynomial, t, x, p0=params)
+        params_y, _ = curve_fit(polynomial, t, y, p0=params)          
+        params_z, _ = curve_fit(polynomial, t, z, p0=params)     
 
-            # Getting the curve
-            t_fine = np.linspace(0.5, 2.5, 10**6)
-            x = polynomial(t_fine, *params_x)
-            y = polynomial(t_fine, *params_y)
-            z = polynomial(t_fine, *params_z)
+        # Getting the curve
+        t_fine = np.linspace(0.5, 2.5, 10**6)
+        x = polynomial(t_fine, *params_x)
+        y = polynomial(t_fine, *params_y)
+        z = polynomial(t_fine, *params_z)
 
-            # Taking away duplicates 
-            data = np.vstack((x, y, z)).astype('float64')
+        # Taking away duplicates 
+        data = np.vstack((x, y, z)).astype('float64')
 
-            # Cutting away the values that are outside the initial cube shape
-            shape = self.data_info['shape'][[0, 3, 2, 1]]
-            conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1) 
-            # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later  
-            conditions_lower = np.any(data < 0, axis=0)
-            conditions = conditions_upper | conditions_lower
-            data = data[:, ~conditions]       
+        # Cutting away the values that are outside the initial cube shape
+        shape = self.data_info['shape'][[0, 3, 2, 1]]
+        conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1) 
+        # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later  
+        conditions_lower = np.any(data < 0, axis=0)
+        conditions = conditions_upper | conditions_lower
+        data = data[:, ~conditions]       
 
-            unique_data = np.unique(data, axis=1)
-            time_row = np.full((1, unique_data.shape[1]), time)
-            unique_data = np.vstack((time_row, unique_data)).astype('float32')
+        unique_data = np.unique(data, axis=1)
+        time_row = np.full((1, unique_data.shape[1]), time)
+        unique_data = np.vstack((time_row, unique_data)).astype('float32')
 
-            params = np.stack([params_x, params_y, params_z], axis=0)  # array of shape (3, n_order + 1)
-            return unique_data, params
+        params = np.stack([params_x, params_y, params_z], axis=0)  # array of shape (3, n_order + 1)
+        return unique_data, params
 
 
 class OrthographicalProjection:

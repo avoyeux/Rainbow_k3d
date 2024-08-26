@@ -441,7 +441,7 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')  # no  duplicates 
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00000110).astype('uint8')  # no  duplicates 
         queue.put((1, cubes_no_duplicate))
 
     def Cubes_STEREO_no_duplicates_init(self, queue: QUEUE) -> None:
@@ -468,7 +468,7 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00011000) == 24).astype('uint8')  # no  duplicates 
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00011000).astype('uint8')  # no  duplicates 
         queue.put((4, cubes_no_duplicate))
 
     def Cubes_STEREO_no_duplicates_new(self, queue: QUEUE) -> None:
@@ -504,7 +504,7 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6)
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00000110)
         trace_cube_no_duplicate = COO.any(cubes_no_duplicate, axis=0).astype('uint8')
         queue.put((8, trace_cube_no_duplicate))
 
@@ -514,7 +514,7 @@ class Data:
         """
 
         cubes = self.Shared_array_reconstruction()
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00011000) == 6)
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00011000)
         trace_cube_no_duplicate = COO.any(cubes_no_duplicate, axis=0).astype('uint8')
         queue.put((9, trace_cube_no_duplicate))
 
@@ -544,7 +544,7 @@ class Data:
 
         cubes = self.Shared_array_reconstruction()
         time_cubes_no_duplicate = [] 
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00000110) == 6).astype('uint8')
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00000110).astype('uint8')
         for date in self.dates:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 
@@ -563,7 +563,7 @@ class Data:
 
         cubes = self.Shared_array_reconstruction()
         time_cubes_no_duplicate = [] 
-        cubes_no_duplicate = self.Sparse_data((cubes & 0b00011000) == 24).astype('uint8')
+        cubes_no_duplicate = self.Sparse_data(cubes == 0b00011000).astype('uint8')
         for date in self.dates:
             date_seconds = (((self._days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
 

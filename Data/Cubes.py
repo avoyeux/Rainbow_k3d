@@ -1,14 +1,18 @@
 """
-To create the HDF5 data files for the cubes.
+To create the HDF5 data files with the cubes data and metadata.
+A lot of different data is saved in the file to make any further manipulation or visualisation more easy.
 """
 
 # IMPORTS
 import os
 import re
-import h5py
 import sys
+import h5py
+import scipy
 import sunpy
+import typing
 import sparse
+import datetime
 
 import numpy as np
 import multiprocessing as mp
@@ -16,8 +20,6 @@ import multiprocessing as mp
 # Submodules import
 import sunpy.coordinates
 import multiprocessing.queues  # necessary as queues doesn't seem to be in the __init__
-from scipy.io import readsav
-from datetime import datetime
 from astropy import units as u
 from astropy import coordinates
 
@@ -25,18 +27,25 @@ from astropy import coordinates
 sys.path.append(os.path.join('..'))
 from Common import MultiProcessing
 
-
+# TODO: I also need to save the cube number and dates in the cube as an attribute 
 
 class SavingTest:
     """
     To create cubes with feet and without feet in an HDF5 format.
     """
 
-    def __init__(self, filename: str, processes: int, feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16))) -> None:
+    def __init__(self, filename: str,
+                 processes: int, 
+                 interpolation_points: float = 10**6, 
+                 interpolation_order: list | int = [3, 6],
+                 feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16))
+                 ) -> None:
 
         # Initial attributes
         self.filename = filename
         self.processes = processes
+        self.interpolation_points = interpolation_points
+        self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
 
         # Constants
         self.solar_r = 6.96e5  # in km
@@ -107,7 +116,7 @@ class SavingTest:
             ]
 
             # Main metadata
-            cube = readsav(self.filepaths[0])
+            cube = scipy.io.readsav(self.filepaths[0])
             values = (cube.dx, cube.xt_min, cube.yt_min, cube.zt_min)
             self.dx, init_borders = self.create_borders(values)
             H5PYFile = self.foundation(H5PYFile)
@@ -126,16 +135,22 @@ class SavingTest:
                 processes[i] = process
             for p in processes: p.join()
             # Results
-            rawCubes = [None] * processes_nb
+            rawCubes = [None] * processes_nb  # TODO: add rawCubes creation directly inside cls.init_group for automatic RAM management
             while not queue.empty():
                 identifier, result = queue.get()
                 rawCubes[identifier] = result
-            rawCubes = sparse.concatenate(rawCubes, axis=0)
+            rawCubes = sparse.concatenate(rawCubes, axis=0)  #TODO: also need to add the .cube1 and .cube2 cubes to the initial data
 
             self.time_indexes = list(set(rawCubes.coords[0, :]))
 
-            # Raw metadata
+            # Raw data and metadata
             H5PYFile = self.init_group(H5PYFile, rawCubes, init_borders)
+
+            # Free RAM
+            del pattern, cube, manager, values, filepaths_nb, processes_nb, processes, rawCubes
+
+            # Filtered data and metadata
+            H5PYFile = self.filtered_group(H5PYFile)
 
     def rawCubes(self, queue: mp.queues.Queue, queue_index: int, index: tuple[int, int]) -> None:
         """
@@ -147,11 +162,11 @@ class SavingTest:
             index (tuple[int, int]): the unique index sections used by each process. 
         """
 
-        cubes = [readsav(filepath).cube.astype('uint8') for filepath in self.filepaths[index[0]:index[1] + 1]]
+        cubes = [scipy.io.readsav(filepath).cube.astype('uint8') for filepath in self.filepaths[index[0]:index[1] + 1]]
         cubes = np.stack(cubes, axis=0)
         cubes = np.transpose(cubes, (0, 3, 2, 1))
         cubes = self.sparse_data(cubes)
-        queue.put((queue_index, cubes))  #TODO: this might not work, need to check if it does.
+        queue.put((queue_index, cubes))
 
     def sparse_data(self, cubes: np.ndarray) -> sparse.COO:
         """
@@ -176,17 +191,20 @@ class SavingTest:
             h5py.File: the HDF5 file.
         """
 
-        description = ("Contains the data cubes for the Solar Rainbow event gotten from the intersection of masks gotten from SDO and STEREO images. The SDO masks were created from an automatic "
-        "code created by Dr. Elie Soubrie, while the STEREO masks where manually created by Dr. Karine [...] by visual interpretation of the [...] nm monochromatic STEREO [...] images.\n"
-        "New values for the feet where added to help for a curve fitting of the filament. These were added by looking at the STEREO [...] nm images as the ends of the filament are more visible. "
-        "Hence, the feet are not actually visible in the initial masks.\n"
-        "The data:\n" 
-        "- the voxel values were coded in bits so that they can be easily separated in different categories. These are")
+        description = (
+            "Contains the data cubes for the Solar Rainbow event gotten from the intersection of masks gotten from SDO and STEREO images.The SDO masks "
+            "were created from an automatic code created by Dr. Elie Soubrie, while the STEREO masks where manually created by Dr. Karine Bocchialini "
+            "by visual interpretation of the [...] nm monochromatic STEREO [...] images.\n"
+            "New values for the feet where added to help for a curve fitting of the filament. These were added by looking at the STEREO [...] nm images "
+            "as the ends of the filament are more visible. Hence, the feet are not actually visible in the initial masks.\n"
+            "The data:\n" 
+            "- the voxel values were coded in bits so that they can be easily separated in different categories. These are"
+        )
         # TODO: need to finish the explanation here and also explain that the data is saved as sparse arrays.
 
         info = {
             'author': 'Voyeux Alfred',
-            'creationDate': datetime.now().isoformat(),
+            'creationDate': datetime.datetime.now().isoformat(),
             'filename': self.filename,
             'description': description,
         }
@@ -232,7 +250,7 @@ class SavingTest:
         for key, item in info.items():
             if isinstance(item, str): 
                 new_group.attrs[key] = item
-            elif 'data' in item.keys():
+            elif isinstance(item, (int, float, np.ndarray)):
                 new_group = self.add_dataset(new_group, item, key)
             else:
                 new_group = self.add_group(new_group, item, key)
@@ -248,8 +266,6 @@ class SavingTest:
         Returns:
             tuple[dict[str, any], dict[str, dict[str, any]]]: the data and metadata for the data borders.
         """
-
-        # TODO: thinking of adding the cube shape here but most likely an np.max() would do the trick as the borders should represent (x, y, z) -> (0, 0, 0)
 
         # Data and metadata
         dx = {
@@ -293,7 +309,7 @@ class SavingTest:
         """
 
         # Group setup
-        group = H5PYFile.create_group('L0 data')
+        group = H5PYFile.create_group('Raw')
         group.attrs['description'] = (
             "The filament voxels in sparse COO format (i.e. with a coords and values arrays) of the initial cubes gotten from Dr. Karine [...]'s work.\n"
             "Furthermore, the necessary information to be able to position the filament relative to the Sun are also available. "
@@ -301,8 +317,25 @@ class SavingTest:
         )
 
         # Add raw cubes group
-        group = self.add_cube(group, data, 'Raw cube', borders)
-        group['Raw data'].attrs['description'] = "The initial voxel data in COO format without the feet for the interpolation."
+        group = self.add_cube(group, data, 'Raw cubes', borders)
+        group['Raw cubes'].attrs['description'] = "The initial voxel data in COO format without the feet for the interpolation."
+        group['Raw cubes/values'].attrs['description'] = (
+            "The values for each voxel as a 1D numpy array, in the same order than the coordinates given in the 'coords' group.\n"
+            "Each specific bit set to 1 in these uint8 values represent a specific information on the voxel. Hence, you can easily filter these values given which "
+            "bit is set to 1.\n"
+            "The value information is as follows:\n"
+            "-0b" + "0" * 7 + "1 represents the intersection between the STEREO and SDO point of views regardless if the voxel is a duplicate or not.\n"
+            "-0b" + "0" * 6 + "10 represents the no duplicates regions from STEREO's point of view.\n"
+            "-0b" + "0" * 5 + "100 represents the no duplicates regions from SDO's point of view.\n"
+            "-0b" + "0" * 4 + "1000 represents the no duplicates data from STEREO's point of view. This takes into account if a region has a bifurcation.\n"
+            "-0b0001" + "0" * 4 + " represents the no duplicates data from SDO's point of view. This takes into account if a region has a bifurcation.\n"
+            "-0b001" + "0" * 5 + " gives out the feet positions.\n"
+            "It is important to note the difference between the second/third bit being set to 1 or the fourth/fifth bit being set to 1. For the fourth and "
+            "fifth bit, the definition for a duplicate is more strict. It also takes into account if, in the same region (i.e. block of voxels that are in contact), "
+            "there is a bifurcation. If each branch of the bifurcation can be duplicates, then both branches are taken out (not true for the second/third bits as "
+            "the duplicate treatment is done region by region.\n"
+            "Furthermore, it is of course also possible to mix and match to get more varied datasets, e.g. -0b00011000 represents the no duplicates data."
+        )
 
         # Add raw skycoords group
         group = self.add_skycoords(group, data, 'Raw coordinates', borders)
@@ -311,11 +344,24 @@ class SavingTest:
         # Add raw feet
         data, borders = self.with_feet(data, borders)
         group = self.add_cube(group, data, 'Raw cubes with feet', borders)
-        group['Raw with feet'].attrs['description'] = 'The initial raw data in COO format with the feet positions added.'
+        group['Raw cubes with feet'].attrs['description'] = 'The initial raw data in COO format with the feet positions added.'
+        group['Raw cubes with feet/values'].attrs['description'] = group['Raw cubes/values'].attrs['description']
 
         # Add raw skycoords with feet
         group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
         group['Raw coordinates with feet'].attrs['description'] = 'The initial data with the feet positions added saved as Carrington Heliographic Coordinates in km.'
+        return H5PYFile
+    
+    def filtered_group(self, H5PYFile: h5py.File) -> h5py.File:
+        # TODO: function to save the already filtered data with feet values to then add the interpolation
+
+        group = H5PYFile.create_group('Filtered')
+        group.attrs['description'] = (
+            "This group is based on the data from the 'Raw' HDF5 group. It is made up of already filtered data for easier use later but also to be able to add a "
+            "weight to the feet. Hence, the interpolation data for each filtered data group is also available."
+        )
+
+        #TODO: I stopped here
         return H5PYFile
     
     def add_cube(self, group: h5py.File | h5py.Group, data: sparse.COO, data_name: str, borders: dict[str, dict[str, str | float]]) -> h5py.File | h5py.Group:
@@ -341,7 +387,7 @@ class SavingTest:
                                 "The shape is (4, N) where the rows represent t, x, y, z where t the time index (i.e. which cube it is), and N the total number "
                                 "of voxels.\n"),
             },
-            'value': {
+            'values': {
                 'data': data.data, 
                 'unit': 'none',
                 'description': "The values for each voxel.",
@@ -396,6 +442,21 @@ class SavingTest:
         group = self.add_group(group, raw, data_name)
         return group
     
+    def add_interpolation(self, group: h5py.Group, data: sparse.COO) -> h5py.Group:
+
+        kwargs = {
+            'data': data, 
+            'processes': self.processes,
+            'precision_nb': self.interpolation_points,
+        }
+        # Loop n-orders
+        for n_order in self.interpolation_order:
+            instance = Interpolation(order=n_order, **kwargs)
+
+            info = instance.get_information()
+            group = self.add_group(group, info, f'{n_order}th order interpolation')
+        return group
+    
     def with_feet(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
@@ -448,7 +509,7 @@ class SavingTest:
 
         # Changing to COO 
         shape = np.max(init_coords, axis=1) + 1
-        feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(time_indexes) * 2)  #TODO: need to add the values information in the HDF5 file info
+        feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(time_indexes) * 2)
         values = np.concatenate([data.data.astype('uint8'), feet_values], axis=0)
         data = sparse.COO(coords=init_coords, data=values, shape=shape)
         return data, new_borders
@@ -537,6 +598,159 @@ class SavingTest:
             output_queue.put((index, skyCoord))
         shm.close()
     
+
+class Interpolation:
+
+    def __init__(self, data: sparse.COO, order: int, processes: int, precision_nb: int | float = 10**6):
+
+        # Arguments 
+        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
+        self.shape = data.shape[[0, 3, 2, 1]]
+        self.poly_order = order
+        self.processes = processes
+        self.precision_nb = precision_nb
+
+        # New attributes
+        self.params_init = np.random.rand(order + 1)
+
+    def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
+        
+        def nth_order_polynomial(t: np.ndarray, *coeffs: int | float) -> np.ndarray:
+
+            # Initialisation
+            result = 0
+
+            # Calculating the polynomial
+            for i in range(self.poly_order + 1): result += coeffs[i] * t**i
+            return result
+        return nth_order_polynomial
+    
+    def setup(self) -> tuple[np.ndarray, np.ndarray]:
+
+        # Constants
+        time_indexes = list(set(self.data[0, :]))  # TODO: might get this from outside the class so that it is not computed twice or more
+        time_len = len(time_indexes)
+        process_nb = min(self.processes, time_len)
+
+        # Shared memory
+        shm, data = MultiProcessing.shared_memory(self.data)
+
+        # Multiprocessing
+        manager = mp.Manager()
+        input_queue = manager.Queue()
+        output_queue = manager.Queue()
+        # Setup input
+        for i, time in enumerate(time_indexes): input_queue.put((i, time))
+        for _ in range(process_nb): input_queue.put(None)
+        # Run
+        processes = [None] * process_nb
+        kwargs = {
+            'data': data,
+            'input_queue': input_queue,
+            'output_queue': output_queue,
+        }
+        kwargs_sub = {
+            'params_init': self.params_init,
+            'shape': self.shape,
+            'nth_order_polynomial': self.generate_nth_order_polynomial(),
+            'precision_nb': self.precision_nb,
+        }
+        for i in range(processes):
+            p = mp.Process(target=self.setup_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        shm.unlink()
+        # Results
+        parameters = [None] * time_len
+        interpolations = [None] * time_len
+        while not output_queue.empty():
+            identifier, interp, params = output_queue.get()
+            interpolations[identifier] = interp
+            parameters[identifier] = params
+        interpolations = np.stack(interpolations, axis=0)
+        parameters = np.stack(parameters, axis=0)
+        return interpolations, parameters
+        
+    def get_information(self) -> dict[str, str | np.ndarray]:
+
+        interpolations, parameters = self.setup()
+        information = {
+            'description': f"The interpolation curve with the corresponding parameters of the {self.poly_order}th order polynomial for each cube.",
+            'data': interpolations,
+            'parameters': parameters,
+        }
+        return information
+
+    @staticmethod
+    def setup_sub(data: dict[str, any], input_queue: mp.queues.Queue, output_queue: mp.queues.Queue, kwargs_sub: dict[str, any]) -> None:
+        
+        # Open SharedMemory
+        shm = mp.shared_memory.SharedMemory(name=data['name'])
+        data = np.ndarray(data['shape'], dtype=data['dtype'], buffer=shm.buf)
+
+        while True:
+            args = input_queue.get()
+            if args is None: break
+
+            index, time_index = args
+            time_filter = data[0, :] == time_index
+            section = data[1:, time_filter]
+
+            # Ax swap for easier manipulation
+            section = np.stack(section, axis=1)
+
+            # Get cumulative distance
+            t = np.empty(section.shape[0])
+            t[0] = 0
+            for i in range(1, section.shape[0]): t[i] = t[i - 1] + np.linalg.norm(section[i] - section[i - 1])
+            t /= t[-1]  # normalisation 
+
+            # Get results
+            kwargs = {
+                'section': section,
+                't': t,
+                'time_index': time_index,
+            }
+            result, params = Interpolation.polynomial_fit(**kwargs, **kwargs_sub)
+
+            # Save results
+            output_queue.put((index, result, params))
+        shm.close()
+
+    @staticmethod
+    def polynomial_fit(section: np.ndarray, t: np.ndarray, time_index: int, params_init: np.ndarray, shape: tuple[int, ...], precision_nb: float,
+                       nth_order_polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]) -> tuple[np.ndarray, ...]:
+
+        # Get params
+        x, y, z = [section[:, i] for i in range(3)]
+        params_x, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, x, p0=params_init)
+        params_y, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, y, p0=params_init)
+        params_z, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, z, p0=params_init)
+        params = np.stack([params_x, params_y, params_z], axis=0)  # shape (3, n_order + 1)
+
+        # Get curve
+        t_fine = np.linspace(-0.5, 1.5, precision_nb)
+        x = nth_order_polynomial(t_fine, *params_x)
+        y = nth_order_polynomial(t_fine, *params_y)
+        z = nth_order_polynomial(t_fine, *params_z)
+        data = np.vstack([x, y, z]).astype('float64')
+
+        # Cut outside init data
+        conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1)
+        # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later
+        conditions_lower = np.any(data < 0, axis=0)  # as floats can be a little lower than 0
+        conditions = conditions_upper | conditions_lower
+        data = data[:, ~conditions]
+
+        # No duplicates
+        unique_data = np.unique(data, axis=1)
+
+        # Recreate format
+        time_row = np.full((1, unique_data.shape[1]), time_index)
+        unique_data = np.vstack([time_row, unique_data]).astype('float64')
+        return unique_data[[2, 1, 0]], params[[2, 1, 0]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+
 
 
 if __name__=='__main__':
