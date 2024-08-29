@@ -29,7 +29,7 @@ from Common import MultiProcessing, Decorators
 
 # TODO: I also need to save the cube number and dates in the cube as an attribute 
 
-class SavingTest:
+class DataSaver:
     """
     To create cubes with feet and without feet in an HDF5 format.
     """
@@ -414,7 +414,15 @@ class SavingTest:
     
     @Decorators.running_time
     def interpolation_group(self, H5PYFile: h5py.File) -> h5py.File:
-        # TODO: to add the interpolation information as a group inside specific groups
+        """
+        To add the interpolation information to the file.
+
+        Args:
+            H5PYFile (h5py.File): the file object.
+
+        Returns:
+            h5py.File: the updated file object.
+        """
 
         # All data
         group_path = 'Filtered/All data with feet'
@@ -827,11 +835,14 @@ class Interpolation:
 
         # Get data
         interpolations, parameters = self.get_data()
+
+        # No duplicates uint16
+        treated_interpolations = self.no_duplicates_data(interpolations)
         
         # Save information
         information = {
             'description': f"The interpolation curve with the corresponding parameters of the {self.poly_order}th order polynomial for each cube.",
-            'coords': {
+            'raw coords': {
                 'data': interpolations.astype('float32'),
                 'unit': 'none',
                 'description': (
@@ -839,17 +850,87 @@ class Interpolation:
                     "Furthermore, the index positions are saved as floats, i.e. if you need to visualise it as voxels, then an np.round() and np.unique() is needed."
                 ),
             },
+            'treated coords': {
+                'data': treated_interpolations,
+                'unit': 'none',
+                'description': (
+                    "The index positions of the fitting curve for the corresponding data. The shape of this data is (4, N) where the rows represent (t, x, y, z). "
+                    "This data set is treated, i.e. the coords here can directly be used in a sparse.COO object as the indexes are uint type and the duplicates "
+                    "are already taken out."
+                ),
+            },
             'parameters': {
                 'data': parameters.astype('float32'),
                 'unit': 'none',
                 'description': (
-                    "The constants of the polynomial for the feet. The shape is (4, total number of constants) where the 4 represents t, x, y, z." 
+                    "The constants of the polynomial for the feet. The shape is (4, total number of constants) where the 4 represents t, x, y, z. " 
                     "Moreover, the constants are in order a0, a1, ... where the polynomial is a0 + a1*x + a2*x**2 ..."
                 ),
             },
         }
         return information
     
+    @Decorators.running_time
+    def no_duplicates_data(self, data: np.ndarray) -> np.ndarray:
+        """
+        To get no duplicates uint16 voxel positions from a float type data.
+
+        Args:
+            data (np.ndarray): the data to treat.
+
+        Returns:
+            np.ndarray: the corresponding treated data.
+        """
+
+        # Setup multiprocessing
+        manager = mp.Manager()
+        output_queue = manager.Queue()
+        processes_nb = min(self.processes, self.time_len)
+        indexes = MultiProcessing.pool_indexes(self.time_len, processes_nb)
+        shm, data = MultiProcessing.shared_memory(data)
+        # Run
+        processes = [None] * processes_nb
+        for i, index in enumerate(indexes):
+            p = mp.Process(target=self.no_duplicates_data_sub, args=(data, output_queue, index, i))
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        shm.unlink()
+        # Results
+        interpolations = [None] * processes_nb
+        while not output_queue.empty():
+            identifier, result = output_queue.get()
+            interpolations[identifier] = result
+        interpolations = np.concatenate(interpolations, axis=1)
+        return interpolations.astype('uint16')
+
+    @staticmethod
+    def no_duplicates_data_sub(data: dict[str, any], queue: mp.queues.Queue, index: tuple[int, int], position: int) -> None:
+        """
+        To multiprocess the no duplicates uint16 voxel positions treatment.
+
+        Args:
+            data (dict[str, any]): the information to get the data from a multiprocessing.shared_memory.SharedMemory() object.
+            queue (mp.queues.Queue): the output queue.
+            index (tuple[int, int]): the indexes to slice the data properly.
+            position (int): the position of the process to concatenate the result in the right order.
+        """
+        
+        # Open SharedMemory
+        shm = mp.shared_memory.SharedMemory(name=data['name'])
+        data = np.ndarray(data['shape'], data['dtype'], shm.buf)
+
+        # Select data
+        data_filters = (data[0, :] >= index[0]) & (data[0, :] <= index[1])
+        data = np.copy(data[:, data_filters])
+        shm.close()
+
+        # No duplicates indexes
+        data = np.rint(np.abs(data.T))
+        data = np.unique(data, axis=0).T.astype('uint16')
+        queue.put((position, data))
+        
+    @Decorators.running_time
     def get_data(self) -> tuple[np.ndarray, np.ndarray]:
         """
         To get the interpolation and corresponding polynomial coefficients. The interpolation in this case is the voxel positions of the curve fit as a sparse.COO
@@ -860,9 +941,9 @@ class Interpolation:
         """
 
         # Constants
-        time_indexes = list(set(self.data[0, :]))  # TODO: might get this from outside the class so that it is not computed twice or more
-        time_len = len(time_indexes)
-        process_nb = min(self.processes, time_len)
+        self.time_indexes = list(set(self.data[0, :]))  # TODO: might get this from outside the class so that it is not computed twice or more
+        self.time_len = len(self.time_indexes)
+        process_nb = min(self.processes, self.time_len)
 
         # Shared memory
         shm, data = MultiProcessing.shared_memory(self.data)
@@ -872,7 +953,7 @@ class Interpolation:
         input_queue = manager.Queue()
         output_queue = manager.Queue()
         # Setup input
-        for i, time in enumerate(time_indexes): input_queue.put((i, time))
+        for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
         for _ in range(process_nb): input_queue.put(None)
         # Run
         processes = [None] * process_nb
@@ -888,14 +969,14 @@ class Interpolation:
             'precision_nb': self.precision_nb,
         }
         for i in range(process_nb):
-            p = mp.Process(target=self.setup_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
+            p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
             p.start()
             processes[i] = p
         for p in processes: p.join()
         shm.unlink()
         # Results
-        parameters = [None] * time_len
-        interpolations = [None] * time_len
+        parameters = [None] * self.time_len
+        interpolations = [None] * self.time_len
         while not output_queue.empty():
             identifier, interp, params = output_queue.get()
             interpolations[identifier] = interp
@@ -1040,8 +1121,7 @@ class Interpolation:
 
 
 
-
 if __name__=='__main__':
 
-    SavingTest('testing12.h5', processes=10)    
+    DataSaver('testing12.h5', processes=10)    
 
