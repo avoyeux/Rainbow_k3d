@@ -24,7 +24,7 @@ from astropy import units as u
 from astropy import coordinates
 
 # Personal imports
-sys.path.append(os.path.join('..'))
+sys.path.append('..')  #TODO: need to check if I need os.path.join() but I don't see why I should
 from Common import MultiProcessing, Decorators
 
 # TODO: I also need to save the cube number and dates in the cube as an attribute 
@@ -62,26 +62,68 @@ class DataSaver:
         self.time_indexes: list[int]  # the time indexes with values inside the cubes
 
         # Created attributes
-        self.paths = self.setup_path()
+        self.setup_attributes()
 
         # Run
         self.create()
 
     def setup_path(self) -> dict[str, str]:
         """
-        Gives the directory paths.
+        Gives the directory paths as a dictionary.
 
         Returns:
             dict[str, str]: the directory paths.
         """
 
-        main = '/home/avoyeux/Documents/avoyeux/python_codes'
+        # Setup
+        main = '/home/avoyeux/old_project/avoyeux'
+        if not os.path.exists(main): main = '/home/avoyeux/Documents/avoyeux'
+        if not os.path.exists(main): raise ValueError(f"The main path {main} not found.")
+        python_codes = os.path.join(main, 'python_codes')
+
+        # Format paths
         paths = {
             'main': main,
-            'cubes': os.path.join(main, '..', 'Cubes_karine'),
-            'save': os.path.join(main, 'Data'),
+            'cubes': os.path.join(main, 'Cubes_karine'),
+            'intensities': os.path.join(main, 'STEREO', 'int'),
+            'save': os.path.join(python_codes, 'Data'),
         }
         return paths
+    
+    def setup_attributes(self):
+        # TODO: to create some instance attributes while not flooding the __init__ method
+        
+        # Paths
+        self.paths = self.setup_path()
+
+        # Patterns
+        cube_pattern = re.compile(r'cube(\d{3})\.save')
+        date_pattern = re.compile(r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+
+        # Get cubes filepaths
+        self.filepaths = sorted([
+            os.path.join(self.paths['cubes'], name)
+            for name in os.listdir(self.paths['cubes'])
+            if cube_pattern.match(name)
+        ])
+
+        # Get cube numbers
+        self.cube_numbers = [
+            int(cube_pattern.match(os.path.basename(filepath)).group(1))
+            for filepath in self.filepaths
+        ]
+
+        # Get dates
+        date_filenames = sorted(os.listdir(self.paths['intensities']))
+        dates = [None] * len(self.filepaths)
+        for i, number in enumerate(self.cube_numbers):
+            for filename in date_filenames:
+                filename_match = date_pattern.match(filename)
+                if filename_match:
+                    if int(filename_match.group('number')) == number:
+                        dates[i] = filename_match.group('date')
+                        break
+        self.dates: list[str] = dates
     
     def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> coordinates.SkyCoord:
         """
@@ -106,20 +148,40 @@ class DataSaver:
         cartesian_feet = feet.represent_as(coordinates.CartesianRepresentation)
         return coordinates.SkyCoord(cartesian_feet, frame=feet.frame, representation_type='cartesian')
     
+    def get_cube_dates_info(self) -> dict[str, dict[str, str | np.ndarray]]:
+        # TODO: to create the dict to store the dates and numbers data+metadata
+
+        # Add metadata
+        cube_numbers_info = {
+            'data': np.array(self.cube_numbers).astype('uint16'),
+            'unit': 'none',
+            'description': (
+                "The numbers for the data cubes that are used in this file. While this value doesn't really make sense for a random user, this information was "
+                "initially used to get a part of the metadata (like the acquisition time) for the cubes as it relates to the STEREO [...]nm acquisitions. All "
+                "being said, the corresponding dates are also saved in this HDF5 file."
+            ),
+        }
+        cube_dates_info = {
+            'data': np.array(self.dates).astype('S19'),
+            'unit': 'none',
+            'description': (
+                "The cube dates that are used in this file."
+            ),
+        }
+        
+        # Reformat for ease of use
+        information = {
+            'Numbers': cube_numbers_info,
+            'Dates': cube_dates_info,
+        }
+        return information
+    
     def create(self) -> None:
         """
         Main function that encapsulates the file creation and closing with a with statement.
         """
 
         with h5py.File(os.path.join(self.paths['save'],self.filename), 'a+' if self.exists else 'w') as H5PYFile:
-
-            # Setup filepaths
-            pattern = re.compile(r'cube(\d{3})\.save')
-            self.filepaths = sorted([
-                os.path.join(self.paths['cubes'], name)
-                for name in os.listdir(self.paths['cubes'])
-                if pattern.match(name)
-            ])
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
@@ -206,9 +268,13 @@ class DataSaver:
             'description': description,
         }
 
+        # Get more metadata
+        meta_info = self.get_cube_dates_info()
+
         # Update file
         H5PYFile = self.add_dataset(H5PYFile, info)
         H5PYFile = self.add_dataset(H5PYFile, self.dx, 'dx')
+        for key in meta_info.keys(): H5PYFile = self.add_dataset(H5PYFile, meta_info[key], key)
         return H5PYFile
     
     def add_dataset(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str = '') -> h5py.File | h5py.Group:
@@ -373,7 +439,7 @@ class DataSaver:
         group = self.add_cube(group, filtered_data, 'All data with feet', borders)
         group['All data with feet'].attrs['description'] = (
             "All data, i.e. the 0b00000001 filtered data with the feet. Hence, the data represents the intersection between the STEREO and SDO point of views.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), a weight of {self.foot_weight * 100}% of the initial cube pixels."
+            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
         )
 
         # Add no duplicates init
@@ -382,7 +448,7 @@ class DataSaver:
         group['No duplicates init with feet'].attrs['description'] = (
             "The initial no duplicates data, i.e. the 0b00000110 filtered data with feet. Hence, the data represents all the data without the duplicates, without "
             "taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), a weight of {self.foot_weight * 100}% of the initial cube pixels."
+            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
         )
 
         # Add no duplicates new
@@ -391,7 +457,7 @@ class DataSaver:
         group['No duplicates new with feet'].attrs['description'] = (
             "The new no duplicates data, i.e. the 0b00011000 filtered data with feet. Hence, the data represents all the data without any of the duplicates. "
             "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), a weight of {self.foot_weight * 100}% of the initial cube pixels."
+            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
         )
         return H5PYFile
     
@@ -489,7 +555,7 @@ class DataSaver:
         # Multiprocessing
         processes = [None] * processes_nb
         for i, index in enumerate(indexes): 
-            process = mp.Process(target=self.raw_cubes_sub, args=(queue, i, index))
+            process = mp.Process(target=self.raw_cubes_sub, args=(queue, i, self.filepaths[index[0]:index[1] + 1]))
             process.start()
             processes[i] = process
         for p in processes: p.join()
@@ -503,18 +569,19 @@ class DataSaver:
         self.time_indexes = list(set(rawCubes.coords[0, :])) 
         return rawCubes
     
-    def raw_cubes_sub(self, queue: mp.queues.Queue, queue_index: int, index: tuple[int, int]) -> None:
+    @staticmethod
+    def raw_cubes_sub(queue: mp.queues.Queue, queue_index: int, filepaths: list[str]) -> None:
         """
         To import the cubes in sections as there is a lot of cubes.
 
         Args:
             queue (mp.queues.Queue): to store the results.
             queue_index (int): to keep the initial ordering
-            index (tuple[int, int]): the unique index sections used by each process. 
+            filepaths (list[str]): the filepaths to open.
         """
 
-        cubes = [None] * (index[1] - index[0] + 1)
-        for i, filepath in enumerate(self.filepaths[index[0]:index[1] + 1]):
+        cubes = [None] * len(filepaths)
+        for i, filepath in enumerate(filepaths):
             cube = scipy.io.readsav(filepath).cube
 
             # Add line of sight data 
@@ -524,10 +591,11 @@ class DataSaver:
             cubes[i] = (cube + cube1 + cube2).astype('uint8')
         cubes = np.stack(cubes, axis=0)
         cubes = np.transpose(cubes, (0, 3, 2, 1))
-        cubes = self.sparse_data(cubes)
+        cubes = DataSaver.sparse_data(cubes)
         queue.put((queue_index, cubes))
 
-    def sparse_data(self, cubes: np.ndarray) -> sparse.COO:
+    @staticmethod
+    def sparse_data(cubes: np.ndarray) -> sparse.COO:
         """
         Changes data to a sparse representation.
 
@@ -761,7 +829,8 @@ class DataSaver:
             all_SkyCoords[identifier] = result
         return all_SkyCoords
     
-    def skyCoords_slice(self, coords: dict[str, any], input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+    @staticmethod
+    def skyCoords_slice(coords: dict[str, any], input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
         """
         To create an astropy.coordinates.SkyCoord object for a singular cube (i.e. for a unique time index).
 
@@ -1123,5 +1192,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver('testing12.h5', processes=10)    
+    DataSaver('testing_new.h5', processes=50)    
 
