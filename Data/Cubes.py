@@ -91,7 +91,9 @@ class DataSaver:
         return paths
     
     def setup_attributes(self):
-        # TODO: to create some instance attributes while not flooding the __init__ method
+        """
+        Multiple instance attributes are defined here. Function is only here to not flood the __init__ method.
+        """
         
         # Paths
         self.paths = self.setup_path()
@@ -130,10 +132,10 @@ class DataSaver:
         Gives the 2 feet positions as an astropy.coordinates.SkyCoord object in Carrington Heliographic Coordinates. 
 
         Args:
-            lonlat (tuple[tuple[int, int], ...]): _description_
+            lonlat (tuple[tuple[int, int], ...]): the longitude and latitude positions for the added feet (i.e. ((lon1, lat1), (lon2, lat2))).
 
         Returns:
-            coordinates.SkyCoord: _description_
+            coordinates.SkyCoord: the SkyCoord for the feet.
         """
 
         # Setup feet ndarray
@@ -149,7 +151,12 @@ class DataSaver:
         return coordinates.SkyCoord(cartesian_feet, frame=feet.frame, representation_type='cartesian')
     
     def get_cube_dates_info(self) -> dict[str, dict[str, str | np.ndarray]]:
-        # TODO: to create the dict to store the dates and numbers data+metadata
+        """
+        Gives the cube numbers and dates information. 
+
+        Returns:
+            dict[str, dict[str, str | np.ndarray]]: the data and metadata for the cube numbers and dates.
+        """
 
         # Add metadata
         cube_numbers_info = {
