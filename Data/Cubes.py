@@ -12,6 +12,7 @@ import scipy
 import sunpy
 import typing
 import sparse
+import astropy
 import datetime
 
 import numpy as np
@@ -25,7 +26,7 @@ from astropy import coordinates
 
 # Personal imports
 sys.path.append('..')  #TODO: need to check if I need os.path.join() but I don't see why I should
-from Common import MultiProcessing, Decorators
+from Common import MultiProcessing, Decorators, CustomDate
 
 # TODO: I also need to save the cube number and dates in the cube as an attribute 
 
@@ -57,8 +58,9 @@ class DataSaver:
         self.solar_r = 6.96e5  # in km
 
         # Attributes setup
+        self.max_cube_numbers = 413
         self.feet = self.setup_feet(feet_lonlat)
-        self.dx: dict[str, any]  # information and value of the spatial resolution
+        self.dx: dict[str, str | float]  # information and value of the spatial resolution
         self.time_indexes: list[int]  # the time indexes with values inside the cubes
 
         # Created attributes
@@ -84,8 +86,10 @@ class DataSaver:
         # Format paths
         paths = {
             'main': main,
+            'codes': python_codes,
             'cubes': os.path.join(main, 'Cubes_karine'),
             'intensities': os.path.join(main, 'STEREO', 'int'),
+            'sdo': os.path.join(main, 'sdo'),
             'save': os.path.join(python_codes, 'Data'),
         }
         return paths
@@ -117,8 +121,8 @@ class DataSaver:
 
         # Get dates
         date_filenames = sorted(os.listdir(self.paths['intensities']))
-        dates = [None] * len(self.filepaths)
-        for i, number in enumerate(self.cube_numbers):
+        dates = [None] * self.max_cube_numbers
+        for i, number in enumerate(range(self.max_cube_numbers)):
             for filename in date_filenames:
                 filename_match = date_pattern.match(filename)
                 if filename_match:
@@ -126,7 +130,7 @@ class DataSaver:
                         dates[i] = filename_match.group('date')
                         break
         self.dates: list[str] = dates
-    
+
     def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> coordinates.SkyCoord:
         """
         Gives the 2 feet positions as an astropy.coordinates.SkyCoord object in Carrington Heliographic Coordinates. 
@@ -163,22 +167,22 @@ class DataSaver:
             'data': np.array(self.cube_numbers).astype('uint16'),
             'unit': 'none',
             'description': (
-                "The numbers for the data cubes that are used in this file. While this value doesn't really make sense for a random user, this information was "
-                "initially used to get a part of the metadata (like the acquisition time) for the cubes as it relates to the STEREO [...]nm acquisitions. All "
-                "being said, the corresponding dates are also saved in this HDF5 file."
+                "The time indexes for the data cubes that are used in this file. This value is used to filter which dates (using the dates dataset) and where "
+                "the satellite is positioned (using the 'SDO positions' and 'STEREO B positions' datasets)."
             ),
         }
         cube_dates_info = {
             'data': np.array(self.dates).astype('S19'),
             'unit': 'none',
             'description': (
-                "The cube dates that are used in this file."
+                "The dates of the STEREO B 30.4nm acquisitions. These represent all the possible dates, and as such, to get the specific date for each data cube "
+                "used the time index dataset needs to be used (something like Dates[Time indexes] will give you the right dates if in 0 indexing)."
             ),
         }
         
         # Reformat for ease of use
         information = {
-            'Numbers': cube_numbers_info,
+            'Time indexes': cube_numbers_info,
             'Dates': cube_dates_info,
         }
         return information
@@ -207,7 +211,7 @@ class DataSaver:
             # Interpolation data and metadata
             H5PYFile = self.interpolation_group(H5PYFile)
 
-    def create_borders(self, values: tuple[float, ...]) -> tuple[dict[str, any], dict[str, dict[str, str | float]]]:
+    def create_borders(self, values: tuple[float, ...]) -> tuple[dict[str, str | float], dict[str, dict[str, str | float]]]:
         """
         Gives the border information for the data.
 
@@ -260,11 +264,10 @@ class DataSaver:
         description = (
             "Contains the data cubes for the Solar Rainbow event gotten from the intersection of masks gotten from SDO and STEREO images.The SDO masks "
             "were created from an automatic code created by Dr. Elie Soubrie, while the STEREO masks where manually created by Dr. Karine Bocchialini "
-            "by visual interpretation of the [...] nm monochromatic STEREO [...] images.\n"
-            "New values for the feet where added to help for a curve fitting of the filament. These were added by looking at the STEREO [...] nm images "
+            "by visual interpretation of the 30.4nm STEREO B acquisitions.\n"
+            "New values for the feet where added to help for a curve fitting of the filament. These were added by looking at the STEREO B [...] nm images "
             "as the ends of the filament are more visible. Hence, the feet are not actually visible in the initial masks.\n"
-            "The data:\n" 
-            "- the voxel values were coded in bits so that they can be easily separated in different categories. These are"
+            "Explanation on what each HDF5 group or dataset represent is given in the corresponding 'description' attribute."
         )
         # TODO: need to finish the explanation here and also explain that the data is saved as sparse arrays.
 
@@ -277,13 +280,168 @@ class DataSaver:
 
         # Get more metadata
         meta_info = self.get_cube_dates_info()
+        sdo_info = self.get_pos_sdo_info()
+        stereo_info = self.get_pos_sdo_info()
 
         # Update file
         H5PYFile = self.add_dataset(H5PYFile, info)
         H5PYFile = self.add_dataset(H5PYFile, self.dx, 'dx')
         for key in meta_info.keys(): H5PYFile = self.add_dataset(H5PYFile, meta_info[key], key)
+        H5PYFile = self.add_dataset(H5PYFile, sdo_info, 'SDO positions')
+        H5PYFile = self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
         return H5PYFile
     
+    @Decorators.running_time
+    def get_pos_sdo_info(self) -> dict[str, str | np.ndarray]:
+        """
+        Gives the SDO satellite position information in Cartesian Heliocentric Coordinates.
+
+        Returns:
+            dict[str, str | np.ndarray]: the data and metadata for the SDO satellite position
+        """
+
+        # Get data
+        SDO_fits_names = [
+            os.path.join(self.paths['sdo'], f'AIA_fullhead_{number:03d}.fits.gz')
+            for number in range(self.max_cube_numbers)
+        ]
+
+        # Get results
+        coordinates = self.get_pos_code(SDO_fits_names, self.get_pos_sdo_sub)
+
+        # Add metadata
+        information = {
+            'data': coordinates.astype('float32'),
+            'unit': 'km',
+            'description': (
+                "The position of the SDO satellite during the observations in cartesian heliocentric coordinates.\n"
+                "The shape of the data is (413, 3) where 413 represents the time indexes for the data and the 3 the x, y, z position of the satellite. "
+                "To find the right position for the right data cube, you need to use the 'Time indexes' dataset as they represent which time indexes we "
+                "have usable data."
+            ),
+        }
+        return information
+    
+    @Decorators.running_time
+    def get_pos_stereo_info(self) -> dict[str, str | np.ndarray]:
+        """
+        Gives the STEREO B satellite position information in Cartesian Heliocentric Coordinates.
+
+        Returns:
+            dict[str, str | np.ndarray]: the data and metadata for the STEREO B satellite position
+        """
+
+        # Get data
+        stereo_information = scipy.io.readsav(os.path.join(self.paths['codes'], 'rainbow_stereob_304.save')).datainfos
+
+        # Get results
+        coordinates = self.get_pos_code(stereo_information, self.get_pos_stereo_sub)
+
+        # Add metadata
+        information = {
+            'data': coordinates.astype('float32'),
+            'unit': 'km',
+            'description': (
+                "The position of the STEREO B satellite during the observations in cartesian heliocentric coordinates.\n"
+                "The shape of the data is (413, 3) where 413 represents the time indexes for the data and the 3 the x, y, z position of the satellite. "
+                "To find the right position for the right data cube, you need to use the 'Time indexes' dataset as they represent which time indexes we "
+                "have usable data."
+            ),          
+        }
+        return information
+
+    def get_pos_code(self, data: np.recarray | list[str], function: typing.Callable[[], np.ndarray]) -> np.ndarray:
+        """
+        To multiprocess the getting of the positions of the SDO and STEREO B satellites.
+
+        Args:
+            data (np.recarray | list[str]): the data information for SDO or STEREO B.
+            function (typing.Callable[[], np.ndarray]): the function used for each process to get the position of the satellite.
+
+        Returns:
+            np.ndarray: the position of the satellite in cartesian heliocentric coordinates.
+        """
+
+        # Setup
+        nb_processes = min(self.processes, self.max_cube_numbers)
+        manager = mp.Manager()
+        input_queue = manager.Queue()
+        output_queue = manager.Queue()
+        for i in range(self.max_cube_numbers): input_queue.put((i, data[i]))
+        for _ in range(nb_processes): input_queue.put(None)
+        # Run
+        processes = [None] * nb_processes
+        for i in range(nb_processes):
+            p = mp.Process(target=function, args=(input_queue, output_queue))
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        # Get results
+        coordinates = [None] * self.max_cube_numbers
+        while not output_queue.empty():
+            identifier, result = output_queue.get()
+            coordinates[identifier] = result
+        coordinates = np.stack(coordinates, axis=0)
+        return coordinates
+    
+    @staticmethod
+    def get_pos_sdo_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+        """
+        To get the position of the SDO satellite.
+
+        Args:
+            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for identification and SDO information.
+            output_queue (mp.queues.Queue): to save the results outside the function.
+        """
+        
+        while True:
+            # Get args
+            arguments = input_queue.get()
+            if arguments is None: return
+            identification, filepath = arguments
+
+            # Get file header
+            header = astropy.io.fits.getheader(filepath)
+            # Get positions
+            coords = sunpy.coordinates.frames.HeliographicCarrington(
+                header['CRLN_OBS'] * u.deg, header['CRLT_OBS'] * u.deg, header['DSUN_OBS'] * u.m, 
+                obstime=header['DATE-OBS'], observer='self'
+            )
+            coords = coords.represent_as(coordinates.CartesianRepresentation)
+
+            # In km
+            result = np.stack([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value], axis=0)
+            output_queue.put((identification, result))
+        
+    @staticmethod
+    def get_pos_stereo_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+        """
+        To get the position of the STEREO B satellite.
+
+        Args:
+            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for identification and SDO information.
+            output_queue (mp.queues.Queue): to save the results outside the function.
+        """
+
+        while True:
+            # Get args
+            arguments = input_queue.get()
+            if arguments is None: return
+            identification, information_recarray = arguments
+            
+            # Get positions
+            date = CustomDate(information_recarray.strdate)
+            stereo_date = f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
+            coords = sunpy.coordinates.frames.HeliographicCarrington(
+                information_recarray.lon * u.deg, information_recarray.lat * u.deg, information_recarray.dist * u.km,
+                obstime=stereo_date, observer='self'
+            )
+            coords = coords.represent_as(coordinates.CartesianRepresentation)
+
+            # In km
+            result = np.stack([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value], axis=0)
+            output_queue.put((identification, result))
+
     def add_dataset(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str = '') -> h5py.File | h5py.Group:
         """
         Adds a DataSet to a HDF5 group like object.
@@ -297,40 +455,16 @@ class DataSaver:
             h5py.File | h5py.Group: the input group like object with the added DataSet.
         """
         
-        # Find data key
+        # Find dataset key
+        stopped = False
         for key, item in info.items(): 
-            # print(f'for key {key} type is {type(item)}')
-            # print(f'here is the  key {key} with type {type(item)}')
-            if not isinstance(item, str): break
-        # print(key)
+            if not isinstance(item, str): stopped = True; break
+        if not stopped: key = ''  # No Datasets. Add attribute to group
 
-        dataset = group.require_dataset(name, shape=info[key].shape, dtype=info[key].dtype, data=info[key]) if name != '' else group
+        dataset = group.require_dataset(name, shape=info[key].shape, dtype=info[key].dtype, data=info[key]) if (name != '') or (key != '') else group
         for attrs_key, item in info.items():
             if key==attrs_key: continue
             dataset.attrs[attrs_key] = item 
-        return group
-    
-    def add_group_old(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str) -> h5py.File | h5py.Group:
-        """
-        Adds a group with the corresponding DataSets to a HDF5 group like object.
-
-        Args:
-            group (h5py.File | h5py.Group): the HDF5 group like object.
-            info (dict[str, str  |  dict[str  |  any]]): the information  and data to add in the group.
-            name (str): the name of the group.
-
-        Returns:
-            h5py.File | h5py.Group: the input group like object with the added group.
-        """
-
-        new_group = group.require_group(name)
-        for key, item in info.items():
-            if isinstance(item, str): 
-                new_group.attrs[key] = item
-            elif 'data' in item.keys():
-                new_group = self.add_dataset(new_group, item, key)
-            else:
-                new_group = self.add_group(new_group, item, key)
         return group
     
     def add_group(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str) -> h5py.File | h5py.Group:
@@ -468,6 +602,17 @@ class DataSaver:
         )
         return H5PYFile
     
+    def time_integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str | float]]) -> h5py.File:
+        # TODO: to create the time intergration main group
+
+        # Setup group
+        group = H5PYFile.create_group('Time integrated')
+        group.attrs['description'] = (
+            "This group has already time integrated data for ease of use when further analysing the data."
+        )
+
+        # TODO: need to setup the data creation
+    
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
         To get the sparse.COO object from the corresponding coords and values.
@@ -496,6 +641,10 @@ class DataSaver:
         Returns:
             h5py.File: the updated file object.
         """
+
+        # Setup paths
+        main_path_1 = 'Filtered/'
+        main_path_2 = 'Time integrated/'  #TODO: need to finish this art when I get the actual names 
 
         # All data
         group_path = 'Filtered/All data with feet'
@@ -533,11 +682,6 @@ class DataSaver:
         voxels_per_foot = np.round(voxels_per_cube * self.foot_weight)[:, None, None, None]
         feet = ((data & 0b00100000) > 0)
 
-        # print(f'the shape of data is {data.shape}')
-        # print(f'the shape of filtered data is {filtered_data.shape}')
-        # print(f'the shape of feet is {feet.shape}')
-        # print(f'the shape of voxel per foot is {voxels_per_foot.shape}')
-
         # Add feet
         feet = feet * voxels_per_foot  # TODO: this should work but keeping the warning here if I find problems in the visualisation
         return (filtered_data + feet).astype('uint16')
@@ -551,7 +695,6 @@ class DataSaver:
             tuple[sparse.COO, list[int]]: the raw data.
         """
 
-        # print(f'filepaths are {self.filepaths}')
         # Setup multiprocessing
         manager = mp.Manager()
         queue = manager.Queue()
@@ -685,9 +828,11 @@ class DataSaver:
             'coords': {
                 'data': data,
                 'unit': 'km',
-                'description': ("The t, x, y, z coordinates of the cube voxels.\n"
-                                "The shape is (4, N) where the rows represent t, x, y, z where t the time index (i.e. which cube it is), and N the total number "
-                                "of voxels. Furthermore, x, y, z, represent the X, Y, Z axis Carrington Heliographic Coordinates.\n"),
+                'description': (
+                    "The t, x, y, z coordinates of the cube voxels.\n"
+                    "The shape is (4, N) where the rows represent t, x, y, z where t the time index (i.e. which cube it is), and N the total number "
+                    "of voxels. Furthermore, x, y, z, represent the X, Y, Z axis Carrington Heliographic Coordinates.\n"
+                ),
             },
         }
         # Add border info
@@ -736,7 +881,6 @@ class DataSaver:
         y = self.feet.cartesian.y.to(u.km).value
         z = self.feet.cartesian.z.to(u.km).value
         positions = np.stack([x, y, z], axis=0)
-        # print(f'positions shape and dtype are {positions.shape}, {positions.dtype}')
 
         # Getting the new borders
         x_min, y_min, z_min = np.min(positions, axis=1) 
@@ -752,9 +896,6 @@ class DataSaver:
         positions /= self.dx['data']
         positions = np.round(positions).astype('int32')
 
-        # print(f'positions index max values are {np.max(positions, axis=1)}')
-        # print(f'positions index min values are {np.min(positions, axis=1)}')
-
         # Setup cubes with feet
         init_coords = data.coords
         # (x, y, z) -> (t, x, y, z)
@@ -762,26 +903,18 @@ class DataSaver:
             np.vstack((np.full((1, 2), time), positions))
             for time in self.time_indexes
         ])
-        # print(f'the initial data shape is {data.shape}')  # good
-        # print(f'feet shape {feet.shape}')  # missing feet for 3 cubes...
-        # print(f'feet max values are {np.max(feet, axis=1)}')
-        # print(f'len of time_indexes is {len(self.time_indexes)}')
+
         # Add feet 
         init_coords = np.hstack([init_coords, feet]).astype('int32')  # TODO: will change it to uint16 when I am sure that it is working as intended
 
-        shape = np.max(init_coords, axis=1) + 1
-        # print(f'the initial shape of init_coords is {shape}')
-
         # Indexes to positive values
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
-        # print(f'the minimum indexes are {x_min}, {y_min}, {z_min}')
         if x_min < 0: init_coords[1, :] -= x_min
         if y_min < 0: init_coords[2, :] -= y_min
         if z_min < 0: init_coords[3, :] -= z_min
 
         # Changing to COO 
         shape = np.max(init_coords, axis=1) + 1
-        print(f'the shape when saving is {shape}')
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
         values = np.concatenate([data.data.astype('uint8'), feet_values], axis=0)
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
@@ -871,7 +1004,7 @@ class DataSaver:
             # Saving result
             output_queue.put((index, skyCoord))
         shm.close()
-    
+
 
 class Interpolation:
     """
@@ -1058,9 +1191,7 @@ class Interpolation:
             interpolations[identifier] = interp
             parameters[identifier] = params
         interpolations = np.concatenate(interpolations, axis=1)
-        print(f'interpolation shape is {interpolations.shape}')
         parameters = np.concatenate(parameters, axis=1)
-        print(f'parameters shape is {parameters.shape}')
         return interpolations, parameters
 
     @staticmethod
@@ -1199,5 +1330,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver('testing_new.h5', processes=50)    
+    DataSaver('nearly_finished.h5', processes=50)    
 

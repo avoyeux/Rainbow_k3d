@@ -31,8 +31,7 @@ from .Common import Decorators, MultiProcessing
 
 class CustomDate:
     """
-    To separate the year, month, day, hour, minute, second from a string dateutil.parser.parser
-    doesn't work in this case. 
+    To separate the year, month, day, hour, minute, second if a string dateutil.parser.parser doesn't work. 
     """
 
     @typechecked
