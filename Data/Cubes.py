@@ -28,7 +28,7 @@ from astropy import coordinates
 sys.path.append('..')  #TODO: need to check if I need os.path.join() but I don't see why I should
 from Common import MultiProcessing, Decorators, CustomDate, DatesUtils
 
-# TODO: I also need to save the cube number and dates in the cube as an attribute 
+# TODO: need to add the data without feet in the filtered stuff
 
 class DataSaver:
     """
@@ -1171,8 +1171,10 @@ class Interpolation:
         """
 
         # Arguments 
-        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
-        self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        self.data = data.coords  
+        self.shape = data.shape
+        # self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
+        # self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
         self.poly_order = order
         self.processes = processes
         self.precision_nb = precision_nb
@@ -1444,8 +1446,9 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float32')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float32')
-        return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
-    
+        # return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data, params  
+
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
         To generate a polynomial function given a polynomial order.
@@ -1477,5 +1480,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver('nearly_finished.h5', processes=50)    
+    DataSaver('testing_otherway.h5', processes=50)    
 

@@ -9,14 +9,15 @@ import sys
 import k3d
 import time
 import h5py
+import typing
 import IPython
 import threading
-import ipywidgets
 import typeguard
+import ipywidgets
 
 import numpy as np
-import astropy.coordiantes as coordinates
-import sunpy.coordiantes.frames as frames
+import astropy.coordinates as coordinates
+import sunpy.coordinates.frames as frames
 import multiprocessing as mp
 
 # Submodules imports
@@ -96,9 +97,9 @@ class Setup:
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
             # Get main data
-            dx = H5PYFile['dx']
-            dates = H5PYFile['Dates']
-            numbers = H5PYFile['Time indexes']
+            dx = H5PYFile['dx'][...]
+            dates = H5PYFile['Dates'][...]
+            numbers = H5PYFile['Time indexes'][...]
             self.dates = [dates[number] for number in numbers]
             self.radius_index = self.solar_r / dx
 
@@ -106,8 +107,8 @@ class Setup:
             feet = ' with feet' if self.with_feet else ''
 
             # Sun center setup
-            border_group = H5PYFile['Filtered/All data' + feet]
-            self.sun_center = np.array([- border_group['xmin'], - border_group['ymin'], - border_group['zmin']])
+            border_group = H5PYFile['Filtered/All data' + feet]  
+            self.sun_center = np.array([- border_group['xmin'][...], - border_group['ymin'][...], - border_group['zmin'][...]])
 
             # Get data choices
             shape = None
@@ -116,21 +117,22 @@ class Setup:
                 paths.append('Filtered/All data' + feet)
                 self.cubes_all_data = self.get_COO(H5PYFile, paths[-1])
                 shape = self.cubes_all_data.shape
+                print(f'all data shape {shape}')
 
             if self.no_duplicates_new: 
                 paths.append('Filtered/No duplicates new' + feet)
                 self.cubes_no_duplicates_new = self.get_COO(H5PYFile, paths[-1])
-                if shape is not None: shape = self.cubes_no_duplicates_new.shape
-
+                # if shape is None: 
+                if shape is None: shape = self.cubes_no_duplicates_new.shape; print(f'no duplicates shape {shape}')
             if self.time_interval_all_data: 
-                paths.append('Time integrated/All data' + feet + f'/Time integration of {round(self.time_interval, 1)} hours')
+                paths.append('Time integrated/All data' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_all_data = self.get_COO(H5PYFile, paths[-1])
-                if shape is not None: shape = self.cubes_integrated_all_data.shape
+                if shape is None: shape = self.cubes_integrated_all_data.shape; print(f'integrated shape is {shape}')
 
             if self.time_interval_no_duplicates:
-                paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(self.time_interval, 1)} hours')
+                paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_no_duplicate = self.get_COO(H5PYFile, paths[-1])
-                if shape is not None: shape = self.cubes_integrated_no_duplicate.shape
+                if shape is None: shape = self.cubes_integrated_no_duplicate.shape; print(f'integrated no dupli shape is {shape}')
             
             if self.interpolation:
                 # Data path
@@ -145,6 +147,7 @@ class Setup:
                 names = [None] * len(interpolation_paths)
                 for i, path in enumerate(interpolation_paths):  #TODO: probably need a different code for all the possible options.
                     segments = path.split('/')
+                    middle = segments[-2]
 
                     name = 'Poly '
                     if 'All data' in middle:
@@ -167,13 +170,14 @@ class Setup:
 
                 interpolations = [None] * len(interpolation_paths)
                 for i, path in enumerate(interpolation_paths):
-                    interpolations[i] = sparse.COO(coords=H5PYFile[path], data=1, shape=shape).astype('uint16' if self.with_feet else 'uint8')
+                    print(shape)
+                    print(np.max(H5PYFile[path][...], axis=1))
+                    print(path)
+                    interpolations[i] = sparse.COO(coords=H5PYFile[path][...], data=1, shape=shape).astype('uint16' if self.with_feet else 'uint8')
                 self.interpolation_data = interpolations
             
-            if self.sdo_pov:
-                self.sdo_pos = H5PYFile['SDO positions'] / dx + self.sun_center  # TODO: need to add fov for sdo
-            if self.stereo_pov:
-                self.stereo_pov = H5PYFile['STEREO B positions'] / dx + self.sun_center  #TODO: will need to add the POV center
+            if self.sdo_pov: self.sdo_pos = H5PYFile['SDO positions'] / dx + self.sun_center  # TODO: need to add fov for sdo
+            if self.stereo_pov: self.stereo_pos = H5PYFile['STEREO B positions'] / dx + self.sun_center  #TODO: will need to add the POV center
 
             self.shape = shape
             
@@ -189,8 +193,8 @@ class Setup:
             sparse.COO: the corresponding sparse data.
         """
 
-        data_coords = H5PYFile[group_path + '/coords']
-        data_data = H5PYFile[group_path + '/values']
+        data_coords = H5PYFile[group_path + '/coords'][...]
+        data_data = H5PYFile[group_path + '/values'][...]
         data_shape = np.max(data_coords, axis=1) + 1
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape).astype('uint16' if self.with_feet else 'uint8')
     
@@ -201,7 +205,7 @@ class K3dAnimation(Setup):
     Creates the corresponding k3d animation to then be used in a Jupyter notebook file.
     """
 
-    @typeguard.typecheked
+    @typeguard.typechecked
     def __init__(self, compression_level: int = 9,
                  plot_height: int = 1260, 
                  sleep_time: int | float = 2, 
@@ -252,7 +256,6 @@ class K3dAnimation(Setup):
         self.time_slider: ipywidgets.IntSlider # time slider widget
         self.date_dropdown: ipywidgets.Dropdown  # Date dropdown widget to show the date
         self.time_link: ipywidgets.jslink  # JavaScript Link between the two widgets
-        self.date_text: list[str]  # gives the text associated to each time frames 
 
         # Making the animation
         if self.time_interval_all_data or self.time_interval_no_duplicates: self.Time_interval_string()
@@ -279,14 +282,14 @@ class K3dAnimation(Setup):
         
         # Point to look at, i.e. initial rotational reference
 
-        self._camera_reference = np.array([self.cubes_shape[3], self.cubes_shape[2], self.cubes_shape[1]]) / 2  # TODO: this is wrong but will do for now
+        self._camera_reference = np.array([self.shape[3], self.shape[2], self.shape[1]]) / 2  # TODO: this is wrong but will do for now
         
         if self.stereo_pov:
-            self.plot.camera = [self.STEREO_pos[0, 0], self.STEREO_pos[0, 1], self.STEREO_pos[0, 2],
+            self.plot.camera = [self.stereo_pos[0, 0], self.stereo_pos[0, 1], self.stereo_pos[0, 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 self.up_vector[0], self.up_vector[1], self.up_vector[2]] # up vector
         elif self.sdo_pov:
-            self.plot.camera = [self.SDO_pos[0, 0], self.SDO_pos[0, 1], self.SDO_pos[0, 2],
+            self.plot.camera = [self.sdo_pos[0, 0], self.sdo_pos[0, 1], self.sdo_pos[0, 2],
                                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                                 self.up_vector[0], self.up_vector[1], self.up_vector[2]]  # up vector
         else:
@@ -320,13 +323,13 @@ class K3dAnimation(Setup):
             time.sleep(0.2)
         
         if self.interpolation:
-            for index, plot in enumerate(self.plots_polynomials):
+            for index, plot in enumerate(self.plot_interpolation):
                 data = self.interpolation_data[index]
                 plot.voxels = self.Full_array(data[change['new']])
 
         if self.all_data: self.plot_alldata.voxels = self.Full_array(self.cubes_all_data[change['new']])
 
-        if self.no_duplicates: self.plot_dupli_new.voxels = self.Full_array(self.cubes_no_duplicates_new[change['new']])
+        if self.no_duplicates_new: self.plot_dupli_new.voxels = self.Full_array(self.cubes_no_duplicates_new[change['new']])
  
         if self.time_intervals_all_data: self.plot_interv_new.voxels = self.Full_array(self.cubes_integrated_all_data[change['new']])
                           
@@ -419,7 +422,7 @@ class K3dAnimation(Setup):
         else:
             raise ValueError("Time interval is way too large")
     
-    def Random_hexadecimal_color_generator(self) -> iter[int]:
+    def Random_hexadecimal_color_generator(self) -> typing.Generator[int, None, None]:
         """
         Generator that yields a color value in integer hexadecimal code format.
         """
@@ -440,7 +443,7 @@ class K3dAnimation(Setup):
         self.Camera_params()
         
         if self.interpolation:
-            self.plots_polynomials = []
+            self.plot_interpolation = []
             for (data, name) in zip(self.interpolation_data, self.interpolation_names):
                 plot = k3d.voxels(self.Full_array(data[0]), opacity=0.95, color_map=[next(self.Random_hexadecimal_color_generator())], name=name, **self.kwargs)
                 self.plot += plot
@@ -456,7 +459,7 @@ class K3dAnimation(Setup):
             self.plot_alldata = k3d.voxels(self.Full_array(self.cubes_all_data[0]), opacity=0.5, color_map=[0x0000ff], name='allData', **self.kwargs)
             self.plot += self.plot_alldata      
                
-        if self.no_duplicates:
+        if self.no_duplicates_new:
             self.plot_dupli_new = k3d.voxels(self.Full_array(self.cubes_no_duplicates_new[0]), color_map=[0x0000ff], opacity=0.3, name='M2: noDuplicates',
                                                 **self.kwargs)
             self.plot += self.plot_dupli_new
@@ -483,14 +486,14 @@ class K3dAnimation(Setup):
         self.play_pause_button = ipywidgets.ToggleButton(value=False, description='Play', icon='play')
 
         # Set up the time slider and the play/pause button
-        self.time_slider = ipywidgets.IntSlider(min=0, max=len(self.cube_numbers_all)-1, description='Frame:')
-        self.date_dropdown = ipywidgets.Dropdown(options=self.date_text, description='Date:')
+        self.time_slider = ipywidgets.IntSlider(min=0, max=len(self.dates)-1, description='Frame:')
+        self.date_dropdown = ipywidgets.Dropdown(options=self.dates, description='Date:')
         self.time_slider.observe(self.Update_voxel, names='value')
         self.time_link= ipywidgets.jslink((self.time_slider, 'value'), (self.date_dropdown, 'index'))
         self.play_pause_button.observe(self.Play_pause_handler, names='value')
 
         # Display
         IPython.display.display(self.plot, self.time_slider, self.date_dropdown, self.play_pause_button)
-        if self.make_screenshots:
-            self.plot.screenshot_scale = self.screenshot_scale
-            self.Screenshot_making()
+        # if self.make_screenshots:
+        #     self.plot.screenshot_scale = self.screenshot_scale
+        #     self.Screenshot_making()
