@@ -26,7 +26,7 @@ from astropy import coordinates
 
 # Personal imports
 sys.path.append('..')  #TODO: need to check if I need os.path.join() but I don't see why I should
-from Common import MultiProcessing, Decorators, CustomDate
+from Common import MultiProcessing, Decorators, CustomDate, DatesUtils
 
 # TODO: I also need to save the cube number and dates in the cube as an attribute 
 
@@ -39,6 +39,7 @@ class DataSaver:
     def __init__(self,
                  filename: str,
                  processes: int, 
+                 integration_time: int | list[int] = [6, 12, 24],
                  interpolation_points: float = 10**6, 
                  interpolation_order: int | list[int] = [3, 6],
                  feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
@@ -49,6 +50,7 @@ class DataSaver:
         # Initial attributes
         self.filename = filename
         self.processes = processes
+        self.integration_time = [integration_time * 3600] if isinstance(integration_time, int) else [time * 3600 for time in integration_time]
         self.interpolation_points = interpolation_points
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
         self.foot_weight = foot_weight
@@ -60,6 +62,7 @@ class DataSaver:
         # Attributes setup
         self.max_cube_numbers = 413
         self.feet = self.setup_feet(feet_lonlat)
+        self.cube_pattern, self.date_pattern = self.setup_patterns()
         self.dx: dict[str, str | float]  # information and value of the spatial resolution
         self.time_indexes: list[int]  # the time indexes with values inside the cubes
 
@@ -94,6 +97,19 @@ class DataSaver:
         }
         return paths
     
+    def setup_patterns(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
+        """
+        The regular expression patterns used.
+
+        Returns:
+            tuple[re.Pattern[str], re.Pattern[str]]: the regular expression patterns for the .save cubes and the intensities STEREO B 30.4nm.
+        """
+
+        # Patterns
+        cube_pattern = re.compile(r'cube(\d{3})\.save')
+        date_pattern = re.compile(r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+        return cube_pattern, date_pattern
+    
     def setup_attributes(self):
         """
         Multiple instance attributes are defined here. Function is only here to not flood the __init__ method.
@@ -102,20 +118,16 @@ class DataSaver:
         # Paths
         self.paths = self.setup_path()
 
-        # Patterns
-        cube_pattern = re.compile(r'cube(\d{3})\.save')
-        date_pattern = re.compile(r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
-
         # Get cubes filepaths
         self.filepaths = sorted([
             os.path.join(self.paths['cubes'], name)
             for name in os.listdir(self.paths['cubes'])
-            if cube_pattern.match(name)
+            if self.cube_pattern.match(name)
         ])
 
         # Get cube numbers
         self.cube_numbers = [
-            int(cube_pattern.match(os.path.basename(filepath)).group(1))
+            int(self.cube_pattern.match(os.path.basename(filepath)).group(1))
             for filepath in self.filepaths
         ]
 
@@ -124,12 +136,21 @@ class DataSaver:
         dates = [None] * self.max_cube_numbers
         for i, number in enumerate(range(self.max_cube_numbers)):
             for filename in date_filenames:
-                filename_match = date_pattern.match(filename)
+                filename_match = self.date_pattern.match(filename)
                 if filename_match:
                     if int(filename_match.group('number')) == number:
                         dates[i] = filename_match.group('date')
                         break
         self.dates: list[str] = dates
+
+        # Get pretreated dates
+        treated_dates = [CustomDate(self.dates[number]) for number in self.cube_numbers]
+        year = treated_dates[0].year
+        days_per_month = DatesUtils.days_per_month(year)
+        self.dates_seconds = [
+            (((days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
+            for date in treated_dates
+        ]
 
     def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> coordinates.SkyCoord:
         """
@@ -208,6 +229,9 @@ class DataSaver:
             # Filtered data and metadata
             H5PYFile = self.filtered_group(H5PYFile, feet_borders)
 
+            # Integration data and metadata
+            H5PYFile = self.integrated_group(H5PYFile)
+
             # Interpolation data and metadata
             H5PYFile = self.interpolation_group(H5PYFile)
 
@@ -281,7 +305,7 @@ class DataSaver:
         # Get more metadata
         meta_info = self.get_cube_dates_info()
         sdo_info = self.get_pos_sdo_info()
-        stereo_info = self.get_pos_sdo_info()
+        stereo_info = self.get_pos_stereo_info()
 
         # Update file
         H5PYFile = self.add_dataset(H5PYFile, info)
@@ -332,7 +356,7 @@ class DataSaver:
         """
 
         # Get data
-        stereo_information = scipy.io.readsav(os.path.join(self.paths['codes'], 'rainbow_stereob_304.save')).datainfos
+        stereo_information = scipy.io.readsav(os.path.join(self.paths['main'], 'rainbow_stereob_304.save')).datainfos
 
         # Get results
         coordinates = self.get_pos_code(stereo_information, self.get_pos_stereo_sub)
@@ -602,17 +626,138 @@ class DataSaver:
         )
         return H5PYFile
     
-    def time_integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str | float]]) -> h5py.File:
+    @Decorators.running_time
+    def integrated_group(self, H5PYFile: h5py.File) -> h5py.File:
         # TODO: to create the time intergration main group
 
         # Setup group
         group = H5PYFile.create_group('Time integrated')
         group.attrs['description'] = (
-            "This group has already time integrated data for ease of use when further analysing the data."
+            "This group has already time integrated data for some of the main data filtering.\n"
+            "This was created for ease of use when further analysing the structures."
         )
 
-        # TODO: need to setup the data creation
-    
+        data_options = ['All data with feet', 'No duplicates new with feet']
+
+        for option in data_options:
+
+            # Setup group
+            inside_group = group.create_group(option)
+            inside_group.attrs['description'] = (
+                f"This group only contains {option.lower()} time integrated data.\n"
+                f"To get border info, please refer to the Filtered/{option} data group."
+            )
+
+            for integration_time in self.integration_time:
+                # Setup
+                time_hours = round(integration_time / 3600, 1)
+                group_name = f'Time integration of {time_hours} hours'
+
+                # Get data
+                data = self.time_integration(H5PYFile, f'Filtered/{option}', integration_time)
+
+                # Setup group
+                inside_group = self.add_cube(inside_group, data, group_name)
+                inside_group[group_name].attrs['description'] = (
+                    f"This group contains the {option.lower()} data integrated on {time_hours} hours intervals."
+                )
+        return H5PYFile                
+
+    @Decorators.running_time
+    def time_integration(self, H5PYFile: h5py.File, datapath: str, time: int) -> sparse.COO:
+        """
+        Gives the time integration of all the data for a given time interval in seconds.
+
+        Args:
+            H5PYFile (h5py.File): the HDF5 file.
+            datapath (str): the datapath to the data to be integrated.
+            time (int): the integration time (in seconds).
+
+        Returns:
+            sparse.COO: the integrated data.
+        """
+
+        # Get data
+        data = self.get_COO(H5PYFile, datapath).astype('uint16')  #TODO: will need to make a shared memory object later
+
+        # Setup multiprocessing
+        dates_len = len(self.dates_seconds)
+        nb_processes = min(self.processes, dates_len)
+        manager = mp.Manager()
+        input_queue = manager.Queue()
+        output_queue = manager.Queue()
+        for i, date in enumerate(self.dates_seconds): input_queue.put((i, data, date, self.dates_seconds, time))
+        for _ in range(nb_processes): input_queue.put(None)
+        # Run
+        processes = [None] * nb_processes
+        for i in range(nb_processes):
+            p = mp.Process(target=self.time_integration_sub, args=(input_queue, output_queue))
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        # Results
+        data = [None] * dates_len
+        while not output_queue.empty():
+            identification, result = output_queue.get()
+            data[identification] = result
+        return sparse.stack(data, axis=0).astype('uint16')
+
+    @staticmethod
+    def time_integration_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+        """
+        To multiprocess the time integration of the cubes. This does it for each given date.
+
+        Args:
+            input_queue (mp.queues.Queue): the input arguments in a mp.Manager.Queue().
+            output_queue (mp.queues.Queue): the results in a np.Manager.Queue().
+        """
+
+        while True:
+            arguments = input_queue.get()
+            if arguments is None: return
+
+            index, data, date, dates, integration_time = arguments
+            date_min = date - integration_time / 2  # TODO: need to change this so that I can do the same for multiple integration times
+            date_max = date + integration_time / 2
+
+            # Result
+            chunk = DataSaver.cube_integration(data, date_max, date_min, dates)
+            output_queue.put((index, chunk))
+
+    @staticmethod
+    def cube_integration(data: sparse.COO, date_max: int, date_min: int, dates: list[int]) -> sparse.COO:
+        """
+        To integrate the date cubes given the max and min date (in seconds) for the integration limits.
+
+        Args:
+            data (sparse.COO): the data to integrate.
+            date_max (int): the maximum date (in seconds) for he integration.
+            date_min (int): the minimum date (in seconds) for the integration.
+            dates (list[int]): the dates of the cubes in seconds.
+
+        Returns:
+            sparse.COO: the integrated cubes.
+        """
+
+        chunk = []
+        for date, cube in zip(dates, data):
+
+            if date < date_min:
+                continue
+            elif date <= date_max:
+                chunk.append(cube)
+            else:
+                break
+
+        # Nothing found
+        if chunk == []:
+            return sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint16')
+        elif len(chunk) == 1:
+            return chunk[0]
+        else:
+            chunk = sparse.stack(chunk, axis=0)
+            return sparse.COO.any(chunk, axis=0)
+        
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
         To get the sparse.COO object from the corresponding coords and values.
@@ -644,22 +789,22 @@ class DataSaver:
 
         # Setup paths
         main_path_1 = 'Filtered/'
-        main_path_2 = 'Time integrated/'  #TODO: need to finish this art when I get the actual names 
+        main_path_2 = 'Time integrated/' 
+        main_options = ['All data with feet', 'No duplicates new with feet']  # TODO: need to add the new duplicates init when I understand the error
+        sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
 
-        # All data
-        group_path = 'Filtered/All data with feet'
-        data = self.get_COO(H5PYFile, group_path).astype('uint16')
-        self.add_interpolation(H5PYFile[group_path], data)
-
-        # # No duplicates init  # TODO: need to add it later on when I understand why the data shape is like this (right now there are clearly too many voxels)
-        # group_path = 'Filtered/No duplicates init with feet'
-        # data = self.get_COO(H5PYFile, group_path).astype('uint16')
-        # self.add_interpolation(H5PYFile[group_path], data)
-
-        # No duplicates new
-        group_path = 'Filtered/No duplicates new with feet'
-        data = self.get_COO(H5PYFile, group_path).astype('uint16')
-        self.add_interpolation(H5PYFile[group_path], data)
+        # Filtered group
+        for main_option in main_options:
+            group_path = main_path_1 + main_option
+            data = self.get_COO(H5PYFile, group_path).astype('uint16')
+            self.add_interpolation(H5PYFile[group_path], data)
+        
+        # Time integration group
+        for main_option in main_options:
+            for sub_option in sub_options:
+                group_path = main_path_2 + main_option + sub_option
+                data = self.get_COO(H5PYFile, group_path).astype('uint16')
+                self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
 
     def cubes_filtering(self, data: sparse.COO, bit_filter: int) -> sparse.COO:
@@ -760,7 +905,8 @@ class DataSaver:
         cubes.coords = cubes.coords.astype('uint16')  # to save RAM
         return cubes
     
-    def add_cube(self, group: h5py.File | h5py.Group, data: sparse.COO, data_name: str, borders: dict[str, dict[str, str | float]]) -> h5py.File | h5py.Group:
+    def add_cube(self, group: h5py.File | h5py.Group, data: sparse.COO, data_name: str, borders: dict[str, dict[str, str | float]] | None = None
+                 ) -> h5py.File | h5py.Group:
         """
         To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes also into account the border information.
 
@@ -790,7 +936,8 @@ class DataSaver:
             },
         }
         # Add border info
-        raw |= borders
+        if borders is not None: raw |= borders
+        
         group = self.add_group(group, raw, data_name)
         return group
     
@@ -803,7 +950,7 @@ class DataSaver:
             group (h5py.File | h5py.Group): the Group where to add the data information.
             data (sparse.COO): the data that needs to be included in the file.
             data_name (str): the group name to be used in the file.
-            borders (dict[str, dict[str, str  |  float]]): the data border information.
+            borders (dict[str, dict[str, str  |  float]] | None, optional): the data border information.
 
         Returns:
             h5py.File | h5py.Group: the updated group.
