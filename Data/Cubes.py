@@ -44,7 +44,8 @@ class DataSaver:
                  interpolation_order: int | list[int] = [3, 6],
                  feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
                  foot_weight: float = 0.075,
-                 exits_ok: bool = False
+                 exits_ok: bool = False, #TODO: need to add this functionality
+                 full: bool = False, 
                  ) -> None:
 
         # Initial attributes
@@ -55,6 +56,7 @@ class DataSaver:
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
         self.foot_weight = foot_weight
         self.exists = exits_ok
+        self.full = full  # deciding to add the heavy sky coords arrays.
 
         # Constants
         self.solar_r = 6.96e5  # in km
@@ -561,9 +563,10 @@ class DataSaver:
             "Furthermore, it is of course also possible to mix and match to get more varied datasets, e.g. -0b00011000 represents the no duplicates data."
         )
 
-        # Add raw skycoords group
-        group = self.add_skycoords(group, data, 'Raw coordinates', borders)
-        group['Raw coordinates'].attrs['description'] = 'The initial data saved as Carrington Heliographic Coordinates in km.'
+        if self.full:
+            # Add raw skycoords group
+            group = self.add_skycoords(group, data, 'Raw coordinates', borders)
+            group['Raw coordinates'].attrs['description'] = 'The initial data saved as Carrington Heliographic Coordinates in km.'
 
         # Add raw feet
         data, borders = self.with_feet(data, borders)
@@ -571,9 +574,10 @@ class DataSaver:
         group['Raw cubes with feet'].attrs['description'] = 'The initial raw data in COO format with the feet positions added.'
         group['Raw cubes with feet/values'].attrs['description'] = group['Raw cubes/values'].attrs['description']
 
-        # Add raw skycoords with feet
-        group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
-        group['Raw coordinates with feet'].attrs['description'] = 'The initial data with the feet positions added saved as Carrington Heliographic Coordinates in km.'
+        if self.full:
+            # Add raw skycoords with feet
+            group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
+            group['Raw coordinates with feet'].attrs['description'] = 'The initial data with the feet positions added saved as Carrington Heliographic Coordinates in km.'
         return H5PYFile, borders
     
     @Decorators.running_time
@@ -596,34 +600,41 @@ class DataSaver:
             "weight to the feet. Hence, the interpolation data for each filtered data group is also available."
         )
 
-        # Get data
-        data = self.get_COO(H5PYFile, 'Raw/Raw cubes with feet').astype('uint8')
+        # Setup options
+        options = ['', ' with feet']
 
-        # Add all data
-        filtered_data = self.cubes_filtering(data, 0b00000001)
-        group = self.add_cube(group, filtered_data, 'All data with feet', borders)
-        group['All data with feet'].attrs['description'] = (
-            "All data, i.e. the 0b00000001 filtered data with the feet. Hence, the data represents the intersection between the STEREO and SDO point of views.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
-        )
+        for option in options:
+            # Get data
+            data = self.get_COO(H5PYFile, f'Raw/Raw cubes{option}').astype('uint8')
 
-        # Add no duplicates init
-        filtered_data = self.cubes_filtering(data, 0b00000110)  #TODO: the shape of the resulting data is weird, no clue why.
-        group = self.add_cube(group, data, 'No duplicates init with feet', borders)
-        group['No duplicates init with feet'].attrs['description'] = (
-            "The initial no duplicates data, i.e. the 0b00000110 filtered data with feet. Hence, the data represents all the data without the duplicates, without "
-            "taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
-        )
+            # Add all data
+            filtered_data = self.cubes_filtering(data, 0b00000001, option)
+            group = self.add_cube(group, filtered_data, f'All data{option}', borders)
+            group[f'All data{option}'].attrs['description'] = (
+                f"All data, i.e. the 0b00000001 filtered data{option}. Hence, the data represents the intersection between the STEREO and SDO point of views.\n"
+                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels." 
+                   if option != '' else '')
+            )
 
-        # Add no duplicates new
-        filtered_data = self.cubes_filtering(data, 0b00011000)
-        group = self.add_cube(group, filtered_data, 'No duplicates new with feet', borders)
-        group['No duplicates new with feet'].attrs['description'] = (
-            "The new no duplicates data, i.e. the 0b00011000 filtered data with feet. Hence, the data represents all the data without any of the duplicates. "
-            "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
-            f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
-        )
+            # Add no duplicates init
+            filtered_data = self.cubes_filtering(data, 0b00000110, option)  #TODO: the shape of the resulting data is weird, no clue why.
+            group = self.add_cube(group, data, f'No duplicates init{option}', borders)
+            group[f'No duplicates init{option}'].attrs['description'] = (
+                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. Hence, the data represents all the data without the duplicates, without "
+                "taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
+                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
+                   if option != '' else '')
+            )
+
+            # Add no duplicates new
+            filtered_data = self.cubes_filtering(data, 0b00011000, option)
+            group = self.add_cube(group, filtered_data, f'No duplicates new{option}', borders)
+            group[f'No duplicates new{option}'].attrs['description'] = (
+                f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, the data represents all the data without any of the duplicates. "
+                "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
+                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
+                   if option != '' else '')
+            )
         return H5PYFile
     
     @Decorators.running_time
@@ -637,7 +648,12 @@ class DataSaver:
             "This was created for ease of use when further analysing the structures."
         )
 
-        data_options = ['All data with feet', 'No duplicates new with feet']
+        # Data options with or without feet
+        data_options = [
+            f'{data_type}{feet}'
+            for data_type in ['All data', 'No duplicates new']
+            for feet in ['', ' with feet']
+        ]
 
         for option in data_options:
 
@@ -770,8 +786,8 @@ class DataSaver:
             sparse.COO: the corresponding sparse data.
         """
 
-        data_coords = H5PYFile[group_path + '/coords']
-        data_data = H5PYFile[group_path + '/values']
+        data_coords = H5PYFile[group_path + '/coords'][...]
+        data_data = H5PYFile[group_path + '/values'][...]
         data_shape = np.max(data_coords, axis=1) + 1
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
@@ -790,24 +806,32 @@ class DataSaver:
         # Setup paths
         main_path_1 = 'Filtered/'
         main_path_2 = 'Time integrated/' 
-        main_options = ['All data with feet', 'No duplicates new with feet']  # TODO: need to add the new duplicates init when I understand the error
+        
+        # Data options with or without feet
+        data_options = [
+            f'{data_type}{feet}'
+            for data_type in ['All data', 'No duplicates new']
+            for feet in ['', ' with feet']
+        ]
+
+        # main_options = ['All data with feet', 'No duplicates new with feet']  # TODO: need to add the new duplicates init when I understand the error
         sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
 
         # Filtered group
-        for main_option in main_options:
+        for main_option in data_options:
             group_path = main_path_1 + main_option
             data = self.get_COO(H5PYFile, group_path).astype('uint16')
             self.add_interpolation(H5PYFile[group_path], data)
         
         # Time integration group
-        for main_option in main_options:
+        for main_option in data_options:
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
                 self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
 
-    def cubes_filtering(self, data: sparse.COO, bit_filter: int) -> sparse.COO:
+    def cubes_filtering(self, data: sparse.COO, bit_filter: int, feet: str) -> sparse.COO:
         """
         To filter the data and add the feet with the appropriate weight.
 
@@ -822,14 +846,16 @@ class DataSaver:
         # Filtering data
         filtered_data = ((data & bit_filter) == bit_filter).astype('uint16')
 
-        # Setup feet weight
-        voxels_per_cube = sparse.COO.sum(data, axis=(1, 2, 3)).todense()
-        voxels_per_foot = np.round(voxels_per_cube * self.foot_weight)[:, None, None, None]
-        feet = ((data & 0b00100000) > 0)
+        if feet != '':
+            # Setup feet weight
+            voxels_per_cube = sparse.COO.sum(data, axis=(1, 2, 3)).todense()
+            voxels_per_foot = np.round(voxels_per_cube * self.foot_weight)[:, None, None, None]
+            feet = ((data & 0b00100000) > 0)
 
-        # Add feet
-        feet = feet * voxels_per_foot  # TODO: this should work but keeping the warning here if I find problems in the visualisation
-        return (filtered_data + feet).astype('uint16')
+            # Add feet
+            feet = feet * voxels_per_foot  # TODO: this should work but keeping the warning here if I find problems in the visualisation
+            return (filtered_data + feet).astype('uint16')
+        return filtered_data
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1003,6 +1029,7 @@ class DataSaver:
             'data': data, 
             'processes': self.processes,
             'precision_nb': self.interpolation_points,
+            'full': self.full,
         }
         # Loop n-orders
         for n_order in self.interpolation_order:
@@ -1158,7 +1185,13 @@ class Interpolation:
     To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
     """
 
-    def __init__(self, data: sparse.COO, order: int, processes: int, precision_nb: int | float = 10**6) -> None:
+    def __init__(self, 
+                 data: sparse.COO, 
+                 order: int, 
+                 processes: int, 
+                 precision_nb: int | float = 10**6, 
+                 full: bool = False
+                 ) -> None:
         """
         Initialisation of the Interpolation class. Using the get_information() instance method, you can get the curve position voxels and the 
         corresponding n-th order polynomial parameters with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
@@ -1171,13 +1204,14 @@ class Interpolation:
         """
 
         # Arguments 
-        self.data = data.coords  
-        self.shape = data.shape
+        self.data: np.ndarray = data.coords  
+        self.shape: tuple = data.shape
         # self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
         # self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
         self.poly_order = order
         self.processes = processes
         self.precision_nb = precision_nb
+        self.full = full
 
         # New attributes
         self.params_init = np.random.rand(order + 1)  # the initial (random) polynomial coefficients
@@ -1200,14 +1234,7 @@ class Interpolation:
         # Save information
         information = {
             'description': f"The interpolation curve with the corresponding parameters of the {self.poly_order}th order polynomial for each cube.",
-            'raw coords': {
-                'data': interpolations.astype('float32'),
-                'unit': 'none',
-                'description': (
-                    "The index positions of the fitting curve for the corresponding data. The shape of this data is (4, N) where the rows represent (t, x, y, z). "
-                    "Furthermore, the index positions are saved as floats, i.e. if you need to visualise it as voxels, then an np.round() and np.unique() is needed."
-                ),
-            },
+
             'treated coords': {
                 'data': treated_interpolations,
                 'unit': 'none',
@@ -1226,6 +1253,18 @@ class Interpolation:
                 ),
             },
         }
+        if self.full:
+            raw_coords = {
+                'raw_coords': {
+                    'data': interpolations.astype('float32'),
+                    'unit': 'none',
+                    'description': (
+                        "The index positions of the fitting curve for the corresponding data. The shape of this data is (4, N) where the rows represent (t, x, y, z). "
+                        "Furthermore, the index positions are saved as floats, i.e. if you need to visualise it as voxels, then an np.round() and np.unique() is needed."
+                    ),
+                },
+            }
+            information |= raw_coords 
         return information
     
     @Decorators.running_time

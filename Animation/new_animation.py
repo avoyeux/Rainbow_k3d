@@ -36,7 +36,7 @@ class Setup:
 
     @typeguard.typechecked
     def __init__(self,
-                 filename: str = 'nearly_finished.h5',
+                 filename: str = 'lastway.h5',
                  sun: bool = False,
                  with_feet: bool = False,
                  all_data: bool = False,
@@ -100,7 +100,7 @@ class Setup:
             dx = H5PYFile['dx'][...]
             dates = H5PYFile['Dates'][...]
             numbers = H5PYFile['Time indexes'][...]
-            self.dates = [dates[number] for number in numbers]
+            self.dates = [dates[number].decode('utf-8') for number in numbers]
             self.radius_index = self.solar_r / dx
 
             # Feet setup
@@ -108,7 +108,7 @@ class Setup:
 
             # Sun center setup
             border_group = H5PYFile['Filtered/All data' + feet]  
-            self.sun_center = np.array([- border_group['xmin'][...], - border_group['ymin'][...], - border_group['zmin'][...]])
+            self.sun_center = np.array([- border_group['xmin'][...], - border_group['ymin'][...], - border_group['zmin'][...]]) / dx
 
             # Get data choices
             shape = None
@@ -117,22 +117,21 @@ class Setup:
                 paths.append('Filtered/All data' + feet)
                 self.cubes_all_data = self.get_COO(H5PYFile, paths[-1])
                 shape = self.cubes_all_data.shape
-                print(f'all data shape {shape}')
 
             if self.no_duplicates_new: 
                 paths.append('Filtered/No duplicates new' + feet)
                 self.cubes_no_duplicates_new = self.get_COO(H5PYFile, paths[-1])
                 # if shape is None: 
-                if shape is None: shape = self.cubes_no_duplicates_new.shape; print(f'no duplicates shape {shape}')
+                if shape is None: shape = self.cubes_no_duplicates_new.shape
             if self.time_interval_all_data: 
                 paths.append('Time integrated/All data' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_all_data = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_integrated_all_data.shape; print(f'integrated shape is {shape}')
+                if shape is None: shape = self.cubes_integrated_all_data.shape;
 
             if self.time_interval_no_duplicates:
                 paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_no_duplicate = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_integrated_no_duplicate.shape; print(f'integrated no dupli shape is {shape}')
+                if shape is None: shape = self.cubes_integrated_no_duplicate.shape
             
             if self.interpolation:
                 # Data path
@@ -142,13 +141,14 @@ class Setup:
                     for order in self.interpolation_order
                 ]
                 # Pattern for naming
-                end_pattern = re.compile(r"\d*.?\d+")
+                end_pattern = re.compile(r"(\d+\.?\d+|\d+)")
+                interpolation_pattern = re.compile(r"(\d+)")
 
                 names = [None] * len(interpolation_paths)
                 for i, path in enumerate(interpolation_paths):  #TODO: probably need a different code for all the possible options.
                     segments = path.split('/')
-                    middle = segments[-2]
-
+                    middle = segments[1]
+                    print(f'middle is {middle}')
                     name = 'Poly '
                     if 'All data' in middle:
                         name += 'allData'
@@ -157,22 +157,32 @@ class Setup:
                     if 'feet' in middle:
                         name += '+feet'
 
-                    if len(segments) == 3:
-                        _, middle, end = segments
-                        pattern_match = end_pattern.match(end)
+                    if len(segments) == 5:
+                        
+                        end = segments[2]
+                        print(f'end is {end}')
+                        pattern_match = re.search(end_pattern, end)
                         if pattern_match is not None:
-                            time_integration = float(pattern_match.group())
+                            time_integration = float(pattern_match.group(0))
                             name += f' {time_integration}h'
                         else:
-                            raise ValueError(f'Pattern is wrong boss.')
+                            raise ValueError('Pattern is wrong boss.')
+                    
+                    interpolation_name = segments[-2]
+                    interp_match = re.search(interpolation_pattern, interpolation_name)
+                    if interp_match is not None:
+                        name += f'+{interp_match.group(0)}order'
+                    else:
+                        raise ValueError('Interpolation pattern is wrong my lord.')
+                    
                     names[i] = name
                 self.interpolation_names = names
 
                 interpolations = [None] * len(interpolation_paths)
                 for i, path in enumerate(interpolation_paths):
-                    print(shape)
-                    print(np.max(H5PYFile[path][...], axis=1))
-                    print(path)
+                    # print(shape)
+                    # print(np.max(H5PYFile[path][...], axis=1))
+                    # print(path)
                     interpolations[i] = sparse.COO(coords=H5PYFile[path][...], data=1, shape=shape).astype('uint16' if self.with_feet else 'uint8')
                 self.interpolation_data = interpolations
             
@@ -214,7 +224,8 @@ class K3dAnimation(Setup):
                  camera_pos: tuple[int | float, int | float, int | float] | None = None,
                  up_vector: tuple[int, int, int] = (0, 0, 1), 
                  visible_grid: bool = False, 
-                 outlines: bool = False,  
+                 outlines: bool = False,
+                 texture_resolution: int = 960,  
                  **kwargs):
         
         super().__init__(**kwargs)
@@ -226,6 +237,7 @@ class K3dAnimation(Setup):
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
         self.up_vector = up_vector  # up vector for the camera
         self.visible_grid = visible_grid  # setting the grid to be visible or not
+        self.texture_resolution = texture_resolution
         
         if camera_fov=='sdo':
             self.camera_fov = self.Fov_for_SDO()
@@ -244,11 +256,6 @@ class K3dAnimation(Setup):
         # Instance attributes set when running the class
         self.plot: k3d.plot  # plot object
         self.plot_alldata: k3d.voxels  # voxels plot of the all data 
-        self.plot_dupli_STEREO_init: k3d.voxels  # voxels plot of the no duplicates seen from STEREO for the first method
-        self.plot_dupli_STEREO_new: k3d.voxels  # same for the second method
-        self.plot_dupli_SDO_init: k3d.voxels  # same for SDO for the first method
-        self.plot_dupli_SDO_new: k3d.voxels  # same for the second method
-        self.plot_dupli_init: k3d.voxels  # voxels plot of the no duplicate for the first method
         self.plot_dupli_new: k3d.voxels  # same for the second method
         self.plot_interv_new: k3d.voxels  # same for the second method
         self.plot_interv_dupli_new: k3d.voxels  # same for the second method
@@ -261,6 +268,31 @@ class K3dAnimation(Setup):
         if self.time_interval_all_data or self.time_interval_no_duplicates: self.Time_interval_string()
         self.Animation()
 
+
+    def add_sun(self):
+        # TODO: to add the sun, will need to change it later to re-add the grid.
+
+        # Initialisation
+        N = self.texture_resolution  # number of points in the theta direction
+        phi = np.linspace(0, np.pi, N)  # latitude of the points
+        theta = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
+        phi, theta = np.meshgrid(phi, theta)  # the subsequent meshgrid
+
+        # Conversion to cartesian coordinates
+        x = self.radius_index * np.sin(phi) * np.cos(theta) + self.sun_center[0]
+        y = self.radius_index * np.sin(phi) * np.sin(theta) + self.sun_center[1]
+        z = self.radius_index * np.cos(phi) + self.sun_center[2] 
+
+        # # Conversion to cartesian coordinates
+        # x = self.radius_index * np.sin(phi) * np.cos(theta) 
+        # y = self.radius_index * np.sin(phi) * np.sin(theta) 
+        # z = self.radius_index * np.cos(phi) 
+
+        print(f"x, y and z shapes for the sun are {x.shape}, {y.shape}, {z.shape}.")
+
+        # Creation of the position of the spherical cloud of points
+        self.sun_points = np.array([z.ravel(), y.ravel(), x.ravel()], dtype='float32').T
+
     def Full_array(self, sparse_cube: COO) -> np.ndarray:
         """
         To recreate a full 3D np.array from a sparse np.ndarray representing a 3D volume.
@@ -269,7 +301,7 @@ class K3dAnimation(Setup):
 
 
         cube = sparse_cube.todense()
-        return cube.astype('uint16' if self.with_feet else 'uint8')
+        return cube.astype('uint8')
 
     def Camera_params(self) -> None:
         """
@@ -322,10 +354,10 @@ class K3dAnimation(Setup):
                                 0, 0, 1]
             time.sleep(0.2)
         
-        if self.interpolation:
-            for index, plot in enumerate(self.plot_interpolation):
-                data = self.interpolation_data[index]
-                plot.voxels = self.Full_array(data[change['new']])
+        # if self.interpolation:
+        #     for index, plot in enumerate(self.plot_interpolation):
+        #         data = self.interpolation_data[index]
+        #         plot.voxels = self.Full_array(data[change['new']])
 
         if self.all_data: self.plot_alldata.voxels = self.Full_array(self.cubes_all_data[change['new']])
 
@@ -450,9 +482,10 @@ class K3dAnimation(Setup):
                 self.plot_interpolation.append(plot)
 
         # Adding the SUN!!!
-        # if self.sun:
-        #     self.plot += k3d.points(positions=self.sun_points, point_size=3.5, colors=self.hex_colours, shader='flat', name='SUN',
-        #                             compression_level=self.kwargs['compression_level'])
+        if self.sun:
+            self.add_sun()
+            self.plot += k3d.points(positions=self.sun_points, point_size=0.7, colors=[0xffff00] * len(self.sun_points), shader='flat', name='SUN',
+                                    compression_level=self.kwargs['compression_level'])
 
         # Adding the different data sets (i.e. with or without duplicates)
         if self.all_data:  #old color color_map=[0x90ee90]
@@ -460,17 +493,17 @@ class K3dAnimation(Setup):
             self.plot += self.plot_alldata      
                
         if self.no_duplicates_new:
-            self.plot_dupli_new = k3d.voxels(self.Full_array(self.cubes_no_duplicates_new[0]), color_map=[0x0000ff], opacity=0.3, name='M2: noDuplicates',
+            self.plot_dupli_new = k3d.voxels(self.Full_array(self.cubes_no_duplicates_new[0]), color_map=[0x0000ff], opacity=0.3, name='noDuplicates',
                                                 **self.kwargs)
             self.plot += self.plot_dupli_new
 
         if self.time_interval_all_data:
-            self.plot_interv_new = k3d.voxels(self.Full_array(self.cubes_integrated_all_data[0]), color_map=[0xff6666],opacity=1, name=f'M2: allData {self.time_interval}', **self.kwargs)
+            self.plot_interv_new = k3d.voxels(self.Full_array(self.cubes_integrated_all_data[0]), color_map=[0xff6666],opacity=1, name=f'allData {self.time_interval}', **self.kwargs)
             self.plot += self.plot_interv_new        
        
         if self.time_interval_no_duplicates:
             self.plot_interv_dupli_new = k3d.voxels(self.Full_array(self.cubes_integrated_no_duplicate[0]), color_map=[0x0000ff], opacity=0.35,
-                                                    name=f'M2: noDupli {self.time_interval}', **self.kwargs)
+                                                    name=f'noDupli {self.time_interval}', **self.kwargs)
             self.plot += self.plot_interv_dupli_new      
     
         # if self.skeleton:
