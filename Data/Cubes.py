@@ -1204,10 +1204,10 @@ class Interpolation:
         """
 
         # Arguments 
-        self.data: np.ndarray = data.coords  
-        self.shape: tuple = data.shape
-        # self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
-        # self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        # self.data: np.ndarray = data.coords  
+        # self.shape: tuple = data.shape
+        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
+        self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
         self.poly_order = order
         self.processes = processes
         self.precision_nb = precision_nb
@@ -1248,7 +1248,7 @@ class Interpolation:
                 'data': parameters.astype('float32'),
                 'unit': 'none',
                 'description': (
-                    "The constants of the polynomial for the feet. The shape is (4, total number of constants) where the 4 represents t, x, y, z. " 
+                    "The constants of the polynomial for the fitting. The shape is (4, total number of constants) where the 4 represents t, x, y, z. " 
                     "Moreover, the constants are in order a0, a1, ... where the polynomial is a0 + a1*x + a2*x**2 ..."
                 ),
             },
@@ -1415,7 +1415,8 @@ class Interpolation:
                 output_queue.put((index, result, params))
             else:
                 # Ax swap for easier manipulation
-                section = np.stack(section, axis=1)
+                section = section.T
+                # section = np.stack(section, axis=1)
 
                 # Get cumulative distance
                 t = np.empty(section.shape[0])
@@ -1460,7 +1461,7 @@ class Interpolation:
         params_x, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, x, p0=params_init)
         params_y, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, y, p0=params_init)
         params_z, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, z, p0=params_init)
-        params = np.vstack([params_x, params_y, params_z]).astype('float32')
+        params = np.vstack([params_x, params_y, params_z]).astype('float64')
         # params = np.stack([params_x, params_y, params_z], axis=0)  # shape (3, n_order + 1)
 
         # Get curve
@@ -1485,8 +1486,8 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float32')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float32')
-        # return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
-        return unique_data, params  
+        return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        # return unique_data, params  
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
