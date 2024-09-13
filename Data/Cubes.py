@@ -1380,6 +1380,7 @@ class Interpolation:
             parameters[identifier] = params
         interpolations = np.concatenate(interpolations, axis=1)
         parameters = np.concatenate(parameters, axis=1)
+        print(f'parameters for t0 x are {parameters[:, parameters[0, :] == 0][1]}', flush=True)
         return interpolations, parameters
 
     @staticmethod
@@ -1416,12 +1417,13 @@ class Interpolation:
             else:
                 # Ax swap for easier manipulation
                 section = section.T
+                print(f'the section shape is {section.shape}', flush=True)
                 # section = np.stack(section, axis=1)
 
                 # Get cumulative distance
                 t = np.empty(section.shape[0])
                 t[0] = 0
-                for i in range(1, section.shape[0]): t[i] = t[i - 1] + np.linalg.norm(section[i] - section[i - 1])
+                for i in range(1, section.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(section[i, a] - section[i - 1, a])**2 for a in range(3)]))
                 t /= t[-1]  # normalisation 
 
                 # Get results
