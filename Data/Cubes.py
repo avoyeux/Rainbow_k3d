@@ -802,10 +802,6 @@ class DataSaver:
         Returns:
             h5py.File: the updated file object.
         """
-
-        # Setup paths
-        main_path_1 = 'Filtered/'
-        main_path_2 = 'Time integrated/' 
         
         # Data options with or without feet
         data_options = [
@@ -817,16 +813,19 @@ class DataSaver:
         # main_options = ['All data with feet', 'No duplicates new with feet']  # TODO: need to add the new duplicates init when I understand the error
         sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
 
-        # Filtered group
-        for main_option in data_options:
-            group_path = main_path_1 + main_option
-            data = self.get_COO(H5PYFile, group_path).astype('uint16')
-            self.add_interpolation(H5PYFile[group_path], data)
+        # # Filtered group
+        # main_path_1 = 'Filtered/'
+        # for main_option in data_options:
+        #     group_path = main_path_1 + main_option
+        #     data = self.get_COO(H5PYFile, group_path).astype('uint16')
+        #     self.add_interpolation(H5PYFile[group_path], data)
         
         # Time integration group
+        main_path_2 = 'Time integrated/'
         for main_option in data_options:
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
+                print(f'For group path {group_path}, interpolation params are:', flush=True)
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
                 self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
@@ -1204,10 +1203,10 @@ class Interpolation:
         """
 
         # Arguments 
-        # self.data: np.ndarray = data.coords  
-        # self.shape: tuple = data.shape
-        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
-        self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        self.data: np.ndarray = data.coords  
+        self.shape: tuple = data.shape
+        # self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
+        # self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
         self.poly_order = order
         self.processes = processes
         self.precision_nb = precision_nb
@@ -1380,7 +1379,7 @@ class Interpolation:
             parameters[identifier] = params
         interpolations = np.concatenate(interpolations, axis=1)
         parameters = np.concatenate(parameters, axis=1)
-        print(f'parameters for t0 x are {parameters[:, parameters[0, :] == 0][1]}', flush=True)
+        print(f'parameters for t0 x are {parameters[:, parameters[0, :] == 0][1]}',flush=True)
         return interpolations, parameters
 
     @staticmethod
@@ -1416,7 +1415,7 @@ class Interpolation:
                 output_queue.put((index, result, params))
             else:
                 # Ax swap for easier manipulation
-                section = section.T
+                section = section.T.astype('float64')
                 print(f'the section shape is {section.shape}', flush=True)
                 # section = np.stack(section, axis=1)
 
@@ -1488,8 +1487,8 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float32')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float32')
-        return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
-        # return unique_data, params  
+        # return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data, params  
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
@@ -1522,5 +1521,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver('testing_otherway.h5', processes=50)    
+    DataSaver('lessheavy.h5', processes=50)    
 
