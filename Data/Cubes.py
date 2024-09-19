@@ -39,9 +39,9 @@ class DataSaver:
     def __init__(self,
                  filename: str,
                  processes: int, 
-                 integration_time: int | list[int] = [6, 12, 24],
+                 integration_time: int | list[int] = [12, 24],
                  interpolation_points: float = 10**6, 
-                 interpolation_order: int | list[int] = [3, 6],
+                 interpolation_order: int | list[int] = [4, 6, 8],
                  feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
                  foot_weight: float = 0.075,
                  exits_ok: bool = False, #TODO: need to add this functionality
@@ -1203,10 +1203,12 @@ class Interpolation:
         """
 
         # Arguments 
-        self.data: np.ndarray = data.coords  
-        self.shape: tuple = data.shape
-        # self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
-        # self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        # self.data: np.ndarray = data.coords  
+        # self.shape: tuple = data.shape
+
+        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
+        self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        print(f"Inside the interpolation class, the data shape is {data.shape}", flush=True)
         self.poly_order = order
         self.processes = processes
         self.precision_nb = precision_nb
@@ -1405,6 +1407,7 @@ class Interpolation:
             index, time_index = args
             time_filter = data[0, :] == time_index
             section = data[1:, time_filter]
+            print(f'the section shape is {section.shape}', flush=True)
 
             # Check if enough points for interpolation
             nb_parameters = len(kwargs_sub['params_init'])
@@ -1412,15 +1415,16 @@ class Interpolation:
                 print(f'For cube index {index}, not enough points for interpolation (shape {section.shape})', flush=True)
                 result = np.empty((4, 0))  # TODO: This is wrong, just want to check the output shapes if there are in COO format.
                 params = np.empty((4, 0))
-                output_queue.put((index, result, params))
             else:
+
+                # Change it back to a dense array to then use np.nonzero() as sparse 
+
                 # Ax swap for easier manipulation
                 section = section.T.astype('float64')
-                print(f'the section shape is {section.shape}', flush=True)
                 # section = np.stack(section, axis=1)
 
                 # Get cumulative distance
-                t = np.empty(section.shape[0])
+                t = np.empty(section.shape[0], dtype='float64')
                 t[0] = 0
                 for i in range(1, section.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(section[i, a] - section[i - 1, a])**2 for a in range(3)]))
                 t /= t[-1]  # normalisation 
@@ -1433,8 +1437,8 @@ class Interpolation:
                 }
                 result, params = Interpolation.polynomial_fit(**kwargs, **kwargs_sub)
 
-                # Save results
-                output_queue.put((index, result, params))
+            # Save results
+            output_queue.put((index, result, params))
         shm.close()
 
     @staticmethod
@@ -1470,7 +1474,7 @@ class Interpolation:
         x = nth_order_polynomial(t_fine, *params_x)
         y = nth_order_polynomial(t_fine, *params_y)
         z = nth_order_polynomial(t_fine, *params_z)
-        data = np.vstack([x, y, z]).astype('float32')
+        data = np.vstack([x, y, z]).astype('float64')
 
         # Cut outside init data
         conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1)
@@ -1484,11 +1488,11 @@ class Interpolation:
 
         # Recreate format
         time_row = np.full((1, unique_data.shape[1]), time_index)
-        unique_data = np.vstack([time_row, unique_data]).astype('float32')
+        unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
-        params = np.vstack([time_row, params]).astype('float32')
-        # return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
-        return unique_data, params  
+        params = np.vstack([time_row, params]).astype('float64')
+        return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        # return unique_data, params  
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
