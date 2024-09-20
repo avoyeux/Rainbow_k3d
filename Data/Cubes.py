@@ -1528,5 +1528,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver(f'order{[str(nb) for nb in Interpolation.axes_order]}.h5', processes=50)    
+    DataSaver(f'order{"".join([str(nb) for nb in Interpolation.axes_order])}.h5', processes=50)    
 

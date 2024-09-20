@@ -3,7 +3,7 @@ Just to save some small visualisation methods to check if an issue comes from th
 """
 
 # IMPORTS
-import os
+import sys
 import k3d
 import h5py
 import typing
@@ -14,6 +14,8 @@ import scipy
 import numpy as np
 import matplotlib.pyplot as plt
 
+sys.path.append('../Data')
+from Cubes import Interpolation
 
 class Visualise:
     """
@@ -193,8 +195,8 @@ class Visualise:
 
         for a, data in enumerate(self.data):
             if not 'interpolation' in self.group_paths[a]:
-
-                coords = data.coords.T.astype('float64')
+                axes_order = [order - 1 for order in Interpolation.axes_order[1:]]
+                coords = data.coords[axes_order].T.astype('float64')
                 print(f'the final shape the transposed coords is {coords.shape}')
                 t = np.empty(coords.shape[0], dtype='float64')
                 t[0] = 0
@@ -229,20 +231,21 @@ class Visualise:
             ) -> None:
         
         
-        plt.figure(figsize=(5, 5))
+        plt.figure(figsize=(7, 4))
         if title != '': plt.title(title)
 
         if yplot[0]=='x':
             x2 = self.new_interp(yscatter[1], t)
-            plt.plot(t_fine, x2, color='orange')
+            plt.scatter(t_fine, x2, color='orange', label=f'Computed on the go')
 
         # # Labels
         # plt.xlabel('t')
         # plt.ylabel(yplot[0])
 
         # Plot
-        plt.scatter(t_fine, yplot[1], c='red')
-        plt.scatter(t, yscatter[1], c='blue', s=0.5)  # TODO: this was scatter distance before
+        plt.scatter(t_fine, yplot[1], c='red', label='6th order polynomial from file')
+        plt.scatter(t, yscatter[1], c='blue', s=0.5, label=f'Data points for {yplot[0]}-axis')  # TODO: this was scatter distance before
+        plt.legend()
 
         # Visualise
         if self.save_plots:
