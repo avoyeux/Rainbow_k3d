@@ -30,6 +30,7 @@ from Common import MultiProcessing, Decorators, CustomDate, DatesUtils
 
 # TODO: need to add the data without feet in the filtered stuff
 
+
 class DataSaver:
     """
     To create cubes with feet and without feet in an HDF5 format.
@@ -1184,6 +1185,8 @@ class Interpolation:
     To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
     """
 
+    axes_order = [0, 2, 1, 3]
+
     def __init__(self, 
                  data: sparse.COO, 
                  order: int, 
@@ -1206,8 +1209,8 @@ class Interpolation:
         # self.data: np.ndarray = data.coords  
         # self.shape: tuple = data.shape
 
-        self.data = data.coords[[0, 3, 2, 1]]  # TODO: as weirdly in the initial setup it doesn't work
-        self.shape = [data.shape[i] for i in [0, 3, 2, 1]]
+        self.data = data.coords[Interpolation.axes_order]  # TODO: as weirdly in the initial setup it doesn't work
+        self.shape = [data.shape[i] for i in Interpolation.axes_order]
         print(f"Inside the interpolation class, the data shape is {data.shape}", flush=True)
         self.poly_order = order
         self.processes = processes
@@ -1407,7 +1410,7 @@ class Interpolation:
             index, time_index = args
             time_filter = data[0, :] == time_index
             section = data[1:, time_filter]
-            print(f'the section shape is {section.shape}', flush=True)
+            # print(f'the section shape is {section.shape}', flush=True)
 
             # Check if enough points for interpolation
             nb_parameters = len(kwargs_sub['params_init'])
@@ -1491,7 +1494,7 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
-        return unique_data[[0, 3, 2, 1]], params[[0, 3, 2, 1]]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
         # return unique_data, params  
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
@@ -1525,5 +1528,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver('lessheavy.h5', processes=50)    
+    DataSaver(f'order{[str(nb) for nb in Interpolation.axes_order]}.h5', processes=50)    
 

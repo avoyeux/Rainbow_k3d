@@ -53,13 +53,11 @@ class Visualise:
             if self.recreate_interpolation:
                 
                 coords = self.data[0].coords.T.astype('float64')
-                t = np.empty(coords.shape[0], dtype='float64')
-                t[0] = 0
-                for i in range(1, coords.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(coords[i, a] - coords[i - 1, a])**2 for a in range(3)]))
-                t /= t[-1]  # normalisation 
+                # t = np.empty(coords.shape[0], dtype='float64')
+                # t[0] = 0
+                # for i in range(1, coords.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(coords[i, a] - coords[i - 1, a])**2 for a in range(3)]))
+                # t /= t[-1]  # normalisation 
 
-
-                # t = np.linspace(0, 1, int(self.nb_points))
                 self.parameters = [
                     H5PYFile[path + '/parameters'][...]
                     for path in self.group_paths
@@ -70,23 +68,14 @@ class Visualise:
                     mask = slicing[0, :] == self.chosen_index
                     result = slicing[:, mask]
                     x, y, z = [result[i] for i in range(1, 4)]
-                    X = self.polynomial(t, *x)
-                    Y = self.polynomial(t, *y)
-                    Z = self.polynomial(t, *z)
+
+                    t_fine = np.linspace(0, 1, coords.shape[0])
+                    X = self.polynomial(t_fine, *x)
+                    Y = self.polynomial(t_fine, *y)
+                    Z = self.polynomial(t_fine, *z)
 
                     cube = np.vstack([X, Y, Z])
-                    # cube = np.rint(np.abs(cube.T)) # TODO: added a .T that needs taking off later
-                    # cube = np.unique(cube, axis=0).T.astype('uint16')
-                    # shape = np.max(cube, axis=1).astype('uint16') + 1
-                    # print(shape)
-                    # cube = sparse.COO(coords=cube, data=1, shape=shape)
-
-                    coords = cube.T.astype('float64')
-                    t = np.empty(coords.shape[0], dtype='float64')
-                    t[0] = 0
-                    for i in range(1, coords.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(coords[i, a] - coords[i - 1, a])**2 for a in range(3)]))
-                    t /= t[-1]  # normalisation 
-                    results[a] = (cube, t)
+                    results[a] = cube
                 self.polynomials = results
 
     def new_interp(self, x:np.ndarray, t) -> np.ndarray:
@@ -96,9 +85,9 @@ class Visualise:
 
         print(f'the new coefficients are {[f"{param}, " for param in params_x]}')
 
-        t_fine = np.linspace(0, 1, 10**4)
+        t_fine = np.linspace(0, 1, x.shape[0])
         x = self.polynomial(t_fine, *params_x)
-        return x, t_fine
+        return x
 
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
@@ -149,14 +138,23 @@ class Visualise:
                 outlines=False
             )
         last_len = len(self.data)
-        for i, (poly, _) in enumerate(self.polynomials):
+        for i, poly in enumerate(self.polynomials):
             plot += k3d.voxels(
-                voxels=poly.todense(), # TODO: this is wrong right now, will need to change it
+                voxels=self.visualisation_sub(poly).todense(), # TODO: this is wrong right now, will need to change it
                 color_map=[next(self.random_hexadecimal_colour_generator())],
                 name=f'{last_len + i}',
                 outlines=False
             )           
         plot.display()
+
+    def visualisation_sub(self, array: np.ndarray) -> sparse.COO:
+        #TODO: to change an array to a sparse.COO array
+
+        data = np.rint(np.abs(array.T))
+        data = np.unique(data, axis=0).T.astype('uint16')
+        shape = np.max(data, axis=1) + 1
+        print(f'the shape for the polynomial visualisation is {shape}')
+        return sparse.COO(coords=data, shape=shape, data=1)
 
     def polynomial(self, t: np.ndarray, *coeffs: float) -> np.ndarray:
         """
@@ -181,7 +179,7 @@ class Visualise:
         To print the polynomial coefficients.
         """
 
-        for a, slicing in enumerate(self.parameters):
+        for slicing in self.parameters:
             mask = slicing[0, :] == self.chosen_index
             result = slicing[:, mask]
             x, y, z = [result[i] for i in range(1, 4)]
@@ -197,43 +195,45 @@ class Visualise:
             if not 'interpolation' in self.group_paths[a]:
 
                 coords = data.coords.T.astype('float64')
-                print(f'the shape of coords after translation is {coords.shape}')
+                print(f'the final shape the transposed coords is {coords.shape}')
                 t = np.empty(coords.shape[0], dtype='float64')
                 t[0] = 0
                 for i in range(1, coords.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(coords[i, a] - coords[i - 1, a])**2 for a in range(3)]))
                 t /= t[-1]  # normalisation 
 
+                t_fine = np.linspace(0, 1, coords.shape[0])
+
                 # Polynomial
-                x, y, z = self.polynomials[0][0]  #TODO: will need to change that laterS
-                plot_distance = self.polynomials[0][1]
+                x, y, z = self.polynomials[0]
                 # Cube points
                 X, Y, Z = data.coords
 
-                print(f'plot_distance shape is {plot_distance.shape} and x shape is {x.shape}')
-                print(f'scatter distance shape is {t.shape} with X shape {X.shape}')
+                print(f't_fine shape is {t_fine.shape} and x shape is {x.shape}')
+                print(f't shape is {t.shape} with X shape {X.shape}')
                 
                 # plt.figure()
                 # plt.scatter(Y, Z)
                 # plt.show()
 
-                self.plotting_sub(yplot=('x', x), yscatter=('X', X), plot_distance=plot_distance, scatter_distance=t)
-                self.plotting_sub(yplot=('y', y), yscatter=('Y', Y), plot_distance=plot_distance, scatter_distance=t)
-                self.plotting_sub(yplot=('z', z), yscatter=('Z', Z), plot_distance=plot_distance, scatter_distance=t)
+                self.plotting_sub(yplot=('x', x), yscatter=('X', X), t=t, t_fine=t_fine)
+                self.plotting_sub(yplot=('y', y), yscatter=('Y', Y), t=t, t_fine=t_fine)
+                self.plotting_sub(yplot=('z', z), yscatter=('Z', Z), t=t, t_fine=t_fine)
         
     def plotting_sub(
             self,
-            plot_distance: np.ndarray,
-            scatter_distance: np.ndarray,
+            t: np.ndarray,
+            t_fine: np.ndarray,
             yplot: tuple[str, np.ndarray],
             yscatter: tuple[str, np.ndarray],
             title: str = '',
             ) -> None:
         
-        plt.figure(figsize=(10, 10))
+        
+        plt.figure(figsize=(5, 5))
         if title != '': plt.title(title)
 
         if yplot[0]=='x':
-            x2, t_fine = self.new_interp(yscatter[1], scatter_distance)
+            x2 = self.new_interp(yscatter[1], t)
             plt.plot(t_fine, x2, color='orange')
 
         # # Labels
@@ -241,8 +241,8 @@ class Visualise:
         # plt.ylabel(yplot[0])
 
         # Plot
-        plt.scatter(plot_distance, yplot[1], c='red')
-        plt.scatter(plot_distance, yscatter[1], c='blue', s=0.5)  # TODO: this was scatter distance before
+        plt.scatter(t_fine, yplot[1], c='red')
+        plt.scatter(t, yscatter[1], c='blue', s=0.5)  # TODO: this was scatter distance before
 
         # Visualise
         if self.save_plots:
