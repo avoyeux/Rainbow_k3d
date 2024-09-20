@@ -206,9 +206,9 @@ class Visualise:
                 t_fine = np.linspace(0, 1, coords.shape[0])
 
                 # Polynomial
-                x, y, z = self.polynomials[0]
+                x, y, z = self.polynomials[0][[2, 1, 0]]
                 # Cube points
-                X, Y, Z = data.coords
+                X, Y, Z = data.coords[[2, 1, 0]]
 
                 print(f't_fine shape is {t_fine.shape} and x shape is {x.shape}')
                 print(f't shape is {t.shape} with X shape {X.shape}')

@@ -1208,9 +1208,9 @@ class Interpolation:
         # Arguments 
         # self.data: np.ndarray = data.coords  
         # self.shape: tuple = data.shape
-
-        self.data = data.coords[Interpolation.axes_order]  # TODO: as weirdly in the initial setup it doesn't work
-        self.shape = [data.shape[i] for i in Interpolation.axes_order]
+        data = self.reorder_data(data)
+        self.data = data.coords
+        self.shape = data.shape
         print(f"Inside the interpolation class, the data shape is {data.shape}", flush=True)
         self.poly_order = order
         self.processes = processes
@@ -1220,6 +1220,14 @@ class Interpolation:
         # New attributes
         self.params_init = np.random.rand(order + 1)  # the initial (random) polynomial coefficients
     
+    def reorder_data(self, data: sparse.COO) -> sparse.COO:
+        # TODO: reordering the data to change the axis
+
+        new_coords = data.coords[Interpolation.axes_order]
+        new_shape = [data.shape[i] for i in Interpolation.axes_order]
+        return sparse.COO(coords=new_coords, data=1, shape=new_shape)  # TODO: this doesn't take into account the values
+        
+
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
         """
         To get the information and data for the interpolation and corresponding parameters (i.e. polynomial coefficients) ndarray. The explanations for these two 
