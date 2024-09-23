@@ -1231,8 +1231,7 @@ class Interpolation:
 
         new_coords = data.coords[Interpolation.axes_order]
         new_shape = [data.shape[i] for i in Interpolation.axes_order]
-        return sparse.COO(coords=new_coords, data=1, shape=new_shape)  # TODO: this doesn't take into account the values
-        
+        return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)  # TODO: this doesn't take into account the values
 
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
         """
@@ -1361,7 +1360,7 @@ class Interpolation:
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
-        values = self.data.values.astype('float64')
+        values = self.data.data.astype('float64')
         sigma = 1 / values  # TODO: will change it if it is not enough
 
         # Shared memory
