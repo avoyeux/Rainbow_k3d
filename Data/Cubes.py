@@ -1185,7 +1185,7 @@ class Interpolation:
     To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
     """
 
-    axes_order = [0, 2, 1, 3]
+    axes_order = [0, 3, 2, 1]
 
     def __init__(self, 
                  data: sparse.COO, 

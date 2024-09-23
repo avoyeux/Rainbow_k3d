@@ -3,7 +3,8 @@ Just to save some small visualisation methods to check if an issue comes from th
 """
 
 # IMPORTS
-import sys
+import re
+import os
 import k3d
 import h5py
 import typing
@@ -12,10 +13,9 @@ import sparse
 import scipy
 # Aliases
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
-sys.path.append('../Data')
-from Cubes import Interpolation
+
 
 class Visualise:
     """
@@ -29,6 +29,7 @@ class Visualise:
                  recreate_interp: bool = False,
                  nb_points: int = 10**3,
                  saving_plots: bool = False,
+                 axes_order: tuple[int, ...] = (0, 0, 0, 0)
                  ) -> None:
         
         # Arguments
@@ -38,6 +39,13 @@ class Visualise:
         self.recreate_interpolation = recreate_interp
         self.nb_points = nb_points
         self.save_plots = saving_plots
+
+        if axes_order == (0, 0, 0, 0):
+            self.axes_order = self.get_axes_order()
+        else:
+            self.axes_order = axes_order
+
+        print(f'the axes order are {self.axes_order}')
 
         self.run()
 
@@ -79,9 +87,23 @@ class Visualise:
                     cube = np.vstack([X, Y, Z])
                     results[a] = cube
                 self.polynomials = results
+                # self.polynomials.append(self.fake_polynomial(t_fine))
+    
+    def get_axes_order(self):
+        # TODO: to add the axes order without importing the Cubes file.
 
-    def new_interp(self, x:np.ndarray, t) -> np.ndarray:
+        file_pattern = re.compile(r'order(\d+).h5')
+
+        # Match
+        file_match = file_pattern.match(os.path.basename(self.filepath))
+        if file_match is not None:
+            axes_order = [int(order) - 1 for order in file_match.group(1)[1:]]
+            return axes_order
+        raise ValueError(f"The filename {os.path.basename(self.filepath)} doesn't match the required pattern. Please add the axes_order argument.")
+
+    def new_interp(self, x: np.ndarray, t: np.ndarray) -> np.ndarray:
         #TODO: to redo the interpolation
+
         p0 = np.random.rand(7)
         params_x, _ = scipy.optimize.curve_fit(self.polynomial, t, x, p0=p0)
 
@@ -129,11 +151,14 @@ class Visualise:
         
     def visualisation(self):
         # TODO: the small visualisation
+
+        print(f'The len of data is {len(self.data)}')
         
         plot = k3d.plot()
         
         for i, data in enumerate(self.data):
             plot += k3d.voxels(
+                # positions = data.coords,
                 voxels=data.todense(),
                 color_map=[next(self.random_hexadecimal_colour_generator())],
                 name=f'{i}',
@@ -142,6 +167,7 @@ class Visualise:
         last_len = len(self.data)
         for i, poly in enumerate(self.polynomials):
             plot += k3d.voxels(
+                # positions = poly[:, ::100].astype('float32'),
                 voxels=self.visualisation_sub(poly).todense(), # TODO: this is wrong right now, will need to change it
                 color_map=[next(self.random_hexadecimal_colour_generator())],
                 name=f'{last_len + i}',
@@ -149,14 +175,21 @@ class Visualise:
             )           
         plot.display()
 
-    def visualisation_sub(self, array: np.ndarray) -> sparse.COO:
+    def visualisation_sub(self, data: np.ndarray) -> sparse.COO:
         #TODO: to change an array to a sparse.COO array
 
-        data = np.rint(np.abs(array.T))
+        data = np.rint(np.abs(data.T))
         data = np.unique(data, axis=0).T.astype('uint16')
         shape = np.max(data, axis=1) + 1
         print(f'the shape for the polynomial visualisation is {shape}')
         return sparse.COO(coords=data, shape=shape, data=1)
+
+    def fake_polynomial(self, t: np.ndarray):
+
+        x = 0 + t**2
+        y = t
+        z = t
+        return np.vstack((x, y, z))
 
     def polynomial(self, t: np.ndarray, *coeffs: float) -> np.ndarray:
         """
@@ -188,6 +221,16 @@ class Visualise:
 
             print(f'The saved x parameters are {", ".join([str(param) for param in x])}', flush=True)
 
+    def reorder_data(
+            self,
+            data: sparse.COO,
+            ) -> sparse.COO:
+        # TODO: reordering the data to change the axis
+
+        new_coords = data.coords[self.axes_order]
+        new_shape = [data.shape[i] for i in self.axes_order]
+        return sparse.COO(coords=new_coords, data=1, shape=new_shape)  # TODO: this doesn't take into account the values
+    
     def plotting(self):
         """
         To plot the x, y, z values as a function of t.
@@ -195,8 +238,10 @@ class Visualise:
 
         for a, data in enumerate(self.data):
             if not 'interpolation' in self.group_paths[a]:
-                axes_order = [order - 1 for order in Interpolation.axes_order[1:]]
-                coords = data.coords[axes_order].T.astype('float64')
+
+                # reordering the data
+                reordered_data = self.reorder_data(data)
+                coords = reordered_data.coords.T.astype('float64')
                 print(f'the final shape the transposed coords is {coords.shape}')
                 t = np.empty(coords.shape[0], dtype='float64')
                 t[0] = 0
@@ -206,52 +251,58 @@ class Visualise:
                 t_fine = np.linspace(0, 1, coords.shape[0])
 
                 # Polynomial
-                x, y, z = self.polynomials[0][[2, 1, 0]]
+                x, y, z = self.polynomials[0]
                 # Cube points
-                X, Y, Z = data.coords[[2, 1, 0]]
+                X, Y, Z = data.coords
 
-                print(f't_fine shape is {t_fine.shape} and x shape is {x.shape}')
+                #Testing reordering 
+                # You have to reorder as you need the same t for the plots to work as each value of t represents a specific point.
+                data = self.reorder_data(data)
+                X, Y, Z = data.coords
+                x, y, z = [(('x', x), ('y', y), ('z', z))[i] for i in self.axes_order]
+
+
+                print(f't_fine shape is {t_fine.shape} and x shape is {x[1].shape}')
                 print(f't shape is {t.shape} with X shape {X.shape}')
                 
                 # plt.figure()
                 # plt.scatter(Y, Z)
                 # plt.show()
 
-                self.plotting_sub(yplot=('x', x), yscatter=('X', X), t=t, t_fine=t_fine)
-                self.plotting_sub(yplot=('y', y), yscatter=('Y', Y), t=t, t_fine=t_fine)
-                self.plotting_sub(yplot=('z', z), yscatter=('Z', Z), t=t, t_fine=t_fine)
+                self.plotting_sub(yplot=x, yscatter=('X', X), t=t, t_fine=t_fine)
+                self.plotting_sub(yplot=y, yscatter=('Y', Y), t=t, t_fine=t_fine)
+                self.plotting_sub(yplot=z, yscatter=('Z', Z), t=t, t_fine=t_fine)
         
-    def plotting_sub(
-            self,
-            t: np.ndarray,
-            t_fine: np.ndarray,
-            yplot: tuple[str, np.ndarray],
-            yscatter: tuple[str, np.ndarray],
-            title: str = '',
-            ) -> None:
+    # def plotting_sub(
+    #         self,
+    #         t: np.ndarray,
+    #         t_fine: np.ndarray,
+    #         yplot: tuple[str, np.ndarray],
+    #         yscatter: tuple[str, np.ndarray],
+    #         title: str = '',
+    #         ) -> None:
         
         
-        plt.figure(figsize=(7, 4))
-        if title != '': plt.title(title)
+    #     plt.figure(figsize=(10, 4))
+    #     if title != '': plt.title(title)
 
-        if yplot[0]=='x':
-            x2 = self.new_interp(yscatter[1], t)
-            plt.scatter(t_fine, x2, color='orange', label=f'Computed on the go')
+    #     x2 = self.new_interp(yscatter[1], t)
+    #     plt.scatter(t_fine, x2, color='orange', label=f'Computed on the go')
 
-        # # Labels
-        # plt.xlabel('t')
-        # plt.ylabel(yplot[0])
+    #     # # Labels
+    #     # plt.xlabel('t')
+    #     # plt.ylabel(yplot[0])
 
-        # Plot
-        plt.scatter(t_fine, yplot[1], c='red', label='6th order polynomial from file')
-        plt.scatter(t, yscatter[1], c='blue', s=0.5, label=f'Data points for {yplot[0]}-axis')  # TODO: this was scatter distance before
-        plt.legend()
+    #     # Plot
+    #     plt.scatter(t_fine, yplot[1], c='red', label='6th order polynomial from file')
+    #     plt.scatter(t, yscatter[1], c='blue', s=0.5, label=f'Data points for {yplot[0]}-axis')  # TODO: this was scatter distance before
+    #     plt.legend()
 
-        # Visualise
-        if self.save_plots:
-            plt.savefig()
-        else:
-            plt.show()
+    #     # Visualise
+    #     if self.save_plots:
+    #         plt.savefig()
+    #     else:
+    #         plt.show()
 
         # plt.figure()
         # plt.plot(plot_distance, color='orange')
