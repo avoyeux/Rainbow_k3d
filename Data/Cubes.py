@@ -1361,7 +1361,9 @@ class Interpolation:
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
         values = self.data.data.astype('float64')
-        sigma = 1 / values  # TODO: will change it if it is not enough
+        mask = values > 2
+        values[mask] = 1e-20
+        sigma = values  
 
         # Shared memory
         shm_coords, coords = MultiProcessing.shared_memory(self.data.coords.astype('float64'))
