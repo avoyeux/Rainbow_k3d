@@ -1360,10 +1360,7 @@ class Interpolation:
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
-        values = self.data.data.astype('float64')
-        mask = values > 2
-        values[mask] = 1e-20
-        sigma = values  
+        sigma = self.data.data.astype('float64')
 
         # Shared memory
         shm_coords, coords = MultiProcessing.shared_memory(self.data.coords.astype('float64'))
@@ -1506,9 +1503,14 @@ class Interpolation:
             tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding coefficients.
         """
 
+        # Setting up sigma
+        mask = sigma > 2
+        sigma[mask] = 1e-10
+
         # Get params
         x, y, z = coords
         params_x, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, x, p0=params_init, sigma=sigma)
+        sigma[~mask] = 20
         params_y, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, y, p0=params_init, sigma=sigma)
         params_z, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, z, p0=params_init, sigma=sigma)
         params = np.vstack([params_x, params_y, params_z]).astype('float64')
