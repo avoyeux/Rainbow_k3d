@@ -853,9 +853,10 @@ class DataSaver:
             voxels_per_cube = sparse.COO.sum(data, axis=(1, 2, 3)).todense()
             voxels_per_foot = np.round(voxels_per_cube * self.foot_weight)[:, None, None, None]
             feet = ((data & 0b00100000) > 0)
-
+            print(f"Number of feet found in the data is {np.sum(feet)}")
             # Add feet
             feet = feet * voxels_per_foot  # TODO: this should work but keeping the warning here if I find problems in the visualisation
+            print(f"Feet maximum value after counting the voxels per cube is {np.max(feet)}")
             return (filtered_data + feet).astype('uint16')
         return filtered_data
 
@@ -1094,7 +1095,7 @@ class DataSaver:
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
         values = np.concatenate([data.data, feet_values], axis=0)  #TODO: took away as type uint8 on data but it shouldn't change anything
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
-        print(f'The number of feet in the new sparse data is {np.sum(data.data.astype('uint8') & 0b00100000>0)}', flush=True)
+        print(f"The number of feet in the new sparse data is {np.sum(data.data.astype('uint8') & 0b00100000>0)}", flush=True)
         return data, new_borders
         
     def carrington_skyCoords(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> list[coordinates.SkyCoord]:
