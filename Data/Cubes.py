@@ -607,7 +607,7 @@ class DataSaver:
 
         for option in options:
             # Get data
-            data = self.get_COO(H5PYFile, f'Raw/Raw cubes{option}').astype('uint8')
+            data = self.get_COO(H5PYFile, f'Raw/Raw cubes{option}').astype('uint16')
 
             # Add all data
             filtered_data = self.cubes_filtering(data, 0b00000001, option)
@@ -829,6 +829,7 @@ class DataSaver:
                 group_path = main_path_2 + main_option + sub_option
                 print(f'For group path {group_path}, interpolation params are:', flush=True)
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
+                print(f'In that group path, the max values is {np.max(data.data)}')
                 self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
 
@@ -1091,8 +1092,9 @@ class DataSaver:
         # Changing to COO 
         shape = np.max(init_coords, axis=1) + 1
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
-        values = np.concatenate([data.data.astype('uint8'), feet_values], axis=0)
+        values = np.concatenate([data.data, feet_values], axis=0)  #TODO: took away as type uint8 on data but it shouldn't change anything
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
+        print(f'The number of feet in the new sparse data is {np.sum(data.data.astype('uint8') & 0b00100000>0)}', flush=True)
         return data, new_borders
         
     def carrington_skyCoords(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> list[coordinates.SkyCoord]:
