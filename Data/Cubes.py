@@ -296,7 +296,7 @@ class DataSaver:
             "as the ends of the filament are more visible. Hence, the feet are not actually visible in the initial masks.\n"
             "Explanation on what each HDF5 group or dataset represent is given in the corresponding 'description' attribute."
         )
-        # TODO: need to finish the explanation here and also explain that the data is saved as sparse arrays.
+        #TODO: need to finish the explanation here and also explain that the data is saved as sparse arrays.
 
         info = {
             'author': 'Voyeux Alfred',
@@ -707,7 +707,7 @@ class DataSaver:
         """
 
         # Get data
-        data = self.get_COO(H5PYFile, datapath.strip(' with feet'))  #TODO: will need to make a shared memory object later
+        data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))  #TODO: will need to make a shared memory object later
 
         # Setup multiprocessing
         dates_len = len(self.dates_seconds)
@@ -750,7 +750,7 @@ class DataSaver:
             if arguments is None: return
 
             index, data, date, dates, integration_time = arguments
-            date_min = date - integration_time / 2  # TODO: need to change this so that I can do the same for multiple integration times
+            date_min = date - integration_time / 2  #TODO: need to change this so that I can do the same for multiple integration times
             date_max = date + integration_time / 2
 
             # Result
@@ -824,10 +824,10 @@ class DataSaver:
         data_options = [
             f'{data_type}{feet}'
             for data_type in ['All data', 'No duplicates new']
-            for feet in ['', ' with feet']
+            for feet in [' with feet']  #TODO: will need to add the case without the feet later
         ]
 
-        # main_options = ['All data with feet', 'No duplicates new with feet']  # TODO: need to add the new duplicates init when I understand the error
+        # main_options = ['All data with feet', 'No duplicates new with feet']  #TODO: need to add the new duplicates init when I understand the error
         sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
 
         # # Filtered group
@@ -842,7 +842,7 @@ class DataSaver:
         for main_option in data_options:
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
-                print(f'For group path {group_path}, interpolation params are:', flush=True)
+                print(f'For group path {group_path}:', flush=True)
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
                 print(f'In that group path, the max values is {np.max(data.data)}')
                 self.add_interpolation(H5PYFile[group_path], data)
@@ -1079,7 +1079,7 @@ class DataSaver:
         ])
 
         # Add feet 
-        init_coords = np.hstack([init_coords, feet]).astype('int32')  # TODO: will change it to uint16 when I am sure that it is working as intended
+        init_coords = np.hstack([init_coords, feet]).astype('int32')  #TODO: will change it to uint16 when I am sure that it is working as intended
 
         # Indexes to positive values
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
@@ -1231,7 +1231,7 @@ class Interpolation:
 
         new_coords = data.coords[Interpolation.axes_order]
         new_shape = [data.shape[i] for i in Interpolation.axes_order]
-        return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)  # TODO: this doesn't take into account the values
+        return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)
 
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
         """
@@ -1355,7 +1355,7 @@ class Interpolation:
         """
 
         # Constants
-        self.time_indexes = list(set(self.data.coords[0, :]))  # TODO: might get this from outside the class so that it is not computed twice or more
+        self.time_indexes = list(set(self.data.coords[0, :]))  #TODO: might get this from outside the class so that it is not computed twice or more
         self.time_len = len(self.time_indexes)
         process_nb = min(self.processes, self.time_len)
 
@@ -1504,19 +1504,19 @@ class Interpolation:
             tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding coefficients.
         """
 
-        # Setting up sigma
+        # Setting up interpolation weights
+        feet_value = 1e-4
         mask = sigma > 2
-        sigma[mask] = 1e-10
 
-        # Get params
-        x, y, z = coords
-        params_x, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, x, p0=params_init, sigma=sigma)
-        sigma[~mask] = 20
-        params_y, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, y, p0=params_init, sigma=sigma)
-        params_z, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, z, p0=params_init, sigma=sigma)
-        params = np.vstack([params_x, params_y, params_z]).astype('float64')
+        # Printing number of values
+        a = np.random.random()
+        if a < 0.01: print(f"Number of feet found right before the interpolation is {np.sum(mask)}", flush=True)  # one print in 100
+
+        # Try to get params
+        params = Interpolation.scipy_curve_fit(nth_order_polynomial, t, coords, params_init, sigma, mask, feet_value)
 
         # Get curve
+        params_x, params_y, params_z = params
         t_fine = np.linspace(-0.5, 1.5, precision_nb)
         x = nth_order_polynomial(t_fine, *params_x)
         y = nth_order_polynomial(t_fine, *params_y)
@@ -1525,7 +1525,7 @@ class Interpolation:
 
         # Cut outside init data
         conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1)
-        # TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later
+        #TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later
         conditions_lower = np.any(data < 0, axis=0)  # as floats can be a little lower than 0
         conditions = conditions_upper | conditions_lower
         data = data[:, ~conditions]
@@ -1538,7 +1538,38 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
-        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]  #TODO: will need to change this if I cancel the ax swapping in cls.__init__
+
+    @staticmethod
+    def scipy_curve_fit(
+            polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
+            t: np.ndarray,
+            coords: np.ndarray,
+            params_init: np.ndarray,
+            sigma: np.ndarray,
+            mask: np.ndarray,
+            feet_value: float,
+        ) -> np.ndarray:
+        #TODO: function to do the curve fitting 
+
+        try: 
+            sigma[mask] = feet_value
+            x, y, z = coords
+            params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
+            sigma[~mask] = 20
+            params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init, sigma=sigma)
+            params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
+            params = np.vstack([params_x, params_y, params_z]).astype('float64')
+        
+        except Exception as e:
+            # Changing feet value
+            feet_value *= 4
+            print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_value}.\033[0m", flush=True)
+            params = Interpolation.scipy_curve_fit(polynomial, t, coords, params_init, sigma, mask, feet_value)
+
+        finally:
+            print(f"\033[92mThe curve_fit worked with feet values equal to {feet_value}.\033[0m", flush=True)
+            return params
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
