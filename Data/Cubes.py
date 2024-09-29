@@ -25,10 +25,9 @@ from astropy import units as u
 from astropy import coordinates
 
 # Personal imports
-sys.path.append('..')  #TODO: need to check if I need os.path.join() but I don't see why I should
+sys.path.append('..') 
 from Common import MultiProcessing, Decorators, CustomDate, DatesUtils
 
-# TODO: need to add the data without feet in the filtered stuff
 
 
 class DataSaver:
@@ -228,13 +227,13 @@ class DataSaver:
             H5PYFile = self.foundation(H5PYFile)
 
             # Raw data and metadata
-            H5PYFile, feet_borders = self.init_group(H5PYFile, init_borders)
+            H5PYFile = self.raw_group(H5PYFile, init_borders)
 
             # Filtered data and metadata
-            H5PYFile = self.filtered_group(H5PYFile, feet_borders)
+            H5PYFile = self.filtered_group(H5PYFile, init_borders)
 
             # Integration data and metadata
-            H5PYFile = self.integrated_group(H5PYFile)
+            H5PYFile = self.integrated_group(H5PYFile, init_borders)
 
             # Interpolation data and metadata
             H5PYFile = self.interpolation_group(H5PYFile)
@@ -521,13 +520,13 @@ class DataSaver:
         return group
     
     @Decorators.running_time
-    def init_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> tuple[h5py.File, dict[str, dict[str, str | float]]]:
+    def raw_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
         """
         To create the initial h5py.Group object; where the raw data (with/without feet and/or in Carrington Heliographic Coordinates).
 
         Args:
             H5PYFile (h5py.File): the opened file pointer.
-            borders (dict[str, dict[str, any]]): the border info (i.e. x_min, etc.) for the given data.
+            borders (dict[str, dict[str, str | float]]): the border info (i.e. x_min, etc.) for the given data.
 
         Returns:
             h5py.File: the opened file pointer and the new data border information.
@@ -580,16 +579,16 @@ class DataSaver:
             # Add raw skycoords with feet
             group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
             group['Raw coordinates with feet'].attrs['description'] = 'The initial data with the feet positions added saved as Carrington Heliographic Coordinates in km.'
-        return H5PYFile, borders
+        return H5PYFile
     
     @Decorators.running_time
     def filtered_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
         """
-        To filter the data and save it with weighted feet.
+        To filter the data and save it with feet.
 
         Args:
             H5PYFile (h5py.File): the file object.
-            borders (dict[str, dict[str, str  |  float]]): the border information.
+            borders (dict[str, dict[str, str | float]]): the border information.
 
         Returns:
             h5py.File: the updated file object.
@@ -602,46 +601,56 @@ class DataSaver:
             "weight to the feet. Hence, the interpolation data for each filtered data group is also available."
         )
 
+        # Get data
+        data = self.get_COO(H5PYFile, f'Raw/Raw cubes').astype('uint8')
+
         # Setup options
         options = ['', ' with feet']
 
         for option in options:
-            # Get data
-            data = self.get_COO(H5PYFile, f'Raw/Raw cubes{option}').astype('uint16')
-
             # Add all data
-            filtered_data = self.cubes_filtering(data, 0b00000001, option)
-            group = self.add_cube(group, filtered_data, f'All data{option}', borders)
+            new_borders = borders
+            filtered_data = (data & 0b00000001).astype('uint8')
+            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
+            group = self.add_cube(group, filtered_data, f'All data{option}', new_borders)
             group[f'All data{option}'].attrs['description'] = (
                 f"All data, i.e. the 0b00000001 filtered data{option}. Hence, the data represents the intersection between the STEREO and SDO point of views.\n"
-                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels." 
-                   if option != '' else '')
+                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
             )
 
             # Add no duplicates init
-            filtered_data = self.cubes_filtering(data, 0b00000110, option)  #TODO: the shape of the resulting data is weird, no clue why.
-            group = self.add_cube(group, data, f'No duplicates init{option}', borders)
+            filtered_data = ((data & 0b00000110) == 0b00000110).astype('uint8') #TODO: the shape of the resulting data is weird, no clue why.
+            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
+            group = self.add_cube(group, data, f'No duplicates init{option}', new_borders)
             group[f'No duplicates init{option}'].attrs['description'] = (
                 f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. Hence, the data represents all the data without the duplicates, without "
                 "taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
-                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
-                   if option != '' else '')
+                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
             )
 
             # Add no duplicates new
-            filtered_data = self.cubes_filtering(data, 0b00011000, option)
-            group = self.add_cube(group, filtered_data, f'No duplicates new{option}', borders)
+            filtered_data = ((data & 0b00011000) == 0b00011000).astype('uint8')
+            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
+            group = self.add_cube(group, filtered_data, f'No duplicates new{option}', new_borders)
             group[f'No duplicates new{option}'].attrs['description'] = (
                 f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, the data represents all the data without any of the duplicates. "
                 "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
-                + (f"The feet are weighted with, for each cube (i.e. for a given time), {self.foot_weight * 100}% of the initial cube pixels."
-                   if option != '' else '')
+                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
             )
         return H5PYFile
     
     @Decorators.running_time
-    def integrated_group(self, H5PYFile: h5py.File) -> h5py.File:
-        # TODO: to create the time intergration main group
+    def integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
+        """
+        To integrate the data and save it inside a specific HDF5 group.
+
+        Args:
+            H5PYFile (h5py.File): the HDF5 file.
+            borders (dict[str, dict[str, str | float]]): the border information.
+
+        Returns:
+            h5py.File: the updated HDF5.
+        """
 
         # Setup group
         group = H5PYFile.create_group('Time integrated')
@@ -658,21 +667,22 @@ class DataSaver:
         ]
 
         for option in data_options:
-
             # Setup group
             inside_group = group.create_group(option)
             inside_group.attrs['description'] = (
                 f"This group only contains {option.lower()} time integrated data.\n"
                 f"To get border info, please refer to the Filtered/{option} data group."
+                + ("Furthermore, the feet are saved with values equal to 0b00100000." if 'with feet' in option else '')
             )
 
+            # For each integration time
             for integration_time in self.integration_time:
                 # Setup
                 time_hours = round(integration_time / 3600, 1)
                 group_name = f'Time integration of {time_hours} hours'
 
                 # Get data
-                data = self.time_integration(H5PYFile, f'Filtered/{option}', integration_time)
+                data = self.time_integration(H5PYFile, f'Filtered/{option}', integration_time, borders)
 
                 # Setup group
                 inside_group = self.add_cube(inside_group, data, group_name)
@@ -682,7 +692,7 @@ class DataSaver:
         return H5PYFile                
 
     @Decorators.running_time
-    def time_integration(self, H5PYFile: h5py.File, datapath: str, time: int) -> sparse.COO:
+    def time_integration(self, H5PYFile: h5py.File, datapath: str, time: int, borders: dict[str, dict[str, str | float]]) -> sparse.COO:
         """
         Gives the time integration of all the data for a given time interval in seconds.
 
@@ -690,13 +700,14 @@ class DataSaver:
             H5PYFile (h5py.File): the HDF5 file.
             datapath (str): the datapath to the data to be integrated.
             time (int): the integration time (in seconds).
+            borders (dict[str, dict[str, str | float]]): the border information.
 
         Returns:
             sparse.COO: the integrated data.
         """
 
         # Get data
-        data = self.get_COO(H5PYFile, datapath).astype('uint16')  #TODO: will need to make a shared memory object later
+        data = self.get_COO(H5PYFile, datapath.strip(' with feet'))  #TODO: will need to make a shared memory object later
 
         # Setup multiprocessing
         dates_len = len(self.dates_seconds)
@@ -718,7 +729,11 @@ class DataSaver:
         while not output_queue.empty():
             identification, result = output_queue.get()
             data[identification] = result
-        return sparse.stack(data, axis=0).astype('uint16')
+        data = sparse.stack(data, axis=0).astype('uint8')
+
+        # If feet
+        if 'with feet' in datapath: data, _ = self.with_feet(data, borders)
+        return data
 
     @staticmethod
     def time_integration_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
@@ -769,7 +784,7 @@ class DataSaver:
 
         # Nothing found
         if chunk == []:
-            return sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint16')
+            return sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint8')
         elif len(chunk) == 1:
             return chunk[0]
         else:
@@ -832,33 +847,6 @@ class DataSaver:
                 print(f'In that group path, the max values is {np.max(data.data)}')
                 self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
-
-    def cubes_filtering(self, data: sparse.COO, bit_filter: int, feet: str) -> sparse.COO:
-        """
-        To filter the data and add the feet with the appropriate weight.
-
-        Args:
-            data (sparse.COO): data to be filtered.
-            bit_filter (int): the filter in 8bits format.
-
-        Returns:
-            sparse.COO: the filtered data with added weighted feet.
-        """
-        
-        # Filtering data
-        filtered_data = ((data & bit_filter) == bit_filter).astype('uint16')
-
-        if feet != '':
-            # Setup feet weight
-            voxels_per_cube = sparse.COO.sum(data, axis=(1, 2, 3)).todense()
-            voxels_per_foot = np.round(voxels_per_cube * self.foot_weight)[:, None, None, None]
-            feet = ((data & 0b00100000) > 0)
-            print(f"Number of feet found in the data is {np.sum(feet)}")
-            # Add feet
-            feet = feet * voxels_per_foot  # TODO: this should work but keeping the warning here if I find problems in the visualisation
-            print(f"Feet maximum value after counting the voxels per cube is {np.max(feet)}")
-            return (filtered_data + feet).astype('uint16')
-        return filtered_data
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -934,8 +922,12 @@ class DataSaver:
         cubes.coords = cubes.coords.astype('uint16')  # to save RAM
         return cubes
     
-    def add_cube(self, group: h5py.File | h5py.Group, data: sparse.COO, data_name: str, borders: dict[str, dict[str, str | float]] | None = None
-                 ) -> h5py.File | h5py.Group:
+    def add_cube(
+            self,
+            group: h5py.File | h5py.Group,
+            data: sparse.COO, data_name: str,
+            borders: dict[str, dict[str, str | float]] | None = None
+        ) -> h5py.File | h5py.Group:
         """
         To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes also into account the border information.
 
@@ -970,7 +962,12 @@ class DataSaver:
         group = self.add_group(group, raw, data_name)
         return group
     
-    def add_skycoords(self, group: h5py.File | h5py.Group, data: sparse.COO, data_name: str, borders: dict[str, dict[str, str | float]]) -> h5py.File | h5py.Group:
+    def add_skycoords(
+            self,
+            group: h5py.File | h5py.Group,
+            data: sparse.COO, data_name: str,
+            borders: dict[str, dict[str, str | float]]
+        ) -> h5py.File | h5py.Group:
         """
         To add to an h5py.Group, the data and metadata of the Carrington Heliographic Coordinates for a corresponding cube index spare.COO object. 
         This takes also into account the border information.
@@ -1364,6 +1361,8 @@ class Interpolation:
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
         sigma = self.data.data.astype('float64')
+        print(f'The maximum value found even before the filtering and everything is {np.max(sigma)}')
+        print(f'The number of non 1 values are {np.sum(sigma > 2)}', flush=True)
 
         # Shared memory
         shm_coords, coords = MultiProcessing.shared_memory(self.data.coords.astype('float64'))
@@ -1407,7 +1406,6 @@ class Interpolation:
             parameters[identifier] = params
         interpolations = np.concatenate(interpolations, axis=1)
         parameters = np.concatenate(parameters, axis=1)
-        print(f'parameters for t0 x are {parameters[:, parameters[0, :] == 0][1]}',flush=True)
         return interpolations, parameters
 
     @staticmethod
@@ -1517,7 +1515,6 @@ class Interpolation:
         params_y, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, y, p0=params_init, sigma=sigma)
         params_z, _ = scipy.optimize.curve_fit(nth_order_polynomial, t, z, p0=params_init, sigma=sigma)
         params = np.vstack([params_x, params_y, params_z]).astype('float64')
-        # params = np.stack([params_x, params_y, params_z], axis=0)  # shape (3, n_order + 1)
 
         # Get curve
         t_fine = np.linspace(-0.5, 1.5, precision_nb)
@@ -1542,7 +1539,6 @@ class Interpolation:
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
         return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]  # TODO: will need to change this if I cancel the ax swapping in cls.__init__
-        # return unique_data, params  
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
