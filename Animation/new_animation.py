@@ -35,21 +35,22 @@ class Setup:
     # TODO: to open and read the hdf5 file
 
     @typeguard.typechecked
-    def __init__(self,
-                 filename: str = 'lastway.h5',
-                 sun: bool = False,
-                 with_feet: bool = False,
-                 all_data: bool = False,
-                 no_duplicates_new: bool = False,
-                 time_interval: int = 24,
-                 time_interval_all_data: bool = False,
-                 time_interval_no_duplicates: bool = False,
-                 sdo_pov: bool = False,
-                 stereo_pov: bool = False,
-                 processes: int = 5,
-                 interpolation: bool = False,
-                 interpolation_order: int | list[int] = [3, 6]
-                 ) -> None:
+    def __init__(
+        self,
+        filename: str = 'order0321_new.h5',
+        sun: bool = False,
+        with_feet: bool = False,
+        all_data: bool = False,
+        no_duplicates_new: bool = False,
+        time_interval: int = 24,
+        time_interval_all_data: bool = False,
+        time_interval_no_duplicates: bool = False,
+        sdo_pov: bool = False,
+        stereo_pov: bool = False,
+        processes: int = 5,
+        interpolation: bool = False,
+        interpolation_order: int | list[int] = [3, 6]
+    ) -> None:
         
         self.filename = filename
         self.sun = sun
@@ -136,7 +137,7 @@ class Setup:
             if self.interpolation:
                 # Data path
                 interpolation_paths = [
-                    path + f'/{order}th order interpolation/treated coords' 
+                    path + f'/{order}th order interpolation/coords' 
                     for path in paths
                     for order in self.interpolation_order
                 ]
@@ -182,7 +183,7 @@ class Setup:
                 for i, path in enumerate(interpolation_paths):
                     # print(shape)
                     # print(np.max(H5PYFile[path][...], axis=1))
-                    # print(path)
+                    print(path)
                     interpolations[i] = sparse.COO(coords=H5PYFile[path][...], data=1, shape=shape).astype('uint16' if self.with_feet else 'uint8')
                 self.interpolation_data = interpolations
             

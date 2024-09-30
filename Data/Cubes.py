@@ -42,7 +42,7 @@ class DataSaver:
         processes: int, 
         integration_time: int | list[int] = [12, 24],
         interpolation_points: float = 10**6, 
-        interpolation_order: int | list[int] = [4, 6, 8],
+        interpolation_order: int | list[int] = [3, 4, 5, 6],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
         foot_weight: float = 0.075,
         exits_ok: bool = False, #TODO: need to add this functionality
@@ -1252,7 +1252,7 @@ class Interpolation:
         information = {
             'description': f"The interpolation curve with the corresponding parameters of the {self.poly_order}th order polynomial for each cube.",
 
-            'treated coords': {
+            'coords': {
                 'data': treated_interpolations,
                 'unit': 'none',
                 'description': (
@@ -1550,7 +1550,22 @@ class Interpolation:
             mask: np.ndarray,
             feet_value: float,
         ) -> np.ndarray:
-        #TODO: function to do the curve fitting 
+        """
+        To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge on a solution due to the feet weight, 
+        then the feet weight is divided by 4 (i.e. the corresponding sigma is multiplied by 4) and the fitting is tried again.
+
+        Args:
+            polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the function that outputs the n_th order polynomial function results.
+            t (np.ndarray): the cumulative distance.
+            coords (np.ndarray): the (x, y, z) coords of the data points.
+            params_init (np.ndarray): the initial (random) polynomial parameters.
+            sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the inverse of the weight).
+            mask (np.ndarray): the mask representing the feet position.
+            feet_value (float): the value of sigma given for the feet. This value is quadrupled every time a try fails.
+
+        Returns:
+            np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
+        """
 
         try: 
             sigma[mask] = feet_value
@@ -1561,7 +1576,7 @@ class Interpolation:
             params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
             params = np.vstack([params_x, params_y, params_z]).astype('float64')
         
-        except Exception as e:
+        except Exception:
             # Changing feet value
             feet_value *= 4
             print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_value}.\033[0m", flush=True)

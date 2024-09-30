@@ -186,14 +186,15 @@ class Visualise:
                 outlines=False
             )
         last_len = len(self.data)
-        for i, poly in enumerate(self.polynomials):
-            plot += k3d.voxels(
-                # positions = poly[:, ::100].astype('float32'),
-                voxels=self.visualisation_sub(poly).todense(), # TODO: this is wrong right now, will need to change it
-                color_map=[next(self.random_hexadecimal_colour_generator())],
-                name=f'{last_len + i}',
-                outlines=False
-            )           
+        if self.recreate_interpolation:
+            for i, poly in enumerate(self.polynomials):
+                plot += k3d.voxels(
+                    # positions = poly[:, ::100].astype('float32'),
+                    voxels=self.visualisation_sub(poly).todense(), # TODO: this is wrong right now, will need to change it
+                    color_map=[next(self.random_hexadecimal_colour_generator())],
+                    name=f'{last_len + i}',
+                    outlines=False
+                )           
         plot.display()
 
     def visualisation_sub(self, data: np.ndarray) -> sparse.COO:
