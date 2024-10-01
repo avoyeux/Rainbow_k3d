@@ -114,7 +114,8 @@ class Setup:
             # Get main data
             dx = H5PYFile['dx'][...]
             dates = H5PYFile['Dates'][...]
-            self.dates = [dates[number].decode('utf-8') for number in  H5PYFile['Time indexes'][...]]
+            numbers = H5PYFile['Time indexes'][...]
+            self.dates = [dates[number].decode('utf-8') for number in numbers]
             self.radius_index = self.solar_r / dx
 
             # Feet setup
@@ -171,8 +172,10 @@ class Setup:
                     for path in interpolation_paths
                 ]
             
-            if self.sdo_pov: self.sdo_pos = (H5PYFile['SDO positions'][...] / dx + self.sun_center).astype('float32')  # TODO: need to add fov for sdo
-            if self.stereo_pov: self.stereo_pos = (H5PYFile['STEREO B positions'][...] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
+            if self.sdo_pov:
+                self.sdo_pos = (H5PYFile['SDO positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  # TODO: need to add fov for sdo
+            elif self.stereo_pov:
+                self.stereo_pos = (H5PYFile['STEREO B positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
 
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
@@ -261,7 +264,7 @@ class K3dAnimation(Setup):
             camera_fov: int | float | str = 0.23, 
             camera_zoom_speed: int | float = 0.7, 
             camera_pos: tuple[int | float, int | float, int | float] | None = None,
-            up_vector: tuple[int, int, int] = (0, 0, 1), 
+            up_vector: tuple[int, int, int] = (1, 0, 0), 
             visible_grid: bool = False, 
             outlines: bool = False,
             texture_resolution: int = 960,  
@@ -327,7 +330,7 @@ class K3dAnimation(Setup):
         if self.all_data: 
             self.plot_alldata = k3d.voxels(
                 self.cubes_all_data[0].todense(),
-                opacity=0.5,
+                opacity=0.7,
                 color_map=[0x0000ff],
                 name='allData',
                 **kwargs,
@@ -481,20 +484,18 @@ class K3dAnimation(Setup):
             change (dict[str, any]): the time value, with the 'new' key being the new value and 'old' key being the old value.
         """
 
-        print(f"the change['new'] values is {change['new']}", flush=True)
-
         if self.stereo_pov:
             self.plot.camera = [
                 self.stereo_pos[change['new'], 0], self.stereo_pos[change['new'], 1], self.stereo_pos[change['new'], 2],
                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                0, 0, 1
+                self.up_vector[0], self.up_vector[1], self.up_vector[2],
             ]
             time.sleep(0.2) 
         elif self.sdo_pov:
             self.plot.camera = [
                 self.sdo_pos[change['new'], 0], self.sdo_pos[change['new'], 1], self.sdo_pos[change['new'], 2],
                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                0, 0, 1
+                self.up_vector[0], self.up_vector[1], self.up_vector[2],
             ]
             time.sleep(0.2)
 
@@ -530,6 +531,9 @@ class K3dAnimation(Setup):
     def play_pause_handler(self, change: dict[str, any]) -> None:
         """
         Changes the play button to pause when it is clicked.
+
+        Args:
+            change (dict[str, any]): the dictionary representing the value.
         """
 
         if change['new']:  # if clicked play
@@ -541,6 +545,7 @@ class K3dAnimation(Setup):
         """
         To change self.time_interval to a string giving a value in day, hours or minutes.
         """
+
         self.time_interval *= 3600
         if self.time_interval < 60:
             self.time_interval = f'{self.time_interval}s'
