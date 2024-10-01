@@ -174,6 +174,23 @@ class Setup:
             if self.sdo_pov: self.sdo_pos = (H5PYFile['SDO positions'][...] / dx + self.sun_center).astype('float32')  # TODO: need to add fov for sdo
             if self.stereo_pov: self.stereo_pos = (H5PYFile['STEREO B positions'][...] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
 
+    def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
+        """
+        To get the sparse.COO object from the corresponding coords and values.
+
+        Args:
+            H5PYFile (h5py.File): the file object.
+            group_path (str): the path to the group where the data is stored.
+
+        Returns:
+            sparse.COO: the corresponding sparse data.
+        """
+
+        data_coords = H5PYFile[group_path + '/coords'][...]
+        data_data = H5PYFile[group_path + '/values'][...]
+        data_shape = np.max(data_coords, axis=1) + 1
+        return sparse.COO(coords=data_coords, data=data_data, shape=data_shape).astype('uint8')
+    
     def name_polynomial(self, group_paths: list[str]) -> list[str]:
         """
         To get the polynomial curves name when visualising them.
@@ -228,23 +245,6 @@ class Setup:
                 raise ValueError('Interpolation pattern is wrong my lord.')
             names[i] = beginning
         return names
-            
-    def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
-        """
-        To get the sparse.COO object from the corresponding coords and values.
-
-        Args:
-            H5PYFile (h5py.File): the file object.
-            group_path (str): the path to the group where the data is stored.
-
-        Returns:
-            sparse.COO: the corresponding sparse data.
-        """
-
-        data_coords = H5PYFile[group_path + '/coords'][...]
-        data_data = H5PYFile[group_path + '/values'][...]
-        data_shape = np.max(data_coords, axis=1) + 1
-        return sparse.COO(coords=data_coords, data=data_data, shape=data_shape).astype('uint8')
     
 
 class K3dAnimation(Setup):
@@ -300,13 +300,12 @@ class K3dAnimation(Setup):
         self.time_slider: ipywidgets.IntSlider # time slider widget
         self.date_dropdown: ipywidgets.Dropdown  # Date dropdown widget to show the date
         self.time_link: ipywidgets.jslink  # JavaScript Link between the two widgets
-        self.kwargs: dict[str, int | bool]
 
         # Making the animation
-        if self.time_interval_all_data or self.time_interval_no_duplicates: self.Time_interval_string()
-        self.Animation()
+        if self.time_interval_all_data or self.time_interval_no_duplicates: self.time_interval_string()
+        self.animation()
 
-    def Animation(self) -> None:
+    def animation(self) -> None:
         """
         Creates the 3D animation using k3d. 
         """
@@ -316,10 +315,10 @@ class K3dAnimation(Setup):
         self.plot.height = self.plot_height  
             
         # Add camera parameters
-        self.Camera_params()
+        self.camera_params()
 
         # Add default parameters
-        self.kwargs = {
+        kwargs = {
             'compression_level': self.compression_level, # the compression level of the data in the 3D visualisation
             'outlines': self.outlines,
         }
@@ -331,7 +330,7 @@ class K3dAnimation(Setup):
                 opacity=0.5,
                 color_map=[0x0000ff],
                 name='allData',
-                **self.kwargs,
+                **kwargs,
             )
             self.plot += self.plot_alldata      
                
@@ -341,7 +340,7 @@ class K3dAnimation(Setup):
                 color_map=[0x0000ff],
                 opacity=0.3,
                 name='noDuplicates',
-                **self.kwargs,
+                **kwargs,
             )
             self.plot += self.plot_dupli_new
 
@@ -351,7 +350,7 @@ class K3dAnimation(Setup):
                 color_map=[0xff6666],
                 opacity=1,
                 name=f'allData {self.time_interval}',
-                **self.kwargs,
+                **kwargs,
             )
             self.plot += self.plot_interv_new        
        
@@ -361,7 +360,7 @@ class K3dAnimation(Setup):
                 color_map=[0x0000ff],
                 opacity=0.35,
                 name=f'noDupli {self.time_interval}',
-                **self.kwargs,
+                **kwargs,
             )
             self.plot += self.plot_interv_dupli_new      
     
@@ -381,9 +380,9 @@ class K3dAnimation(Setup):
                 plot = k3d.voxels(
                     data[0].todense(), 
                     opacity=0.95, 
-                    color_map=[next(self.Random_hexadecimal_color_generator())],
+                    color_map=[next(self.random_hexadecimal_color_generator())],
                     name=name,
-                    **self.kwargs,
+                    **kwargs,
                 )
                 self.plot += plot
                 self.plot_interpolation.append(plot)
@@ -399,16 +398,15 @@ class K3dAnimation(Setup):
                 compression_level=self.compression_level,
             )
 
-
         # Adding a play/pause button
         self.play_pause_button = ipywidgets.ToggleButton(value=False, description='Play', icon='play')
 
         # Set up the time slider and the play/pause button
         self.time_slider = ipywidgets.IntSlider(min=0, max=len(self.dates)-1, description='Frame:')
         self.date_dropdown = ipywidgets.Dropdown(options=self.dates, description='Date:')
-        self.time_slider.observe(self.Update_voxel, names='value')
-        self.time_link= ipywidgets.jslink((self.time_slider, 'value'), (self.date_dropdown, 'index'))
-        self.play_pause_button.observe(self.Play_pause_handler, names='value')
+        self.time_slider.observe(self.update_voxel, names='value')
+        self.time_link = ipywidgets.jslink((self.time_slider, 'value'), (self.date_dropdown, 'index'))
+        self.play_pause_button.observe(self.play_pause_handler, names='value')
 
         # Display
         display(self.plot, self.time_slider, self.date_dropdown, self.play_pause_button)
@@ -416,7 +414,7 @@ class K3dAnimation(Setup):
         #     self.plot.screenshot_scale = self.screenshot_scale
         #     self.Screenshot_making()
 
-    def Camera_params(self) -> None:
+    def camera_params(self) -> None:
         """
         Camera visualisation parameters.
         """
@@ -475,7 +473,7 @@ class K3dAnimation(Setup):
         # Creation of the position of the spherical cloud of points
         self.sun_points = np.array([z.ravel(), y.ravel(), x.ravel()], dtype='float32').T
 
-    def Update_voxel(self, change: dict[str, any]) -> None:
+    def update_voxel(self, change: dict[str, any]) -> None:
         """
         Updates the voxels depending on which time value is chosen.
 
@@ -504,9 +502,9 @@ class K3dAnimation(Setup):
 
         if self.no_duplicates_new: self.plot_dupli_new.voxels = self.cubes_no_duplicates_new[change['new']].todense()
  
-        if self.time_intervals_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense()
+        if self.time_interval_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense()
                           
-        if self.time_intervals_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense()
+        if self.time_interval_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense()
        
         # if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
         # if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
@@ -516,63 +514,30 @@ class K3dAnimation(Setup):
                 data = self.interpolation_data[i]
                 plot.voxels = data[change['new']].todense()
 
-        # if self.make_screenshots: self.Screenshot_making()
-        # if self.html_snapshot:
-        #     time.sleep(4)
-        #     with open(f"snapshot_date{self.date_text[change['new']]}.html", "w") as f:
-        #         f.write(self.plot.get_snapshot())
-
-    def Play(self) -> None:
+    def play(self) -> None:
         """
         Params for the play button.
         """
         
         if self.play_pause_button.value and self.time_slider.value < len(self.dates) - 1:
             self.time_slider.value += 1
-            threading.Timer(self.sleep_time, self.Play).start()  # where you also set the sleep() time.
+            threading.Timer(self.sleep_time, self.play).start()  # where you also set the sleep() time.
                 
         else:
             self.play_pause_button.description = 'Play'
             self.play_pause_button.icon = 'play'
 
-    # def Screenshot_making(self) -> None:
-    #     """
-    #     To create a screenshot of the plot. A sleep time was added as the screenshot method relies
-    #     on asynchronus traitlets mechanism.
-    #     """
-
-    #     import base64
-
-    #     self.plot.fetch_screenshot()
-    #     sleep(self.screenshot_sleep)
-
-    #     screenshot_png = base64.b64decode(self.plot.screenshot)
-    #     if self.time_intervals_no_duplicates:
-    #         screenshot_name = f'nodupli_interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
-    #     elif self.time_intervals_all_data:
-    #         screenshot_name = f'alldata_interval{self.time_interval}_{self.date_text[self.time_slider.value]}_{self.version}.png'
-    #     elif self.no_duplicates:
-    #         screenshot_name = f'nodupli_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
-    #     elif self.all_data:
-    #         screenshot_name = f'alldata_{self.time_slider.value:03d}_{self.date_text[self.time_slider.value]}_{self.version}.png'
-    #     else:
-    #         raise ValueError("The screenshot name for that type of data still hasn't been created.")
-        
-    #     screenshot_namewpath = os.path.join(self.paths['Screenshots'], screenshot_name)
-    #     with open(screenshot_namewpath, 'wb') as f:
-    #         f.write(screenshot_png)
-
-    def Play_pause_handler(self, change: dict[str, any]) -> None:
+    def play_pause_handler(self, change: dict[str, any]) -> None:
         """
         Changes the play button to pause when it is clicked.
         """
 
         if change['new']:  # if clicked play
-            self.Play()
+            self.play()
             self.play_pause_button.description = 'Pause'
             self.play_pause_button.icon = 'pause'
 
-    def Time_interval_string(self) -> None:
+    def time_interval_string(self) -> None:
         """
         To change self.time_interval to a string giving a value in day, hours or minutes.
         """
@@ -600,7 +565,7 @@ class K3dAnimation(Setup):
         else:
             raise ValueError("Time interval is way too large")
     
-    def Random_hexadecimal_color_generator(self) -> typing.Generator[int, None, None]:
+    def random_hexadecimal_color_generator(self) -> typing.Generator[int, None, None]:
         """
         Generator that yields a color value in integer hexadecimal code format.
         """
