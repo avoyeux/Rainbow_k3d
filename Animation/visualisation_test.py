@@ -144,16 +144,11 @@ class Visualise:
             sparse.COO: the corresponding sparse data.
         """
 
-        print(group_path)
-        if not 'interpolation' in group_path:
-            data_coords = H5PYFile[group_path + '/coords'][...]
-            data_data = H5PYFile[group_path + '/values'][...]
-            shape = np.max(data_coords, axis=1) + 1
-            return sparse.COO(coords=data_coords, data=data_data, shape=shape)
-        else:
-            data = H5PYFile[group_path + '/treated coords'][...]
-            shape = np.max(data, axis=1) + 1
-            return sparse.COO(coords=data, data=1, shape=shape)
+        # Get data
+        data_coords = H5PYFile[group_path + '/coords'][...]
+        data_data = H5PYFile[group_path + '/values'][...] if not 'interpolation' in group_path else 1
+        shape = np.max(data_coords, axis=1) + 1
+        return sparse.COO(coords=data_coords, data=data_data, shape=shape)
         
     def random_hexadecimal_colour_generator(self) -> typing.Generator[int, None, None]:
         """

@@ -40,11 +40,10 @@ class DataSaver:
         self,
         filename: str,
         processes: int, 
-        integration_time: int | list[int] = [12, 24],
+        integration_time: int | list[int] = [24],
         interpolation_points: float = 10**6, 
-        interpolation_order: int | list[int] = [3, 4, 5, 6],
+        interpolation_order: int | list[int] = [4, 5, 6],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
-        foot_weight: float = 0.075,
         exits_ok: bool = False, #TODO: need to add this functionality
         full: bool = False, 
     ) -> None:
@@ -55,7 +54,6 @@ class DataSaver:
         self.integration_time = [integration_time * 3600] if isinstance(integration_time, int) else [time * 3600 for time in integration_time]
         self.interpolation_points = interpolation_points
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
-        self.foot_weight = foot_weight
         self.exists = exits_ok
         self.full = full  # deciding to add the heavy sky coords arrays.
 
@@ -86,7 +84,7 @@ class DataSaver:
         # Setup
         main = '/home/avoyeux/old_project/avoyeux'
         if not os.path.exists(main): main = '/home/avoyeux/Documents/avoyeux'
-        if not os.path.exists(main): raise ValueError(f"The main path {main} not found.")
+        if not os.path.exists(main): raise ValueError(f"\033[1;31mThe main path {main} not found.")
         python_codes = os.path.join(main, 'python_codes')
 
         # Format paths
@@ -692,7 +690,13 @@ class DataSaver:
         return H5PYFile                
 
     @Decorators.running_time
-    def time_integration(self, H5PYFile: h5py.File, datapath: str, time: int, borders: dict[str, dict[str, str | float]]) -> sparse.COO:
+    def time_integration(
+            self,
+            H5PYFile: h5py.File,
+            datapath: str,
+            time: int,
+            borders: dict[str, dict[str, str | float]]
+        ) -> sparse.COO:
         """
         Gives the time integration of all the data for a given time interval in seconds.
 
@@ -829,22 +833,13 @@ class DataSaver:
 
         # main_options = ['All data with feet', 'No duplicates new with feet']  #TODO: need to add the new duplicates init when I understand the error
         sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
-
-        # # Filtered group
-        # main_path_1 = 'Filtered/'
-        # for main_option in data_options:
-        #     group_path = main_path_1 + main_option
-        #     data = self.get_COO(H5PYFile, group_path).astype('uint16')
-        #     self.add_interpolation(H5PYFile[group_path], data)
         
         # Time integration group
         main_path_2 = 'Time integrated/'
         for main_option in data_options:
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
-                print(f'For group path {group_path}:', flush=True)
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
-                print(f'In that group path, the max values is {np.max(data.data)}')
                 self.add_interpolation(H5PYFile[group_path], data)
         return H5PYFile
 
@@ -1194,7 +1189,7 @@ class Interpolation:
             order: int, 
             processes: int, 
             precision_nb: int | float = 10**6, 
-            full: bool = False
+            full: bool = False,
         ) -> None:
         """
         Initialisation of the Interpolation class. Using the get_information() instance method, you can get the curve position voxels and the 
@@ -1508,10 +1503,6 @@ class Interpolation:
         feet_value = 1e-4
         mask = sigma > 2
 
-        # Printing number of values
-        a = np.random.random()
-        if a < 0.01: print(f"Number of feet found right before the interpolation is {np.sum(mask)}", flush=True)  # one print in 100
-
         # Try to get params
         params = Interpolation.scipy_curve_fit(nth_order_polynomial, t, coords, params_init, sigma, mask, feet_value)
 
@@ -1617,5 +1608,5 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver(f'order{"".join([str(nb) for nb in Interpolation.axes_order])}.h5', processes=50)    
+    DataSaver(f'order{"".join([str(nb) for nb in Interpolation.axes_order])}.h5', processes=50, full=True)    
 
