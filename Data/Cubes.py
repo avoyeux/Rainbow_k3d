@@ -249,25 +249,25 @@ class DataSaver:
 
         # Data and metadata
         dx = {
-            'data': values[0],
+            'data': np.array([values[0]], dtype='float32'),
             'unit': 'km',
             'description': "The voxel resolution.",
         }
         info = {
             'xmin': {
-                'data': values[1],
+                'data': np.array(values[1], dtype='float32'),
                 'unit': 'km',
                 'description': ("The minimum X-axis Carrington Heliographic Coordinates value for each data cube.\n"
                                 "The X-axis in Carrington Heliographic Coordinates points towards the First Point of Aries."),
             }, 
             'ymin': {
-                'data': values[2],
+                'data': np.array(values[2], dtype='float32'),
                 'unit': 'km',
                 'description': ("The minimum Y-axis Carrington Heliographic Coordinates value for each data cube.\n"
                                 "The Y-axis in Carrington Heliographic Coordinates points towards the ecliptic's eastern horizon."),
             },
             'zmin': {
-                'data': values[3],
+                'data': np.array(values[3], dtype='float32'),
                 'unit': 'km',
                 'description': ("The minimum Z-axis Carrington Heliographic Coordinates value for each data cube.\n"
                                 "The Z-axis in Carrington Heliographic Coordinates points towards Sun's north pole."),

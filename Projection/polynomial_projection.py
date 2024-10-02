@@ -5,10 +5,8 @@ This is done to get the angle between the projection seen by SDO and the 3D poly
 
 # Imports
 import os
-import re
 import sys
 import h5py
-import sparse
 import typeguard
 
 # Aliases
@@ -23,10 +21,9 @@ import multiprocessing.queues
 sys.path.append('..')
 from Common import MultiProcessing, Decorators
 
-
-
-#TODO: should I also add the cube itself in the projection as a background?
+#TODO: need to see what the problem in the visualisation angle is. Seems off when comparing to the possibly erroneous 3D visualisation.
 #TODO: I need to also add the sdo image itself.
+
 class OrthographicalProjection:
     """
     Does the 2D projection of a 3D volume.
@@ -34,12 +31,11 @@ class OrthographicalProjection:
     Also, while not yet implemented, will also add the envelop around the projection.
     """
 
+    @Decorators.running_time
     @typeguard.typechecked
     def __init__(
             self,
-            data_path: str,
             processes: int = 0,
-            saving_data: bool = False,
             integration_time_hours: int = 24,
             saving_plots: bool = False,
             filename: str = 'order0321.h5',
@@ -68,11 +64,10 @@ class OrthographicalProjection:
         # Get interpolation data
         self.data_info = self.data_setup()
 
-        # Get plot choices
-        self.plot_kwargs = self.plot_choices_creation()
+        self.heliographic_cubes_origin = np.array([self.data_info['xmin'], self.data_info['ymin'], self.data_info['zmin']], dtype='float32')
 
         # Plotting
-        if saving_plots: self.plotting(self.data_info['interpolation'])
+        if saving_plots: self.plotting()
 
     def path_setup(self) -> dict[str, str]:
         """
@@ -87,7 +82,7 @@ class OrthographicalProjection:
 
         # Check main path
         main_path = '/home/avoyeux/Documents/avoyeux/'
-        if not os.path.exist(main_path): main_path = '/home/avoyeux/old_project/avoyeux/'
+        if not os.path.exists(main_path): main_path = '/home/avoyeux/old_project/avoyeux/'
         if not os.path.exists(main_path): raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
         code_path = os.path.join(main_path, 'python_codes')
         # Save paths
@@ -111,14 +106,6 @@ class OrthographicalProjection:
         # Open file
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
-            # Get group path
-            group_path = (
-                'Time integrated/' 
-                + self.data_type 
-                + f'/Time integration of {self.integration_time}.0 hours' 
-                + f'/{self.polynomial_order}th order interpolation'
-            )
-
             # Get default data information
             dx = H5PYFile['dx'][...]
             indexes = H5PYFile['Time indexes'][...]
@@ -132,55 +119,51 @@ class OrthographicalProjection:
             ymin = H5PYFile[border_path + '/ymin'][...]
             zmin = H5PYFile[border_path + '/zmin'][...]
 
-            interpolation = self.get_COO(H5PYFile, group_path)  
-            #TODO: it should be better to just redo the polynomial function using the parameters but then I need to be able to stop
-            #TODO: the polynomial exactly at the feet positions.
-            #TODO: will need to add the cube data here 
-        
+            # Get group path
+            group_path = (
+                'Time integrated/' 
+                + self.data_type 
+                + f'/Time integration of {self.integration_time}.0 hours' 
+            )
+
+            cubes = H5PYFile[group_path + '/coords'][...]
+            interpolation = H5PYFile[group_path + f'/{self.polynomial_order}th order interpolation/raw_coords'][...]
+
         data = {
             'dx': dx,
             'dates': dates,
             'xmin': xmin,
             'ymin': ymin,
             'zmin': zmin,
-            'sdo pos': sdo_pos,
-            'interpolation': interpolation,
+            'sdo_pos': sdo_pos,
         }
+        data['cubes'] = self.matrix_rotation(self.cartesian_pos(cubes, data), data)
+        data['interpolation'] = self.matrix_rotation(self.cartesian_pos(interpolation, data), data)
 
         if self.verbose > 0: 
             print(
-                f"POLY INFO - sparse shape:{interpolation.coords.shape} "
-                f"- dense shape:{interpolation.shape} "
+                f"POLY INFO - shape:{interpolation.shape} "
                 f"- size:{round(interpolation.nbytes / 2**20, 2)}Mb.",
                 flush=self.flush,
             )
         return data
-    
-    def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
-        """
-        To get the sparse.COO object from the corresponding coords and values.
-
-        Args:
-            H5PYFile (h5py.File): the file object.
-            group_path (str): the path to the group where the data is stored.
-
-        Returns:
-            sparse.COO: the corresponding sparse data.
-        """
-
-        # Get data
-        data_coords = H5PYFile[group_path + '/coords'][...]
-        data_data = H5PYFile[group_path + '/values'][...] if not 'interpolation' in group_path else 1
-        shape = np.max(data_coords, axis=1) + 1
-        return sparse.COO(coords=data_coords, data=data_data, shape=shape)
 
     def plot_choices_creation(self, plot_choices: list[str]) -> dict[str, bool]:
         """
-        To check the values given for the plot_choices argument.
-        """  #TODO: finish this docstring
+        Creating a dictionary that chooses what to plot.
+
+        Args:
+            plot_choices (list[str]): the list of the choices made in the plotting.
+
+        Raises:
+            ValueError: if the plotting choice string is not recognised.
+
+        Returns:
+            dict[str, bool]: decides what will be plotted later on.
+        """
 
         # Initialisation of the possible choices
-        possibilities = ['polar', 'cartesian', 'sdo image', 'no duplicate', 'envelop', 'polynomial']
+        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelop', 'interpolation']
         plot_choices_kwargs = {
             key: False 
             for key in possibilities
@@ -195,75 +178,75 @@ class OrthographicalProjection:
         if 'envelop' in plot_choices: plot_choices_kwargs['polar'] = True
         return plot_choices_kwargs
 
-    # def path(self) -> None:
-    #     """
-    #     Function where the filepaths dictionary is created.
-    #     """
-
-    #     main_path = os.path.join(os.getcwd(), '..')
-    #     self.paths = {
-    #         'main': main_path, 
-    #         'SDO': os.path.join(main_path, 'sdo'),
-    #         'cubes': os.path.join(main_path, 'Cubes_karine'),
-    #         'curve fit': os.path.join(main_path, 'curveFitArrays'),
-    #         'envelope': os.path.join(main_path, 'Projection', 'Envelope'),
-    #         'save': os.path.join(main_path, 'Projection' ,'Projection_results'),
-    #     }
-    #     os.makedirs(self.paths['save'], exist_ok=True)
-
     @Decorators.running_time
-    def cartesian_pos(self, data: np.ndarray) -> np.ndarray:
+    def cartesian_pos(self, data: np.ndarray, data_info: dict[str, np.ndarray]) -> np.ndarray:
         """
-        To calculate the heliographic cartesian positions of some of the objects.
+        To calculate the heliographic cartesian positions given a ndarray of index positions.
+
+        Args:
+            data (np.ndarray): the index positions.
+            data_info (dict[str, np.ndarray]): the data information.
+
+        Returns:
+            np.ndarray: the corresponding heliographic cartesian positions.
         """
 
-        cubes_sparse_coords = data.astype('float64')
+        cubes_sparse_coords = data.astype('float32')
 
         # Initialisation
-        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * self.data_info['dx'] + self.data_info['x_min']) 
-        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * self.data_info['dx'] + self.data_info['y_min']) 
-        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * self.data_info['dx'] + self.data_info['z_min'])
-   
-        self.heliographic_cubes_origin = np.array([self.data_info['x_min'], self.data_info['y_min'], self.data_info['z_min']], dtype='float64')
+        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * data_info['dx'] + data_info['xmin']) 
+        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * data_info['dx'] + data_info['ymin']) 
+        cubes_sparse_coords[3, :] = (cubes_sparse_coords[3, :] * data_info['dx'] + data_info['zmin'])
         return cubes_sparse_coords
 
     @Decorators.running_time
-    def matrix_rotation(self, data: np.ndarray) -> np.ndarray:
+    def matrix_rotation(self, data: np.ndarray, data_info: dict[str, np.ndarray]) -> np.ndarray:
         """
-        To rotate the matrix so that it aligns with the satellite pov
+        To rotate the matrix so that it aligns with the satellite pov.
+
+        Args:
+            data (np.ndarray): the matrix to be rotated with shape (4, N) where 4 is t, x, y, z.
+            data_info (dict[str, np.ndarray]): the data information.
+
+        Returns:
+            np.ndarray: the rotated matrix.
         """
 
         if self.multiprocessing:
-            # Initialisation of the multiprocessing
-            manager = Manager()
+            # Multiprocessing setup
+            manager = mp.Manager()
             queue = manager.Queue()
-            shm, data = MultiProcessing.shared_memory(data.astype('float64'))
-
-            # Setting up each process
-            indexes = MultiProcessing.pool_indexes(len(self.numbers), self.processes)
-            kwargs = {
-                'queue': queue, 
-                'data': data,
-            }
-            processes = [Process(target=self.time_loop, kwargs={'index': i, 'data_index': index_tuple, **kwargs}) for i, index_tuple in enumerate(indexes)]
-            for p in processes: p.start()
+            shm, data = MultiProcessing.shared_memory(data.astype('float32'))
+            indexes = MultiProcessing.pool_indexes(len(data_info['dates']), self.processes)
+            # Run
+            processes = [None] * len(indexes)
+            for i, index_tuple in enumerate(indexes):
+                p = mp.Process(target=self.time_loop, kwargs={
+                    'index': i,
+                    'data_index': index_tuple,
+                    'queue': queue,
+                    'data': data,
+                    'multiprocessing': self.multiprocessing,
+                    'sdo_pos': data_info['sdo_pos'],
+                })
+                p.start()
+                processes[i] = p
             for p in processes: p.join()
-            
             shm.unlink()
 
             # Getting the results 
-            results = [None] * self.processes
+            results = [None] * len(indexes)
             while not queue.empty():
                 identifier, result = queue.get()
                 results[identifier] = result
             results = [projection_matrix for sublist in results for projection_matrix in sublist]
         else:
-            results = self.time_loop(data=data, data_index=(0, len(self.numbers) - 1))
+            results = self.time_loop(data=data, data_index=(0, len(data_info['dates']) - 1))
 
         # Ordering the final result so that it is a np.ndarray
         start_index = 0
         total_nb_vals = sum(arr.shape[1] for arr in results)
-        final_results = np.empty((4, total_nb_vals), dtype='float64')
+        final_results = np.empty((4, total_nb_vals), dtype='float32')
         for t, result in enumerate(results):
             nb_columns = result.shape[1]
             final_results[0, start_index: start_index + nb_columns] = t
@@ -271,14 +254,33 @@ class OrthographicalProjection:
             start_index += nb_columns
         return final_results
 
-    def time_loop(self, data: np.ndarray | dict, data_index: tuple[int, int], index: int = 0, queue: QUEUE | None = None) -> None | list[np.ndarray]:
+    @staticmethod
+    def time_loop(
+            data: np.ndarray | dict,
+            data_index: tuple[int, int],
+            sdo_pos: np.ndarray,
+            multiprocessing: bool,
+            index: int = 0,
+            queue: mp.queues.Queue | None = None,
+        ) -> list[np.ndarray] | None:
         """
-        Loop over the time indexes so that I can multiprocess if needed be.
+        To rotate a given section of the total data.
+
+        Args:
+            data (np.ndarray | dict): the total data.
+            data_index (tuple[int, int]): the data section indexes.
+            sdo_pos (np.ndarray): the position of SDO.
+            multiprocessing (bool): choosing to multiprocess or not.
+            index (int, optional): the index to identify the result. Defaults to 0.
+            queue (mp.queues.Queue | None, optional): queue to save the results if multiprocessing. Defaults to None.
+
+        Returns:
+            list[np.ndarray] | None: _description_
         """
 
-        if self.multiprocessing:
-            shm = mp.shared_memory.SharedMemory(name=data['shm.name'])
-            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+        if multiprocessing:
+            shm = mp.shared_memory.SharedMemory(name=data['name'])
+            data = np.ndarray(data['shape'], dtype=data['dtype'], buffer=shm.buf)
 
         result_list = []
         for time in range(data_index[0], data_index[1] + 1):
@@ -286,7 +288,7 @@ class OrthographicalProjection:
             result = data[1:4, data_filter]
             center = np.array([0, 0, 0]).reshape(3, 1)  # TODO: need to change this when the code works. This is only to see where the sun center is
             result = np.column_stack((result, center))  # adding the sun center to see if the translation is correct
-            satelitte_pos = self.sdo_pos[time]
+            satelitte_pos = sdo_pos[time]
 
             # Centering the SDO pov on the Sun center
             sun_center = np.array([0, 0, 0])
@@ -304,12 +306,12 @@ class OrthographicalProjection:
             theta = np.arccos(cos_theta)
 
             # Corresponding rotation matrix
-            rotation_matrix = self.rodrigues_rotation(rotation_axis, -theta)
+            rotation_matrix = OrthographicalProjection.rodrigues_rotation(rotation_axis, -theta)
 
             # up_vector in the new rotated matrix
             up_vector_rotated = np.dot(rotation_matrix, up_vector)
             theta = np.arctan2(up_vector_rotated[0], up_vector_rotated[1])
-            up_rotation_matrix = self.rodrigues_rotation(target_axis, theta)
+            up_rotation_matrix = OrthographicalProjection.rodrigues_rotation(target_axis, theta)
             
             # Final rotation matrix
             rotation_matrix = np.matmul(up_rotation_matrix, rotation_matrix)
@@ -317,11 +319,12 @@ class OrthographicalProjection:
             result = [np.matmul(rotation_matrix, point) for point in result.T]
             result = np.stack(result, axis=-1)
             result_list.append(result)
-        if not self.multiprocessing: return result_list
+        if not multiprocessing: return result_list
         shm.close()
         queue.put((index, result_list))
-    
-    def rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
+
+    @staticmethod 
+    def rodrigues_rotation(axis: np.ndarray, angle: float) -> np.ndarray:
         """
         The Rodrigues's rotation formula to rotate matrices.
         """
@@ -336,88 +339,171 @@ class OrthographicalProjection:
         ])
         return np.eye(3) + np.sin(angle) * matrix + (1 - np.cos(angle)) * (matrix @ matrix)
 
-    def saving_data(self, data: np.ndarray) -> None:
-        """
-        Function to save the reprojection arrays.
-        The arrays saved have shape (4, n) as the whole 3D projection is saved for each time step (maybe the viewpoint depth might be useful later on).
-        """
-
-        np.save(os.path.join(self.paths['save'], self.saving_filename), data.astype('float64'))
-
-        # STATS print
-        if self.verbose > 0: print(f"SAVING - filename:{self.saving_filename} - shape:{data.shape} - nbytes:{round(data.nbytes / 2**20, 2)}Mb.", flush=self.flush)
-
     @Decorators.running_time
-    def plotting(self, data: np.ndarray) -> None:
+    def plotting(self) -> None:
         """
-        Function to plot the data.
+        Parent function to plot the data.
         """
 
         if self.multiprocessing:
-            shm, data = MultiProcessing.shared_memory(data) 
-            indexes = MultiProcessing.pool_indexes(len(self.numbers), self.processes)
-            processes = [Process(target=self.plotting_sub, kwargs={'data': data, 'data_index': index_tuple}) for index_tuple in indexes]
-            for p in processes: p.start()
-            for p in processes: p.join()
-            shm.unlink()
-        else:
-            self.plotting_sub(data=data, data_index=(0, len(self.numbers) - 1))
+            # Multiprocessing setup
+            shm_cubes, cubes = MultiProcessing.shared_memory(self.data_info['cubes']) 
+            shm_interp, interpolations = MultiProcessing.shared_memory(self.data_info['interpolation'])
+            indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
+            
+            # Arguments
+            kwargs = {
+                'cubes': cubes,
+                'interpolations': interpolations,
+                'multiprocessing': True,
+                'dates': self.data_info['dates'],
+                'solar_r': self.solar_r,
+                'integration_time': self.integration_time,
+                'paths': self.paths,
+                'plot_choices': self.plot_choices,
+                'verbose': self.verbose,
+                'flush': self.flush,
+            }
 
-    def plotting_sub(self, data: np.ndarray | dict, data_index: tuple[int, int]) -> None:
+            # Run
+            processes = [None] * len(indexes)
+            for i, index in enumerate(indexes):
+                p = mp.Process(target=self.plotting_sub, kwargs={'data_index': index, **kwargs})
+                p.start()
+                processes[i] = p
+            for p in processes: p.join()
+            shm_cubes.unlink()
+            shm_interp.unlink()
+        else:
+            # Arguments
+            kwargs = {
+                'cubes': self.data_info['cubes'],
+                'interpolations': self.data_info['interpolation'],
+                'multiprocessing': False,
+                'dates': self.data_info['dates'],
+                'solar_r': self.solar_r,
+                'integration_time': self.integration_time,
+                'paths': self.paths,
+                'plot_choices': self.plot_choices,
+                'verbose': self.verbose,
+                'flush': self.flush,
+            }
+            self.plotting_sub(data_index=(0, len(self.numbers) - 1), **kwargs)
+
+    @staticmethod
+    def plotting_sub(
+            cubes: dict[str, any],
+            interpolations: dict[str, any],
+            multiprocessing: bool,
+            dates: list[str],
+            solar_r: float,
+            integration_time: int,
+            paths: dict[str, str],
+            plot_choices: dict[str, bool],
+            data_index: tuple[int, int],
+            verbose: int,
+            flush: bool,
+        ) -> None:
         """
         To be able to multiprocess the plotting.
         """
         
-        if self.multiprocessing:
-            shm = SharedMemory(name=data['shm.name'])
-            data = np.ndarray(data['data.shape'], dtype=data['data.dtype'], buffer=shm.buf)
+        if multiprocessing:
+            # Multiprocessing setup
+            shm_cubes = mp.shared_memory.SharedMemory(name=cubes['name'])
+            shm_interpolations = mp.shared_memory.SharedMemory(name=interpolations['name'])
+            cubes = np.ndarray(cubes['shape'], dtype=cubes['dtype'], buffer=shm_cubes.buf)
+            interpolations = np.ndarray(interpolations['shape'], dtype=interpolations['dtype'], buffer=shm_interpolations.buf)
 
-        if self.plot_choices['envelop']: self.envelop_preprocessing()
+        if plot_choices['envelop']: OrthographicalProjection.envelop_preprocessing()  #TODO: need to add this part
 
         for time in range(data_index[0], data_index[1] + 1):
-            data_filter  = data[0, :] == time
-            result = data[1:4, data_filter]
+            # Filtering data
+            cubes_filter  = cubes[0, :] == time
+            interpolations_filter = interpolations[0, :] == time
+            cube = cubes[1:4, cubes_filter]
+            interpolation = interpolations[1:4, interpolations_filter]
 
             # Voxel positions
-            x, y, _ = result
-            image_nb = self.numbers[time]
+            x_cube, y_cube, _ = cube
+            x_interp, y_interp, _ = interpolation
 
-            # if self.plot_choices['sdo image']: self.sdo_image(index=time)
+            # Data info
+            date = dates[time]
 
-            if self.plot_choices['cartesian']:
+            # if self.plot_choices['sdo image']: self.sdo_image(index=time)  #TODO: need to add this part too
+
+            plot_kwargs = {
+                0: {
+                    's': 1,
+                    'color': 'blue',
+                    'zorder': 1,
+                    'label': 'Data points',
+                },
+                1: {
+                    's': 2,
+                    'color': 'red',
+                    'zorder': 2,
+                    'label': 'Interpolation',
+                },
+            }
+
+            if plot_choices['cartesian']:
                 # SDO projection plotting
                 plt.figure(figsize=(5, 5))
-                plt.scatter(x / self.solar_r, y / self.solar_r, s=0.7)
-                plt.title(f'SDO POV for image nb{image_nb}')
+                if plot_choices['cube']: plt.scatter(x_cube / solar_r, y_cube / solar_r, **plot_kwargs[0])
+                if plot_choices['interpolation']: plt.scatter(x_interp / solar_r, y_interp / solar_r, **plot_kwargs[1])
+                plt.title(f'SDO POV for - {date}')
                 plt.xlabel('Solar X [au]')
                 plt.ylabel('Solar Y [au]')
-                plot_name = f'sdoprojection_{image_nb:03d}_{self.time_interval}.png'
-                plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
+                plt.legend()
+                plot_name = f'sdoprojection_{date}_{integration_time}h.png'
+                plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
-            if self.plot_choices['polar']:
+            if plot_choices['polar']:
                 # Changing to polar coordinates
-                r = np.sqrt(x**2 + y**2)
-                theta = np.arctan2(y, x) - np.pi / 2
-                theta = np.where(theta < 0, theta + 2 * np.pi, theta)
-                theta = 2 * np.pi - theta  # clockwise
-                theta = np.where(theta >= 2 * np.pi, theta - 2 * np.pi, theta)  # modulo 2pi
-                theta = np.degrees(theta) 
+                r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
+                r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp, y_interp)
 
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
-                plt.scatter(theta, r / 10**3, s=0.7)
+                if plot_choices['cube']: plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
+                if plot_choices['interpolation']: plt.scatter(theta_interp, r_interp / 10**3, **plot_kwargs[1])
                 plt.xlim(245, 295)
                 plt.ylim(700, 870)
-                plt.title(f'SDO polar projection: {image_nb}')
+                plt.title(f'SDO polar projection - {date}')
                 plt.xlabel('Polar angle [degrees]')
                 plt.ylabel('Radial distance [Mm]')
-                plot_name = f'sdopolarprojection_{image_nb:03d}_{self.time_interval}.png'
-                plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
+                plt.legend()
+                plot_name = f'sdopolarprojection_{date}_{integration_time}h.png'
+                plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
-            if self.verbose > 1: print(f'SAVED - filename:{plot_name}', flush=self.flush)
+            if verbose > 1: print(f'SAVED - filename:{plot_name}', flush=flush)
 
+    @staticmethod
+    def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Changes cartesian coordinates to polar.
+
+        Args:
+            x (np.ndarray): the x-axis cartesian coordinates.
+            y (np.ndarray): the y-axis cartesian coordinates.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the r and theta polar coordinate values.
+        """
+         
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x) - np.pi / 2
+        theta = np.where(theta < 0, theta + 2 * np.pi, theta)
+        theta = 2 * np.pi - theta  # clockwise
+        theta = np.where(theta >= 2 * np.pi, theta - 2 * np.pi, theta)  # modulo 2pi
+        theta = np.degrees(theta) 
+        return r, theta
+
+    @staticmethod
     def envelop_preprocessing(self):
         """
         Opens the two png images of the envelop in polar coordinates. Then, treats the data to use it in
@@ -426,10 +512,20 @@ class OrthographicalProjection:
 
         pass
 
-    def sdo_image(self, index: int):
-        """
-        To open the SDO image data, preprocess it and return it as an array for use in plots.
-        """
+    # def sdo_image(self, index: int):
+    #     """
+    #     To open the SDO image data, preprocess it and return it as an array for use in plots.
+    #     """
 
-        image = fits.getdata(self.sdo_filepaths[index], 1)
-        pass # TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
+    #     image = fits.getdata(self.sdo_filepaths[index], 1)
+    #     pass # TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
+
+
+if __name__=='__main__':
+    OrthographicalProjection(
+        processes=5,
+        polynomial_order=5,
+        saving_plots=True,
+        plot_choices=['polar', 'cartesian', 'cube', 'interpolation'],
+        flush=True,
+    )

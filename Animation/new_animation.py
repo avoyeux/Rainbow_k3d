@@ -30,7 +30,7 @@ class Setup:
     @typeguard.typechecked
     def __init__(
             self,
-            filename: str = 'order0321_new.h5',
+            filename: str = 'order0321.h5',
             sun: bool = False,
             with_feet: bool = False,
             all_data: bool = False,
@@ -42,7 +42,7 @@ class Setup:
             stereo_pov: bool = False,
             processes: int = 5,
             interpolation: bool = False,
-            interpolation_order: int | list[int] = [3, 6],
+            interpolation_order: int | list[int] = [5],
     ) -> None:
         
         self.filename = filename
