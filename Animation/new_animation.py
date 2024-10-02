@@ -1,5 +1,5 @@
 """
-Imports of the data, preprocessing and creation of the 3D k3d visualisation class to then be used in a jupyter notebook.
+To 3D visualise the rainbow filament data and the corresponding polynomial fitting.
 """
 
 # Imports
@@ -17,7 +17,6 @@ import typeguard
 import ipywidgets
 
 import numpy as np
-from IPython.display import display
 
 # Personal imports
 sys.path.append('..')
@@ -25,14 +24,17 @@ from Common import Decorators
 
 
 class Setup:
-    # TODO: to open and read the hdf5 file
+    """
+    Manipulates the HDF5 filament data file to setup the necessary data choices for the visualisation.
+    This class is the parent class to the k3d visualisation class named K3dAnimation.
+    """
 
     @typeguard.typechecked
     def __init__(
             self,
             filename: str = 'order0321.h5',
             sun: bool = False,
-            with_feet: bool = False,
+            with_feet: bool = True,
             all_data: bool = False,
             no_duplicates_new: bool = False,
             time_interval: int = 24,
@@ -44,6 +46,24 @@ class Setup:
             interpolation: bool = False,
             interpolation_order: int | list[int] = [5],
     ) -> None:
+        """
+        To setup the instance attributes needed for the 3D visualisation of the Rainbow filament data.
+        Args:
+            filename (str, optional): the HDF5 filename containing all the cube data. Defaults to 'order0321.h5'.
+            sun (bool, optional): choosing to add the sun visualisation. Defaults to False.
+            with_feet (bool, optional): choosing the data sets that have the feet manually added. Defaults to True.
+            all_data (bool, optional): choosing to visualise the data that also contains the duplicates. Defaults to False.
+            no_duplicates_new (bool, optional): choosing to visualise the data with no duplicates at all. Defaults to False.
+            time_interval (int, optional): the time interval for the time integration (in hours). Defaults to 24.
+            time_interval_all_data (bool, optional): choosing to visualise the time integrated data with duplicates. Defaults to False.
+            time_interval_no_duplicates (bool, optional): choosing to visualise the time integrated data without any duplicates. Defaults to False.
+            sdo_pov (bool, optional): choosing to take SDO's point of view when looking at the data. Defaults to False.
+            stereo_pov (bool, optional): choosing to take STEREO B's point of view when looking at the data. Defaults to False.
+            processes (int, optional): the number of processes used in the multiprocessing. Defaults to 5.
+            interpolation (bool, optional): choosing to visualise the polynomial data fits. Defaults to False.
+            interpolation_order (int | list[int], optional): the polynomial orders that you want to visualise (if interpolation is set to True).
+                Defaults to [5].
+        """
         
         self.filename = filename
         self.sun = sun
@@ -412,7 +432,7 @@ class K3dAnimation(Setup):
         self.play_pause_button.observe(self.play_pause_handler, names='value')
 
         # Display
-        display(self.plot, self.time_slider, self.date_dropdown, self.play_pause_button)
+        IPython.display.display(self.plot, self.time_slider, self.date_dropdown, self.play_pause_button)
         # if self.make_screenshots:
         #     self.plot.screenshot_scale = self.screenshot_scale
         #     self.Screenshot_making()

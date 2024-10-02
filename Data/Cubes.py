@@ -22,7 +22,6 @@ import multiprocessing as mp
 import sunpy.coordinates
 import multiprocessing.queues  # necessary as queues doesn't seem to be in the __init__
 from astropy import units as u
-from astropy import coordinates
 
 # Personal imports
 sys.path.append('..') 
@@ -153,7 +152,7 @@ class DataSaver:
             for date in treated_dates
         ]
 
-    def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> coordinates.SkyCoord:
+    def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> astropy.coordinates.SkyCoord:
         """
         Gives the 2 feet positions as an astropy.coordinates.SkyCoord object in Carrington Heliographic Coordinates. 
 
@@ -171,10 +170,10 @@ class DataSaver:
         feet_pos[2, :] = self.solar_r
 
         # Creating the feet
-        feet = coordinates.SkyCoord(feet_pos[0, :] * u.deg, feet_pos[1, :] * u.deg, feet_pos[2, :] * u.km,
+        feet = astropy.coordinates.SkyCoord(feet_pos[0, :] * u.deg, feet_pos[1, :] * u.deg, feet_pos[2, :] * u.km,
                                     frame=sunpy.coordinates.frames.HeliographicCarrington)
-        cartesian_feet = feet.represent_as(coordinates.CartesianRepresentation)
-        return coordinates.SkyCoord(cartesian_feet, frame=feet.frame, representation_type='cartesian')
+        cartesian_feet = feet.represent_as(astropy.coordinates.CartesianRepresentation)
+        return astropy.coordinates.SkyCoord(cartesian_feet, frame=feet.frame, representation_type='cartesian')
     
     def get_cube_dates_info(self) -> dict[str, dict[str, str | np.ndarray]]:
         """
@@ -432,10 +431,10 @@ class DataSaver:
                 header['CRLN_OBS'] * u.deg, header['CRLT_OBS'] * u.deg, header['DSUN_OBS'] * u.m, 
                 obstime=header['DATE-OBS'], observer='self'
             )
-            coords = coords.represent_as(coordinates.CartesianRepresentation)
+            coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
             # In km
-            result = np.stack([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value], axis=0)
+            result = np.array([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value])
             output_queue.put((identification, result))
         
     @staticmethod
@@ -461,10 +460,10 @@ class DataSaver:
                 information_recarray.lon * u.deg, information_recarray.lat * u.deg, information_recarray.dist * u.km,
                 obstime=stereo_date, observer='self'
             )
-            coords = coords.represent_as(coordinates.CartesianRepresentation)
+            coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
             # In km
-            result = np.stack([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value], axis=0)
+            result = np.array([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value])
             output_queue.put((identification, result))
 
     def add_dataset(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str = '') -> h5py.File | h5py.Group:
@@ -621,8 +620,8 @@ class DataSaver:
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(group, data, f'No duplicates init{option}', new_borders)
             group[f'No duplicates init{option}'].attrs['description'] = (
-                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. Hence, the data represents all the data without the duplicates, without "
-                "taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
+                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. Hence, the data represents all the data without the duplicates, "
+                "without taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
                 + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
             )
 
@@ -635,6 +634,23 @@ class DataSaver:
                 "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
                 + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
             )
+
+            # Add line of sight data
+            filtered_data = ((data & 0b01000000) == 0b01000000).astype('uint8')
+            if option != '': continue
+            group = self.add_cube(group, filtered_data, f'SDO Line of sight', new_borders)
+            group[f'SDO line of sight'].attrs['description'] = (
+                "The SDO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data represents what is seen by SDO if represented in 3D inside the "
+                "space of the rainbow cube data. The limits of the borders are defined in the .save IDL code named new_toto.pro created by Dr. Frederic Auchere."
+            )
+            filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
+            group = self.add_cube(group, filtered_data, f'STEREO Line of sight', new_borders)
+            group[f'STEREO line of sight'].attrs['description'] = (
+                "The STEREO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data represents what is seen by STEREO if represented in 3D "
+                "inside the space of the rainbow cube data. The limits of the borders are defined in the .save IDL code named new_toto.pro "
+                "created by Dr. Frederic Auchere."
+            )
+            
         return H5PYFile
     
     @Decorators.running_time
@@ -1090,7 +1106,7 @@ class DataSaver:
         print(f"The number of feet in the new sparse data is {np.sum(data.data.astype('uint8') & 0b00100000>0)}", flush=True)
         return data, new_borders
         
-    def carrington_skyCoords(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> list[coordinates.SkyCoord]:
+    def carrington_skyCoords(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> list[astropy.coordinates.SkyCoord]:
         """
         Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord objects.
 
@@ -1164,7 +1180,7 @@ class DataSaver:
             cube = coords[:, slice_filter]
             
             # Carrington Heliographic Coordinates
-            skyCoord = coordinates.SkyCoord(
+            skyCoord = astropy.coordinates.SkyCoord(
                 cube[1, :], cube[2, :], cube[3, :], 
                 unit=u.km,
                 frame=sunpy.coordinates.frames.HeliographicCarrington,
