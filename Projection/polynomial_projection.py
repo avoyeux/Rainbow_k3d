@@ -40,7 +40,7 @@ class OrthographicalProjection:
             saving_plots: bool = False,
             filename: str = 'order0321.h5',
             data_type : str = 'No duplicates new with feet',
-            polynomial_order: int = 5,
+            polynomial_order: int | list[int] = [4, 5, 6],
             plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial'], 
             verbose: int = 1,
             flush: bool = False
@@ -52,7 +52,7 @@ class OrthographicalProjection:
         self.processes = processes
         self.filename = filename
         self.data_type = data_type
-        self.polynomial_order = polynomial_order
+        self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
         self.solar_r = 6.96e5  # in km
         self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
         self.verbose = verbose
@@ -61,7 +61,7 @@ class OrthographicalProjection:
         # Paths setup
         self.paths = self.path_setup()
 
-        # Get interpolation data
+        # Get interpolations data
         self.data_info = self.data_setup()
 
         self.heliographic_cubes_origin = np.array([self.data_info['xmin'], self.data_info['ymin'], self.data_info['zmin']], dtype='float32')
@@ -127,8 +127,12 @@ class OrthographicalProjection:
             )
 
             cubes = H5PYFile[group_path + '/coords'][...]
-            interpolation = H5PYFile[group_path + f'/{self.polynomial_order}th order interpolation/raw_coords'][...]
+            interpolations = [
+                H5PYFile[group_path + f'/{polynomial_order}th order interpolation/raw_coords'][...]
+                for polynomial_order in self.polynomial_order
+            ]
 
+        # Formatting data
         data = {
             'dx': dx,
             'dates': dates,
@@ -138,12 +142,22 @@ class OrthographicalProjection:
             'sdo_pos': sdo_pos,
         }
         data['cubes'] = self.matrix_rotation(self.cartesian_pos(cubes, data), data)
-        data['interpolation'] = self.matrix_rotation(self.cartesian_pos(interpolation, data), data)
+        data['interpolations'] = np.stack([
+            self.matrix_rotation(self.cartesian_pos(interpolation, data), data)
+            for interpolation in interpolations
+        ], axis=0)
 
-        if self.verbose > 0: 
+        # Data info prints
+        if self.verbose > 0:
             print(
-                f"POLY INFO - shape:{interpolation.shape} "
-                f"- size:{round(interpolation.nbytes / 2**20, 2)}Mb.",
+                "CUBES INFO - "
+                f"shape: {cubes.shape} - "
+                f"size: {round(cubes.nbytes / 2**20, 2)}Mb."
+            ) 
+            print(
+                "POLY INFO - "
+                f"shape: {data['interpolations'].shape} - "
+                f"size:{round(data['interpolations'].nbytes / 2**20, 2)}Mb.",
                 flush=self.flush,
             )
         return data
@@ -163,7 +177,7 @@ class OrthographicalProjection:
         """
 
         # Initialisation of the possible choices
-        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelop', 'interpolation']
+        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelop', 'interpolations']
         plot_choices_kwargs = {
             key: False 
             for key in possibilities
@@ -348,13 +362,14 @@ class OrthographicalProjection:
         if self.multiprocessing:
             # Multiprocessing setup
             shm_cubes, cubes = MultiProcessing.shared_memory(self.data_info['cubes']) 
-            shm_interp, interpolations = MultiProcessing.shared_memory(self.data_info['interpolation'])
+            shm_interp, interpolations = MultiProcessing.shared_memory(self.data_info['interpolations'])
             indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
             
             # Arguments
             kwargs = {
                 'cubes': cubes,
                 'interpolations': interpolations,
+                'polynomial_orders': self.polynomial_order,
                 'multiprocessing': True,
                 'dates': self.data_info['dates'],
                 'solar_r': self.solar_r,
@@ -378,7 +393,8 @@ class OrthographicalProjection:
             # Arguments
             kwargs = {
                 'cubes': self.data_info['cubes'],
-                'interpolations': self.data_info['interpolation'],
+                'interpolations': self.data_info['interpolations'],
+                'polynomial_orders': self.polynomial_order,
                 'multiprocessing': False,
                 'dates': self.data_info['dates'],
                 'solar_r': self.solar_r,
@@ -400,6 +416,7 @@ class OrthographicalProjection:
             integration_time: int,
             paths: dict[str, str],
             plot_choices: dict[str, bool],
+            polynomial_orders: list[int],
             data_index: tuple[int, int],
             verbose: int,
             flush: bool,
@@ -414,19 +431,20 @@ class OrthographicalProjection:
             shm_interpolations = mp.shared_memory.SharedMemory(name=interpolations['name'])
             cubes = np.ndarray(cubes['shape'], dtype=cubes['dtype'], buffer=shm_cubes.buf)
             interpolations = np.ndarray(interpolations['shape'], dtype=interpolations['dtype'], buffer=shm_interpolations.buf)
-
+        print(f"interpolations shape from the shared memory is {interpolations.shape}")
         if plot_choices['envelop']: OrthographicalProjection.envelop_preprocessing()  #TODO: need to add this part
 
         for time in range(data_index[0], data_index[1] + 1):
             # Filtering data
             cubes_filter  = cubes[0, :] == time
-            interpolations_filter = interpolations[0, :] == time
-            cube = cubes[1:4, cubes_filter]
-            interpolation = interpolations[1:4, interpolations_filter]
+            interpolations_filter = interpolations[:, 0, :] == time
+            print(f"interpolations filter shape is {interpolations_filter.shape} ", flush=True)
+            cube = cubes[1:, cubes_filter]
+            interpolation = interpolations[:, 1:][np.stack([interpolations_filter for _ in range(3)], axis=1)]
 
             # Voxel positions
             x_cube, y_cube, _ = cube
-            x_interp, y_interp, _ = interpolation
+            x_interp, y_interp = [interpolation[:, i] for i in range(2)]
 
             # Data info
             date = dates[time]
@@ -444,7 +462,6 @@ class OrthographicalProjection:
                     's': 2,
                     'color': 'red',
                     'zorder': 2,
-                    'label': 'Interpolation',
                 },
             }
 
@@ -452,7 +469,13 @@ class OrthographicalProjection:
                 # SDO projection plotting
                 plt.figure(figsize=(5, 5))
                 if plot_choices['cube']: plt.scatter(x_cube / solar_r, y_cube / solar_r, **plot_kwargs[0])
-                if plot_choices['interpolation']: plt.scatter(x_interp / solar_r, y_interp / solar_r, **plot_kwargs[1])
+                if plot_choices['interpolations']: 
+                    for i in range(interpolations.shape[0]): 
+                        plt.scatter(
+                            x_interp[i] / solar_r, y_interp[i] / solar_r,
+                            label=f'{polynomial_orders[i]}th order polynomial',
+                            **plot_kwargs[1]
+                        )
                 plt.title(f'SDO POV for - {date}')
                 plt.xlabel('Solar X [au]')
                 plt.ylabel('Solar Y [au]')
@@ -464,12 +487,19 @@ class OrthographicalProjection:
             if plot_choices['polar']:
                 # Changing to polar coordinates
                 r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
-                r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp, y_interp)
 
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
                 if plot_choices['cube']: plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
-                if plot_choices['interpolation']: plt.scatter(theta_interp, r_interp / 10**3, **plot_kwargs[1])
+                if plot_choices['interpolations']: 
+                    r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp, y_interp)
+                    for i in range(interpolations.shape[0]):
+                        plt.scatter(
+                            theta_interp[i],
+                            r_interp[i] / 10**3,
+                            label=f'{polynomial_orders[i]}th order polynomial',
+                            **plot_kwargs[1]
+                        )
                 plt.xlim(245, 295)
                 plt.ylim(700, 870)
                 plt.title(f'SDO polar projection - {date}')
@@ -481,6 +511,8 @@ class OrthographicalProjection:
                 plt.close()
 
             if verbose > 1: print(f'SAVED - filename:{plot_name}', flush=flush)
+        # Closing shared memories
+        if multiprocessing: shm_cubes.close(); shm_interpolations.close()
 
     @staticmethod
     def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -523,9 +555,9 @@ class OrthographicalProjection:
 
 if __name__=='__main__':
     OrthographicalProjection(
-        processes=5,
-        polynomial_order=5,
+        processes=8,
+        polynomial_order=[4, 5, 6],
         saving_plots=True,
-        plot_choices=['polar', 'cartesian', 'cube', 'interpolation'],
+        plot_choices=['polar', 'cartesian', 'cube', 'interpolations'],
         flush=True,
     )

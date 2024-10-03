@@ -156,20 +156,10 @@ class Setup:
             # Get data choices
             shape = None
             paths = []
-            if self.line_of_sight_SDO:
-                paths.append('Filtered/SDO line of sight')
-                self.cubes_los_sdo = self.get_COO(H5PYFile, paths[-1])
-                shape = self.cubes_los_sdo.shape
-            
-            if self.line_of_sight_STEREO:
-                paths.append('Filtered/STEREO line of sight')
-                self.cubes_los_stereo = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_los_stereo.shape
-
             if self.all_data: 
                 paths.append('Filtered/All data' + feet)
                 self.cubes_all_data = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_all_data.shape
+                shape = self.cubes_all_data.shape
 
             if self.no_duplicates: 
                 paths.append('Filtered/No duplicates new' + feet)
@@ -185,6 +175,18 @@ class Setup:
                 paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_no_duplicate = self.get_COO(H5PYFile, paths[-1])
                 if shape is None: shape = self.cubes_integrated_no_duplicate.shape
+            # Saving cubes shape
+            cubes_shape = shape
+
+            if self.line_of_sight_SDO:
+                paths.append('Filtered/SDO line of sight')
+                self.cubes_los_sdo = self.get_COO(H5PYFile, paths[-1])
+                shape = self.cubes_los_sdo.shape
+            
+            if self.line_of_sight_STEREO:
+                paths.append('Filtered/STEREO line of sight')
+                self.cubes_los_stereo = self.get_COO(H5PYFile, paths[-1])
+                if shape is None: shape = self.cubes_los_stereo.shape
 
             # Saving the shape
             if shape is not None:
@@ -192,7 +194,7 @@ class Setup:
             else:
                 raise ValueError(f'You need to set at least one of the data attributes to True.')
             
-            if self.interpolation:
+            if self.interpolation and (cubes_shape is not None):
                 # Data path
                 interpolation_paths = [
                     path + f'/{order}th order interpolation/coords' 
@@ -206,7 +208,7 @@ class Setup:
 
                 # Get interpolation curves
                 self.interpolation_data = [
-                    sparse.COO(coords=H5PYFile[path][...], data=1, shape=shape).astype('uint8')
+                    sparse.COO(coords=H5PYFile[path][...], data=1, shape=cubes_shape).astype('uint8')
                     for path in interpolation_paths
                 ]
             

@@ -458,7 +458,8 @@ class DataSaver:
             stereo_date = f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
             coords = sunpy.coordinates.frames.HeliographicCarrington(
                 information_recarray.lon * u.deg, information_recarray.lat * u.deg, information_recarray.dist * u.km,
-                obstime=stereo_date, observer='self'
+                obstime=stereo_date,
+                observer='self',
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
@@ -844,7 +845,7 @@ class DataSaver:
         data_options = [
             f'{data_type}{feet}'
             for data_type in ['All data', 'No duplicates new']
-            for feet in [' with feet']  #TODO: will need to add the case without the feet later
+            for feet in ['', ' with feet']
         ]
 
         # main_options = ['All data with feet', 'No duplicates new with feet']  #TODO: need to add the new duplicates init when I understand the error
