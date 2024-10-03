@@ -36,24 +36,26 @@ class Setup:
             sun: bool = False,
             with_feet: bool = True,
             all_data: bool = False,
-            no_duplicates_new: bool = False,
+            no_duplicates: bool = False,
             time_interval: int = 24,
             time_interval_all_data: bool = False,
             time_interval_no_duplicates: bool = False,
+            line_of_sight_SDO: bool = False,
+            line_of_sight_STEREO: bool = False,
             sdo_pov: bool = False,
             stereo_pov: bool = False,
             processes: int = 5,
             interpolation: bool = False,
             interpolation_order: int | list[int] = [5],
     ) -> None:
-        """
+        """ #TODO: need to update the docstring
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament data.
         Args:
             filename (str, optional): the HDF5 filename containing all the cube data. Defaults to 'order0321.h5'.
             sun (bool, optional): choosing to add the sun visualisation. Defaults to False.
             with_feet (bool, optional): choosing the data sets that have the feet manually added. Defaults to True.
             all_data (bool, optional): choosing to visualise the data that also contains the duplicates. Defaults to False.
-            no_duplicates_new (bool, optional): choosing to visualise the data with no duplicates at all. Defaults to False.
+            no_duplicates (bool, optional): choosing to visualise the data with no duplicates at all. Defaults to False.
             time_interval (int, optional): the time interval for the time integration (in hours). Defaults to 24.
             time_interval_all_data (bool, optional): choosing to visualise the time integrated data with duplicates. Defaults to False.
             time_interval_no_duplicates (bool, optional): choosing to visualise the time integrated data without any duplicates. Defaults to False.
@@ -69,16 +71,17 @@ class Setup:
         self.sun = sun
         self.all_data = all_data
         self.with_feet = with_feet  # TODO: will need to change this so that I can choose which has feet or not
-        self.no_duplicates_new = no_duplicates_new
+        self.no_duplicates = no_duplicates
         self.time_interval = time_interval
         self.time_interval_all_data = time_interval_all_data
         self.time_interval_no_duplicates = time_interval_no_duplicates
+        self.line_of_sight_SDO = line_of_sight_SDO
+        self.line_of_sight_STEREO = line_of_sight_STEREO
         self.sdo_pov = sdo_pov
         self.stereo_pov = stereo_pov
         self.processes = processes
         self.interpolation = interpolation  # TODO: probably will keep the interpolation only for the main data
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
-
         self.solar_r = 6.96e5
 
         self.paths = self.setup_paths()
@@ -94,7 +97,12 @@ class Setup:
         self.radius_index: float
         self.sun_center: np.ndarray
         self.cubes_all_data: sparse.COO
-        self.cubes_no_duplicates_new: sparse.COO
+        self.cubes_no_duplicates: sparse.COO
+        self.cubes_integrated_all_data: sparse.COO
+        self.cubes_integrated_no_duplicate: sparse.COO
+        self.cubes_lost_sdo: sparse.COO
+        self.cubes_lost_stereo: sparse.COO
+
         # [...] satellite positions
         self.sdo_pos: np.ndarray
         self.stereo_pos: np.ndarray
@@ -148,15 +156,25 @@ class Setup:
             # Get data choices
             shape = None
             paths = []
+            if self.line_of_sight_SDO:
+                paths.append('Filtered/SDO line of sight')
+                self.cubes_los_sdo = self.get_COO(H5PYFile, paths[-1])
+                shape = self.cubes_los_sdo.shape
+            
+            if self.line_of_sight_STEREO:
+                paths.append('Filtered/STEREO line of sight')
+                self.cubes_los_stereo = self.get_COO(H5PYFile, paths[-1])
+                if shape is None: shape = self.cubes_los_stereo.shape
+
             if self.all_data: 
                 paths.append('Filtered/All data' + feet)
                 self.cubes_all_data = self.get_COO(H5PYFile, paths[-1])
-                shape = self.cubes_all_data.shape
+                if shape is None: shape = self.cubes_all_data.shape
 
-            if self.no_duplicates_new: 
+            if self.no_duplicates: 
                 paths.append('Filtered/No duplicates new' + feet)
-                self.cubes_no_duplicates_new = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_no_duplicates_new.shape
+                self.cubes_no_duplicates = self.get_COO(H5PYFile, paths[-1])
+                if shape is None: shape = self.cubes_no_duplicates.shape
 
             if self.time_interval_all_data: 
                 paths.append('Time integrated/All data' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
@@ -349,7 +367,7 @@ class K3dAnimation(Setup):
         # Add filaments
         if self.all_data: 
             self.plot_alldata = k3d.voxels(
-                self.cubes_all_data[0].todense(),
+                voxels=self.cubes_all_data[0].todense(),
                 opacity=0.7,
                 color_map=[0x0000ff],
                 name='allData',
@@ -357,9 +375,9 @@ class K3dAnimation(Setup):
             )
             self.plot += self.plot_alldata      
                
-        if self.no_duplicates_new:
+        if self.no_duplicates:
             self.plot_dupli_new = k3d.voxels(
-                self.cubes_no_duplicates_new[0].todense(),
+                voxels=self.cubes_no_duplicates[0].todense(),
                 color_map=[0x0000ff],
                 opacity=0.3,
                 name='noDuplicates',
@@ -369,7 +387,7 @@ class K3dAnimation(Setup):
 
         if self.time_interval_all_data:
             self.plot_interv_new = k3d.voxels(
-                self.cubes_integrated_all_data[0].todense(),
+                voxels=self.cubes_integrated_all_data[0].todense(),
                 color_map=[0xff6666],
                 opacity=1,
                 name=f'allData {self.time_interval}',
@@ -379,13 +397,33 @@ class K3dAnimation(Setup):
        
         if self.time_interval_no_duplicates:
             self.plot_interv_dupli_new = k3d.voxels(
-                self.cubes_integrated_no_duplicate[0].todense(),
+                voxels=self.cubes_integrated_no_duplicate[0].todense(),
                 color_map=[0x0000ff],
                 opacity=0.35,
                 name=f'noDupli {self.time_interval}',
                 **kwargs,
             )
             self.plot += self.plot_interv_dupli_new      
+
+        if self.line_of_sight_SDO:
+            self.plot_los_sdo = k3d.voxels(
+                voxels=self.cubes_los_sdo[0].todense(),
+                color_map=[0xff6666],
+                opacity=1,
+                name=f'lineOfSight SDO',
+                **kwargs,
+            )
+            self.plot += self.plot_los_sdo
+
+        if self.line_of_sight_STEREO:
+            self.plot_los_stereo = k3d.voxels(
+                voxels=self.cubes_los_stereo[0].todense(),
+                color_map=[0xff6666],
+                opacity=1,
+                name=f'lineOfSight STEREO',
+                **kwargs,
+            )
+            self.plot += self.plot_los_stereo
     
         # if self.skeleton:
         #     self.plot_skeleton = k3d.voxels(self.Full_array(self.cubes_skeleton[0]), color_map=[0xff6e00], opacity=1, name='barycenter for the no dupliactes',
@@ -401,7 +439,7 @@ class K3dAnimation(Setup):
             self.plot_interpolation = []
             for (data, name) in zip(self.interpolation_data, self.interpolation_names):
                 plot = k3d.voxels(
-                    data[0].todense(), 
+                    voxels=data[0].todense(), 
                     opacity=0.95, 
                     color_map=[next(self.random_hexadecimal_color_generator())],
                     name=name,
@@ -521,11 +559,15 @@ class K3dAnimation(Setup):
 
         if self.all_data: self.plot_alldata.voxels = self.cubes_all_data[change['new']].todense()
 
-        if self.no_duplicates_new: self.plot_dupli_new.voxels = self.cubes_no_duplicates_new[change['new']].todense()
+        if self.no_duplicates: self.plot_dupli_new.voxels = self.cubes_no_duplicates[change['new']].todense()
  
         if self.time_interval_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense()
                           
         if self.time_interval_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense()
+
+        if self.line_of_sight_SDO: self.plot_los_sdo.voxels = self.cubes_los_sdo[change['new']].todense()
+
+        if self.line_of_sight_STEREO: self.plot_los_stereo.voxels = self.cubes_los_stereo[change['new']].todense()
        
         # if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
         # if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
