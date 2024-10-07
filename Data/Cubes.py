@@ -6,7 +6,6 @@ A lot of different data is saved in the file to make any further manipulation or
 # IMPORTS
 import os
 import re
-import sys
 import h5py
 import scipy
 import sunpy
@@ -24,14 +23,13 @@ import multiprocessing.queues  # necessary as queues doesn't seem to be in the _
 from astropy import units as u
 
 # Personal imports
-sys.path.append('..') 
-from Common import MultiProcessing, Decorators, CustomDate, DatesUtils
+from Common import Decorators, CustomDate, DatesUtils, MultiProcessing
 
 
 
 class DataSaver:
     """
-    To create cubes with feet and without feet in an HDF5 format.
+    To create cubes with and/or without feet in an HDF5 file.
     """
 
     @Decorators.running_time
@@ -43,9 +41,26 @@ class DataSaver:
         interpolation_points: float = 10**6, 
         interpolation_order: int | list[int] = [4, 5, 6],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
-        exits_ok: bool = False, #TODO: need to add this functionality
+        feet_sigma: float = 1e-4,
         full: bool = False, 
     ) -> None:
+        """
+        To create the cubes with and/or without feet in an HDF5 file.
+
+        Args:
+            filename (str): the filename of the file to be saved.
+            processes (int): the number of processes used in the multiprocessed parts
+            integration_time (int | list[int], optional): the time or times in hours used in the time integration of the data. Defaults to [24].
+            interpolation_points (float, optional): the number of points used when recreating the polynomial gotten from the curve fitting 
+                of the data. Defaults to 10**6.
+            interpolation_order (int | list[int], optional): the order or orders used for the polynomial that fits the data.
+                Defaults to [4, 5, 6].
+            feet_lonlat (tuple[tuple[int, int], ...], optional): the positions of the feet in Heliographic Carrington.
+                Defaults to ((-177, 15), (-163, -16)).
+            feet_sigma (float, optional): the sigma uncertainty in the feet used during the curve fitting of the data points. Defaults to 1e-4.
+            full (bool, optional): deciding to save all the data. In the case when 'full' is True, the raw coordinates of the polynomial curve are also
+                saved, where as only the indexes that can be directly used as coords in a sparse.COO object. Defaults to False.
+        """
 
         # Initial attributes
         self.filename = filename
@@ -53,7 +68,7 @@ class DataSaver:
         self.integration_time = [integration_time * 3600] if isinstance(integration_time, int) else [time * 3600 for time in integration_time]
         self.interpolation_points = interpolation_points
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
-        self.exists = exits_ok
+        self.feet_sigma = feet_sigma
         self.full = full  # deciding to add the heavy sky coords arrays.
 
         # Constants
@@ -1039,6 +1054,7 @@ class DataSaver:
 
         interpolation_kwargs = {
             'data': data, 
+            'feet_sigma': self.feet_sigma,
             'processes': self.processes,
             'precision_nb': self.interpolation_points,
             'full': self.full,
@@ -1204,6 +1220,7 @@ class Interpolation:
             self, 
             data: sparse.COO, 
             order: int, 
+            feet_sigma: float,
             processes: int, 
             precision_nb: int | float = 10**6, 
             full: bool = False,
@@ -1215,6 +1232,7 @@ class Interpolation:
         Args:
             data (sparse.COO): the data for which a fit is needed.
             order (int): the polynomial order for the fit.
+            feet_sigma (float): the sigma uncertainty value used for the feet when fitting the data.
             processes (int): the number of processes for multiprocessing.
             precision_nb (int | float, optional): the number of points used in the fitting. Defaults to 10**6.
         """
@@ -1222,6 +1240,7 @@ class Interpolation:
         # Arguments 
         self.data = self.reorder_data(data)
         self.poly_order = order
+        self.feet_sigma = feet_sigma
         self.processes = processes
         self.precision_nb = precision_nb
         self.full = full
@@ -1400,6 +1419,7 @@ class Interpolation:
             'shape': self.data.shape,
             'nth_order_polynomial': self.generate_nth_order_polynomial(),
             'precision_nb': self.precision_nb,
+            'feet_sigma': self.feet_sigma,
         }
         for i in range(process_nb):
             p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
@@ -1498,6 +1518,7 @@ class Interpolation:
             shape: tuple[int, ...],
             precision_nb: float,
             nth_order_polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
+            feet_sigma: float,
         ) -> tuple[np.ndarray, np.ndarray]:
         """
         To get the polynomial fit of a data cube.
@@ -1511,17 +1532,17 @@ class Interpolation:
             shape (tuple[int, ...]): the shape of the inputted data cube. 
             precision_nb (float): the number of points used in the polynomial when saved.
             nth_order_polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the n-th order polynomial function.
+            feet_sigma (float): the sigma position uncertainty used for the feet.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding coefficients.
         """
 
         # Setting up interpolation weights
-        feet_value = 1e-4
         mask = sigma > 2
 
         # Try to get params
-        params = Interpolation.scipy_curve_fit(nth_order_polynomial, t, coords, params_init, sigma, mask, feet_value)
+        params = Interpolation.scipy_curve_fit(nth_order_polynomial, t, coords, params_init, sigma, mask, feet_sigma)
 
         # Get curve
         params_x, params_y, params_z = params
@@ -1556,7 +1577,7 @@ class Interpolation:
             params_init: np.ndarray,
             sigma: np.ndarray,
             mask: np.ndarray,
-            feet_value: float,
+            feet_sigma: float,
         ) -> np.ndarray:
         """
         To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge on a solution due to the feet weight, 
@@ -1569,14 +1590,14 @@ class Interpolation:
             params_init (np.ndarray): the initial (random) polynomial parameters.
             sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the inverse of the weight).
             mask (np.ndarray): the mask representing the feet position.
-            feet_value (float): the value of sigma given for the feet. This value is quadrupled every time a try fails.
+            feet_sigma (float): the value of sigma given for the feet. This value is quadrupled every time a try fails.
 
         Returns:
             np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
         """
 
         try: 
-            sigma[mask] = feet_value
+            sigma[mask] = feet_sigma
             x, y, z = coords
             params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
             sigma[~mask] = 20
@@ -1625,5 +1646,10 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver(f'order{"".join([str(nb) for nb in Interpolation.axes_order])}.h5', processes=50, full=True)    
+    DataSaver(
+        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e2.h5',
+        processes=50,
+        feet_sigma=1e-2,
+        full=True,
+    )    
 

@@ -14,7 +14,7 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 from sunpy.map import Map, GenericMap, sources
 
-from .Common import StereoUtils, Decorators
+from Common import StereoUtils, Decorators
 
 
 

@@ -7,10 +7,11 @@ import re
 import os
 import k3d
 import h5py
-import typing
-import scipy.optimize
-import sparse
 import scipy
+import typing
+import sparse
+import scipy.optimize
+
 # Aliases
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,8 +31,24 @@ class Visualise:
             recreate_interp: bool = False,
             nb_points: int = 10**3,
             saving_plots: bool = False,
-            axes_order: tuple[int, ...] = (0, 0, 0, 0),
+            axes_order: tuple[int, ...] | None = None,
     ) -> None:
+        """
+        To test the visualisation given only one index index in the data gotten from the HDF5 file.
+
+        Args:
+            hdf5_filepath (str): the filepath to the data HDF5 file.
+            group_paths (str | list[str]): the HDF5 path to the data that needs to be visualised. 
+            chosen_index (int | list[int], optional): the index of the cube that the user wants to visualise. Defaults to 0.
+            recreate_interp (bool, optional): deciding to recreate the interpolation on the run. Mainly to compare it 
+                to the polynomial gotten directly from the HDF5 file. Defaults to False.
+            nb_points (int, optional): the number of points used in the recreation of the polynomial function.
+                Defaults to 10**3.
+            saving_plots (bool, optional): Deciding to save the 2D plots. Defaults to False.
+            axes_order (tuple[int, ...] | None, optional): the order of the axes (compared to (t, x, y, z)) when the
+                polynomial was created as it is important in the creation of the polynomial. If the HDF5 filename follows the 
+                default pattern (e.g. order0321.h5), this argument doesn't need to be set. Defaults to None.
+        """
         
         # Arguments
         self.filepath = hdf5_filepath
@@ -41,7 +58,7 @@ class Visualise:
         self.nb_points = nb_points
         self.save_plots = saving_plots
 
-        if axes_order == (0, 0, 0, 0):
+        if axes_order is None:
             self.axes_order = self.get_axes_order()
         else:
             self.axes_order = axes_order
@@ -51,23 +68,21 @@ class Visualise:
         self.run()
 
     def run(self) -> None:
-        # TODO: to open and get the necessary data
+        """
+        To open and get the necessary data from the HDF5 file.
+        """
 
         with h5py.File(self.filepath, 'r') as H5PYFile:
 
             # Get the initial cubes and interpolation
             self.data = [
                 self.get_COO(H5PYFile, path)[self.chosen_index]
-                for path in self.group_paths  #TODO: this is wrong. need to change it so that it also work for the params           
+                for path in self.group_paths       
             ]
 
             if self.recreate_interpolation:
                 
                 coords = self.data[0].coords.T.astype('float64')
-                # t = np.empty(coords.shape[0], dtype='float64')
-                # t[0] = 0
-                # for i in range(1, coords.shape[0]): t[i] = t[i - 1] + np.sqrt(np.sum([(coords[i, a] - coords[i - 1, a])**2 for a in range(3)]))
-                # t /= t[-1]  # normalisation 
 
                 self.parameters = [
                     H5PYFile[path + '/parameters'][...]

@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 import multiprocessing.queues
 
 # Personal imports 
-sys.path.append('..')
 from Common import MultiProcessing, Decorators
 
 #TODO: need to see what the problem in the visualisation angle is. Seems off when comparing to the possibly erroneous 3D visualisation.
