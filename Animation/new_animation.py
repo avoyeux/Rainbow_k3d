@@ -19,7 +19,6 @@ import ipywidgets
 import numpy as np
 
 # Personal imports
-sys.path.append('..')
 from Common import Decorators
 
 

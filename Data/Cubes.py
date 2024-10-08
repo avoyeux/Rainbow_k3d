@@ -228,7 +228,7 @@ class DataSaver:
         Main function that encapsulates the file creation and closing with a with statement.
         """
 
-        with h5py.File(os.path.join(self.paths['save'],self.filename), 'a+' if self.exists else 'w') as H5PYFile:
+        with h5py.File(os.path.join(self.paths['save'],self.filename), 'a+') as H5PYFile:
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
