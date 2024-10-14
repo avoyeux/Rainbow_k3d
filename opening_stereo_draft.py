@@ -1,4 +1,5 @@
-"""Just to test some stuff.
+"""
+Just to test some stuff.
 right now I am testing StereoUtils from the Common repository
 """
 
@@ -9,12 +10,11 @@ import numpy as np
 import astropy.units as u
 import matplotlib.pyplot as plt
 
-from astropy.io import fits
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
-from sunpy.map import Map, GenericMap, sources
+from sunpy.map import Map, GenericMap
 
-from Common import StereoUtils, Decorators
+from common import StereoUtils, Decorators, SSHMirroredFilesystem
 
 
 
@@ -26,19 +26,19 @@ class RainbowStereoImages:
     """
 
     def __init__(self, date_interval: tuple[str, str] = ('2012/07/23 00:06:00', '2012/07/25 11:57:00'), 
-                 roi_width: int | float = 2):
+                 roi_width: int | float = 1):
 
         self.date_interval = date_interval
         self.roi_width = roi_width
         
-        self.path = os.path.join('..', 'opening_stereo_tests')
+        self.path = os.path.join('..', 'Work_done', 'opening_stereo_new')
         os.makedirs(self.path, exist_ok=True)
         self.image_creation()
 
     @Decorators.running_time
     def catalogue_filtering(self):
 
-        catalogue_df = StereoUtils.read_catalogue()
+        catalogue_df = StereoUtils.read_catalogue(verbose=1)
         catalogue_df = catalogue_df[catalogue_df['dateobs'] > self.date_interval[0]]
         catalogue_df = catalogue_df[catalogue_df['dateobs'] < self.date_interval[1]]
         catalogue_df = catalogue_df[catalogue_df['polar'] == 171].reset_index(drop=True)
@@ -104,8 +104,10 @@ class RainbowStereoImages:
 
     @Decorators.running_time
     def image_creation(self):
+        filenames = StereoUtils.fullpath(self.catalogue_filtering())
 
-        filenames = self.catalogue_filtering()
+        # Server connection check
+        filenames = SSHMirroredFilesystem.remote_to_local(filenames) if not os.path.exists(filenames[0]) else filenames
         print(f'filenames length is {len(filenames)}')
 
         for filename in filenames:

@@ -39,7 +39,7 @@ class DataSaver:
         processes: int, 
         integration_time: int | list[int] = [24],
         interpolation_points: float = 10**6, 
-        interpolation_order: int | list[int] = [4, 5, 6],
+        interpolation_order: int | list[int] = [2, 3, 4],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
         feet_sigma: float = 1e-4,
         full: bool = False, 
@@ -228,7 +228,7 @@ class DataSaver:
         Main function that encapsulates the file creation and closing with a with statement.
         """
 
-        with h5py.File(os.path.join(self.paths['save'],self.filename), 'a+') as H5PYFile:
+        with h5py.File(os.path.join(self.paths['save'],self.filename), 'w') as H5PYFile:
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
@@ -1607,12 +1607,12 @@ class Interpolation:
         
         except Exception:
             # Changing feet value
-            feet_value *= 4
-            print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_value}.\033[0m", flush=True)
-            params = Interpolation.scipy_curve_fit(polynomial, t, coords, params_init, sigma, mask, feet_value)
+            feet_sigma *= 4
+            print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_sigma}.\033[0m", flush=True)
+            params = Interpolation.scipy_curve_fit(polynomial, t, coords, params_init, sigma, mask, feet_sigma)
 
         finally:
-            print(f"\033[92mThe curve_fit worked with feet values equal to {feet_value}.\033[0m", flush=True)
+            print(f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m", flush=True)
             return params
 
     def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
@@ -1647,9 +1647,9 @@ class Interpolation:
 if __name__=='__main__':
 
     DataSaver(
-        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e2.h5',
+        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e1.h5',
         processes=50,
-        feet_sigma=1e-2,
+        feet_sigma=1e-1,
         full=True,
     )    
 

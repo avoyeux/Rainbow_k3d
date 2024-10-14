@@ -5,7 +5,6 @@ This is done to get the angle between the projection seen by SDO and the 3D poly
 
 # Imports
 import os
-import sys
 import h5py
 import typeguard
 
@@ -18,7 +17,7 @@ import matplotlib.pyplot as plt
 import multiprocessing.queues
 
 # Personal imports 
-from Common import MultiProcessing, Decorators
+from Common import MultiProcessing, Decorators, Plot
 
 #TODO: need to see what the problem in the visualisation angle is. Seems off when comparing to the possibly erroneous 3D visualisation.
 #TODO: I need to also add the sdo image itself.
@@ -430,20 +429,30 @@ class OrthographicalProjection:
             shm_interpolations = mp.shared_memory.SharedMemory(name=interpolations['name'])
             cubes = np.ndarray(cubes['shape'], dtype=cubes['dtype'], buffer=shm_cubes.buf)
             interpolations = np.ndarray(interpolations['shape'], dtype=interpolations['dtype'], buffer=shm_interpolations.buf)
-        print(f"interpolations shape from the shared memory is {interpolations.shape}")
+
         if plot_choices['envelop']: OrthographicalProjection.envelop_preprocessing()  #TODO: need to add this part
 
         for time in range(data_index[0], data_index[1] + 1):
             # Filtering data
             cubes_filter  = cubes[0, :] == time
-            interpolations_filter = interpolations[:, 0, :] == time
-            print(f"interpolations filter shape is {interpolations_filter.shape} ", flush=True)
             cube = cubes[1:, cubes_filter]
-            interpolation = interpolations[:, 1:][np.stack([interpolations_filter for _ in range(3)], axis=1)]
+
+            indexes = np.stack([
+                np.nonzero(interpolations[i, 0, :] == time)[0]
+                for i in range(interpolations.shape[0])
+            ], axis=0)  
+            
+            positions = np.stack([
+                np.stack([
+                    interpolations[nb, i, indexes[nb]]
+                    for i in range(1, 4)
+                ], axis=0)
+                for nb in range(interpolations.shape[0])
+            ], axis=0)
 
             # Voxel positions
             x_cube, y_cube, _ = cube
-            x_interp, y_interp = [interpolation[:, i] for i in range(2)]
+            x_interp, y_interp = [positions[:, i] for i in range(2)]
 
             # Data info
             date = dates[time]
@@ -459,7 +468,6 @@ class OrthographicalProjection:
                 },
                 1: {
                     's': 2,
-                    'color': 'red',
                     'zorder': 2,
                 },
             }
@@ -473,7 +481,7 @@ class OrthographicalProjection:
                         plt.scatter(
                             x_interp[i] / solar_r, y_interp[i] / solar_r,
                             label=f'{polynomial_orders[i]}th order polynomial',
-                            **plot_kwargs[1]
+                            **plot_kwargs[1],
                         )
                 plt.title(f'SDO POV for - {date}')
                 plt.xlabel('Solar X [au]')
@@ -497,7 +505,8 @@ class OrthographicalProjection:
                             theta_interp[i],
                             r_interp[i] / 10**3,
                             label=f'{polynomial_orders[i]}th order polynomial',
-                            **plot_kwargs[1]
+                            color=f'#{next(Plot.random_hexadecimal_int_color_generator()):06x}',
+                            **plot_kwargs[1],
                         )
                 plt.xlim(245, 295)
                 plt.ylim(700, 870)
@@ -554,7 +563,8 @@ class OrthographicalProjection:
 
 if __name__=='__main__':
     OrthographicalProjection(
-        processes=8,
+        verbose=2,
+        processes=10,
         polynomial_order=[4, 5, 6],
         saving_plots=True,
         plot_choices=['polar', 'cartesian', 'cube', 'interpolations'],
