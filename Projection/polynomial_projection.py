@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import multiprocessing.queues
 
 # Personal imports 
-from Common import MultiProcessing, Decorators, Plot
+from common import MultiProcessing, Decorators, Plot
 
 #TODO: need to see what the problem in the visualisation angle is. Seems off when comparing to the possibly erroneous 3D visualisation.
 #TODO: I need to also add the sdo image itself.
@@ -37,6 +37,7 @@ class OrthographicalProjection:
             integration_time_hours: int = 24,
             saving_plots: bool = False,
             filename: str = 'order0321.h5',
+            folder_name: str = 'Projections_sig1e1',
             data_type : str = 'No duplicates new with feet',
             polynomial_order: int | list[int] = [4, 5, 6],
             plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial'], 
@@ -49,6 +50,7 @@ class OrthographicalProjection:
         self.multiprocessing = True if processes > 1 else False
         self.processes = processes
         self.filename = filename
+        self.folder_name = folder_name
         self.data_type = data_type
         self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
         self.solar_r = 6.96e5  # in km
@@ -88,7 +90,7 @@ class OrthographicalProjection:
             'main': main_path,
             'codes': code_path,
             'data': os.path.join(code_path, 'Data', self.filename),
-            'save': os.path.join(main_path, 'Work_done', 'Projections_new')
+            'save': os.path.join(main_path, 'Work_done', self.folder_name)
         }
         os.makedirs(paths['save'], exist_ok=True)
         return paths
@@ -140,10 +142,10 @@ class OrthographicalProjection:
             'sdo_pos': sdo_pos,
         }
         data['cubes'] = self.matrix_rotation(self.cartesian_pos(cubes, data), data)
-        data['interpolations'] = np.stack([
+        data['interpolations'] = [
             self.matrix_rotation(self.cartesian_pos(interpolation, data), data)
             for interpolation in interpolations
-        ], axis=0)
+        ]
 
         # Data info prints
         if self.verbose > 0:
@@ -152,12 +154,6 @@ class OrthographicalProjection:
                 f"shape: {cubes.shape} - "
                 f"size: {round(cubes.nbytes / 2**20, 2)}Mb."
             ) 
-            print(
-                "POLY INFO - "
-                f"shape: {data['interpolations'].shape} - "
-                f"size:{round(data['interpolations'].nbytes / 2**20, 2)}Mb.",
-                flush=self.flush,
-            )
         return data
 
     def plot_choices_creation(self, plot_choices: list[str]) -> dict[str, bool]:
@@ -228,7 +224,7 @@ class OrthographicalProjection:
             # Multiprocessing setup
             manager = mp.Manager()
             queue = manager.Queue()
-            shm, data = MultiProcessing.shared_memory(data.astype('float32'))
+            shm, data = MultiProcessing.create_shared_memory(data.astype('float32'))
             indexes = MultiProcessing.pool_indexes(len(data_info['dates']), self.processes)
             # Run
             processes = [None] * len(indexes)
@@ -359,8 +355,8 @@ class OrthographicalProjection:
 
         if self.multiprocessing:
             # Multiprocessing setup
-            shm_cubes, cubes = MultiProcessing.shared_memory(self.data_info['cubes']) 
-            shm_interp, interpolations = MultiProcessing.shared_memory(self.data_info['interpolations'])
+            shm_cubes, cubes = MultiProcessing.create_shared_memory(self.data_info['cubes']) 
+            shm_interp, interpolations = MultiProcessing.create_shared_memory(self.data_info['interpolations'])
             indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
             
             # Arguments
@@ -406,8 +402,8 @@ class OrthographicalProjection:
 
     @staticmethod
     def plotting_sub(
-            cubes: dict[str, any],
-            interpolations: dict[str, any],
+            cubes: dict[str, any] | np.ndarray,
+            interpolations: dict[str, any] | list[np.ndarray],
             multiprocessing: bool,
             dates: list[str],
             solar_r: float,
@@ -424,11 +420,8 @@ class OrthographicalProjection:
         """
         
         if multiprocessing:
-            # Multiprocessing setup
-            shm_cubes = mp.shared_memory.SharedMemory(name=cubes['name'])
-            shm_interpolations = mp.shared_memory.SharedMemory(name=interpolations['name'])
-            cubes = np.ndarray(cubes['shape'], dtype=cubes['dtype'], buffer=shm_cubes.buf)
-            interpolations = np.ndarray(interpolations['shape'], dtype=interpolations['dtype'], buffer=shm_interpolations.buf)
+            shm_cubes, cubes = MultiProcessing.open_shared_memory(cubes)
+            shm_interpolations, interpolations = MultiProcessing.open_shared_memory(interpolations)
 
         if plot_choices['envelop']: OrthographicalProjection.envelop_preprocessing()  #TODO: need to add this part
 
@@ -437,22 +430,37 @@ class OrthographicalProjection:
             cubes_filter  = cubes[0, :] == time
             cube = cubes[1:, cubes_filter]
 
-            indexes = np.stack([
-                np.nonzero(interpolations[i, 0, :] == time)[0]
-                for i in range(interpolations.shape[0])
-            ], axis=0)  
+            # indexes = np.stack([
+            #     np.nonzero(interpolations[i, 0, :] == time)[0]
+            #     for i in range(interpolations.shape[0])
+            # ], axis=0)  
             
-            positions = np.stack([
-                np.stack([
-                    interpolations[nb, i, indexes[nb]]
+            # positions = np.stack([
+            #     np.stack([
+            #         interpolations[nb, i, indexes[nb]]
+            #         for i in range(1, 4)
+            #     ], axis=0)
+            #     for nb in range(interpolations.shape[0])
+            # ], axis=0)
+
+            positions = [None] * len(interpolations)
+            for nb in range(len(interpolations)):
+                indexes = np.nonzero(interpolations[nb][0, :] == time)[0]
+                positions[nb] = [
+                    interpolations[nb][i, indexes]
                     for i in range(1, 4)
-                ], axis=0)
-                for nb in range(interpolations.shape[0])
-            ], axis=0)
+                ]
 
             # Voxel positions
             x_cube, y_cube, _ = cube
-            x_interp, y_interp = [positions[:, i] for i in range(2)]
+            # x_interp, y_interp = [positions[:, i] for i in range(2)]
+            x_interp, y_interp = [
+                [
+                    position[i]
+                    for position in positions
+                ]
+                for i in range(2)
+            ]
 
             # Data info
             date = dates[time]
@@ -477,7 +485,7 @@ class OrthographicalProjection:
                 plt.figure(figsize=(5, 5))
                 if plot_choices['cube']: plt.scatter(x_cube / solar_r, y_cube / solar_r, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
-                    for i in range(interpolations.shape[0]): 
+                    for i in range(len(interpolations)): 
                         plt.scatter(
                             x_interp[i] / solar_r, y_interp[i] / solar_r,
                             label=f'{polynomial_orders[i]}th order polynomial',
@@ -499,8 +507,8 @@ class OrthographicalProjection:
                 plt.figure(figsize=(12, 5))
                 if plot_choices['cube']: plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
-                    r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp, y_interp)
-                    for i in range(interpolations.shape[0]):
+                    for i in range(len(interpolations)):
+                        r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp[i], y_interp[i])
                         plt.scatter(
                             theta_interp[i],
                             r_interp[i] / 10**3,
@@ -563,9 +571,11 @@ class OrthographicalProjection:
 
 if __name__=='__main__':
     OrthographicalProjection(
+        filename='order0321_sig1e1.h5',
+        folder_name='projections_1e1',
         verbose=2,
         processes=10,
-        polynomial_order=[4, 5, 6],
+        polynomial_order=[2, 3, 4],
         saving_plots=True,
         plot_choices=['polar', 'cartesian', 'cube', 'interpolations'],
         flush=True,

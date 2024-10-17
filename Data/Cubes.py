@@ -23,7 +23,7 @@ import multiprocessing.queues  # necessary as queues doesn't seem to be in the _
 from astropy import units as u
 
 # Personal imports
-from Common import Decorators, CustomDate, DatesUtils, MultiProcessing
+from common import Decorators, CustomDate, DatesUtils, MultiProcessing
 
 
 

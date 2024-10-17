@@ -7,6 +7,7 @@ right now I am testing StereoUtils from the Common repository
 import os
 
 import numpy as np
+import pandas as pd
 import astropy.units as u
 import matplotlib.pyplot as plt
 
@@ -19,14 +20,18 @@ from common import StereoUtils, Decorators, SSHMirroredFilesystem
 
 
 class RainbowStereoImages:
-    """To get the Rainbow even relevant stereo images.
+    """
+    To get the Rainbow even relevant stereo images.
 
     Returns:
         _type_: _description_
     """
 
-    def __init__(self, date_interval: tuple[str, str] = ('2012/07/23 00:06:00', '2012/07/25 11:57:00'), 
-                 roi_width: int | float = 1):
+    def __init__(
+            self,
+            date_interval: tuple[str, str] = ('2012/07/23 00:06:00', '2012/07/25 11:57:00'), 
+            roi_width: int | float = 1
+        ) -> None:
 
         self.date_interval = date_interval
         self.roi_width = roi_width
@@ -36,7 +41,7 @@ class RainbowStereoImages:
         self.image_creation()
 
     @Decorators.running_time
-    def catalogue_filtering(self):
+    def catalogue_filtering(self) -> pd.Series:
 
         catalogue_df = StereoUtils.read_catalogue(verbose=1)
         catalogue_df = catalogue_df[catalogue_df['dateobs'] > self.date_interval[0]]
@@ -79,7 +84,7 @@ class RainbowStereoImages:
         top_right = SkyCoord(coords.lon + width / 2, coords.lat + width / 2, frame=coords.frame)
         return aia_map.submap(bottom_left=bottom_left, top_right=top_right)
     
-    def rainbow_feet_visualisation(self, ax, sunpy_map: GenericMap, feet_pos: list[tuple[float | int]] = [(-177, 15), (-163, -16)]):
+    def rainbow_feet_visualisation(self, ax, sunpy_map: GenericMap, feet_pos: list[tuple[float | int]] = [(-177, 14.5), (-163.5, -16.5)]) -> None:
 
         left_foot = (feet_pos[0] * u.deg).to(u.arcsec)
         right_foot = (feet_pos[1] * u.deg).to(u.arcsec)
@@ -103,7 +108,7 @@ class RainbowStereoImages:
         sunpy_map.draw_quadrangle(right_bottom_left, axes=ax, width=width, height=width, edgecolor='red', linewidth=1)
 
     @Decorators.running_time
-    def image_creation(self):
+    def image_creation(self) -> None:
         filenames = StereoUtils.fullpath(self.catalogue_filtering())
 
         # Server connection check
@@ -111,7 +116,7 @@ class RainbowStereoImages:
         print(f'filenames length is {len(filenames)}')
 
         for filename in filenames:
-            aia_map = Map(StereoUtils.fullpath(filename))
+            aia_map = Map(filename)
             # sub_aia_map = self.sunpy_map_section(aia_map)
             sub_aia_map = self.sunpy_map_centering(aia_map)
 
@@ -127,10 +132,10 @@ class RainbowStereoImages:
             ax.coords[1].set_ticklabel_visible(False)
             sub_aia_map.draw_grid(axes=ax, grid_spacing=15*u.deg, system='carrington')
             self.rainbow_feet_visualisation(ax, sub_aia_map)
-            plt.savefig(os.path.join(self.path, f'{os.path.splitext(filename)[0]}.png'), dpi=500)
+            plt.savefig(os.path.join(self.path, f'{os.path.basename(filename)}.png'), dpi=500)
             plt.close()
             print(f'plot done for file {filename}')
 
-
+        SSHMirroredFilesystem.cleanup()
 if __name__=='__main__':
     RainbowStereoImages()

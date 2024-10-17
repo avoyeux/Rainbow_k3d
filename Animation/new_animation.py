@@ -5,7 +5,6 @@ To 3D visualise the rainbow filament data and the corresponding polynomial fitti
 # Imports
 import os
 import re
-import sys
 import k3d
 import time
 import h5py
@@ -19,7 +18,7 @@ import ipywidgets
 import numpy as np
 
 # Personal imports
-from Common import Decorators
+from common import Decorators
 
 
 class Setup:
