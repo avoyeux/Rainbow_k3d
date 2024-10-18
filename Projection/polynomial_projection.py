@@ -370,6 +370,7 @@ class OrthographicalProjection:
                 'integration_time': self.integration_time,
                 'paths': self.paths,
                 'plot_choices': self.plot_choices,
+                'colours': [next(Plot.random_hexadecimal_int_color_generator()) for _ in self.polynomial_order],
                 'verbose': self.verbose,
                 'flush': self.flush,
             }
@@ -412,6 +413,7 @@ class OrthographicalProjection:
             plot_choices: dict[str, bool],
             polynomial_orders: list[int],
             data_index: tuple[int, int],
+            colours: list[int],
             verbose: int,
             flush: bool,
         ) -> None:
@@ -510,10 +512,10 @@ class OrthographicalProjection:
                     for i in range(len(interpolations)):
                         r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp[i], y_interp[i])
                         plt.scatter(
-                            theta_interp[i],
-                            r_interp[i] / 10**3,
+                            theta_interp,
+                            r_interp / 10**3,
                             label=f'{polynomial_orders[i]}th order polynomial',
-                            color=f'#{next(Plot.random_hexadecimal_int_color_generator()):06x}',
+                            color=f'#{colours[i]:06x}',
                             **plot_kwargs[1],
                         )
                 plt.xlim(245, 295)
