@@ -40,7 +40,7 @@ class DataSaver:
         integration_time: int | list[int] = [24],
         interpolation_points: float = 10**6, 
         interpolation_order: int | list[int] = [2, 3, 4],
-        feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 15), (-163, -16)),
+        feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: float = 1e-4,
         full: bool = False, 
     ) -> None:
@@ -1647,7 +1647,8 @@ class Interpolation:
 if __name__=='__main__':
 
     DataSaver(
-        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e1.h5',
+        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e1_moved.h5',
+        interpolation_order=[2, 3, 4, 5, 6],
         processes=50,
         feet_sigma=1e-1,
         full=True,
