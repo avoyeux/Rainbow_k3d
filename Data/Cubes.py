@@ -42,6 +42,7 @@ class DataSaver:
         interpolation_order: int | list[int] = [2, 3, 4],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: float = 1e-4,
+        only_feet: bool = True,
         full: bool = False, 
     ) -> None:
         """
@@ -69,6 +70,7 @@ class DataSaver:
         self.interpolation_points = interpolation_points
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
         self.feet_sigma = feet_sigma
+        self.feet_options = [' with feet'] if only_feet else ['', ' with feet']
         self.full = full  # deciding to add the heavy sky coords arrays.
 
         # Constants
@@ -617,10 +619,7 @@ class DataSaver:
         # Get data
         data = self.get_COO(H5PYFile, f'Raw/Raw cubes').astype('uint8')
 
-        # Setup options
-        options = ['', ' with feet']
-
-        for option in options:
+        for option in self.feet_options:
             # Add all data
             new_borders = borders
             filtered_data = (data & 0b00000001).astype('uint8')
@@ -693,7 +692,7 @@ class DataSaver:
         data_options = [
             f'{data_type}{feet}'
             for data_type in ['All data', 'No duplicates new']
-            for feet in ['', ' with feet']
+            for feet in self.feet_options
         ]
 
         for option in data_options:
@@ -860,7 +859,7 @@ class DataSaver:
         data_options = [
             f'{data_type}{feet}'
             for data_type in ['All data', 'No duplicates new']
-            for feet in ['', ' with feet']
+            for feet in self.feet_options
         ]
 
         # main_options = ['All data with feet', 'No duplicates new with feet']  #TODO: need to add the new duplicates init when I understand the error
@@ -1643,10 +1642,11 @@ class Interpolation:
 if __name__=='__main__':
 
     DataSaver(
-        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig5e1_moved.h5',
+        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig5e2_moved.h5',
         interpolation_order=[2, 3, 4, 5, 6],
         processes=50,
-        feet_sigma=5e-1,
+        feet_sigma=5e-2,
+        only_feet=False,  # TODO: need to update my code so that this option also works
         full=True,
     )    
 
