@@ -1647,10 +1647,10 @@ class Interpolation:
 if __name__=='__main__':
 
     DataSaver(
-        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig1e1_moved.h5',
+        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig5e1_moved.h5',
         interpolation_order=[2, 3, 4, 5, 6],
         processes=50,
-        feet_sigma=1e-1,
+        feet_sigma=5e-1,
         full=True,
     )    
 
