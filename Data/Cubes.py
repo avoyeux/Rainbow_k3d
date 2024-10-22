@@ -1144,7 +1144,7 @@ class DataSaver:
         coords[3, :] = coords[3, :] * self.dx['data'] + borders['zmin']['data']
 
         # SharedMemory
-        shm, coords = MultiProcessing.shared_memory(coords)
+        shm, coords = MultiProcessing.create_shared_memory(coords)
         
         # Multiprocessing
         # Constants
@@ -1183,8 +1183,7 @@ class DataSaver:
             output_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used to extract the function results.
         """
         
-        shm = mp.shared_memory.SharedMemory(name=coords['name'])
-        coords = np.ndarray(coords['shape'], dtype=coords['dtype'], buffer=shm.buf)
+        shm, coords = MultiProcessing.open_shared_memory(coords)
 
         while True:
             # Setup input
@@ -1332,7 +1331,7 @@ class Interpolation:
         output_queue = manager.Queue()
         processes_nb = min(self.processes, self.time_len)
         indexes = MultiProcessing.pool_indexes(self.time_len, processes_nb)
-        shm, data = MultiProcessing.shared_memory(data)
+        shm, data = MultiProcessing.create_shared_memory(data)
         # Run
         processes = [None] * processes_nb
         for i, index in enumerate(indexes):
@@ -1362,8 +1361,7 @@ class Interpolation:
         """
         
         # Open SharedMemory
-        shm = mp.shared_memory.SharedMemory(name=data['name'])
-        data = np.ndarray(data['shape'], data['dtype'], shm.buf)
+        shm, data = MultiProcessing.open_shared_memory(data)
 
         # Select data
         data_filters = (data[0, :] >= index[0]) & (data[0, :] <= index[1])
@@ -1396,8 +1394,8 @@ class Interpolation:
         print(f'The number of non 1 values are {np.sum(sigma > 2)}', flush=True)
 
         # Shared memory
-        shm_coords, coords = MultiProcessing.shared_memory(self.data.coords.astype('float64'))
-        shm_sigma, sigma = MultiProcessing.shared_memory(sigma)
+        shm_coords, coords = MultiProcessing.create_shared_memory(self.data.coords.astype('float64'))
+        shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
 
         # Multiprocessing
         manager = mp.Manager()
@@ -1460,11 +1458,9 @@ class Interpolation:
         """
         
         # Open shared memories
-        shm_coords = mp.shared_memory.SharedMemory(name=coords['name'])
-        coords = np.ndarray(shape=coords['shape'], dtype=coords['dtype'], buffer=shm_coords.buf)
-        shm_sigma = mp.shared_memory.SharedMemory(name=sigma['name'])
-        sigma = np.ndarray(shape=sigma['shape'], dtype=sigma['dtype'], buffer=shm_sigma.buf)
-
+        shm_coords, coords = MultiProcessing.open_shared_memory(coords)
+        shm_sigma, sigma = MultiProcessing.open_shared_memory(sigma)
+        
         while True:
             # Get arguments
             args = input_queue.get()
