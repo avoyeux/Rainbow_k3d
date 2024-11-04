@@ -41,11 +41,13 @@ class DataSaver:
         interpolation_points: float = 10**6, 
         interpolation_order: int | list[int] = [2, 3, 4],
         feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 14.5), (-163.5, -16.5)),
-        feet_sigma: float = 1e-4,
+        feet_sigma: int | float = 1e-4,
+        south_leg_sigma: int | float = 5,
+        leg_threshold: float = 0.03,
         only_feet: bool = True,
         full: bool = False, 
     ) -> None:
-        """
+        """  #TODO: update docstring
         To create the cubes with and/or without feet in an HDF5 file.
 
         Args:
@@ -70,6 +72,8 @@ class DataSaver:
         self.interpolation_points = interpolation_points
         self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
         self.feet_sigma = feet_sigma
+        self.south_leg_sigma = south_leg_sigma
+        self.leg_threshold = leg_threshold
         self.feet_options = [' with feet'] if only_feet else ['', ' with feet']
         self.full = full  # deciding to add the heavy sky coords arrays.
 
@@ -1054,6 +1058,8 @@ class DataSaver:
         interpolation_kwargs = {
             'data': data, 
             'feet_sigma': self.feet_sigma,
+            'south_sigma': self.south_leg_sigma,
+            'leg_threshold': self.leg_threshold,
             'processes': self.processes,
             'precision_nb': self.interpolation_points,
             'full': self.full,
@@ -1218,12 +1224,14 @@ class Interpolation:
             self, 
             data: sparse.COO, 
             order: int, 
-            feet_sigma: float,
+            feet_sigma: int | float,
+            south_sigma: int | float,
+            leg_threshold: float,
             processes: int, 
             precision_nb: int | float = 10**6, 
             full: bool = False,
         ) -> None:
-        """
+        """ #TODO:update docstring
         Initialisation of the Interpolation class. Using the get_information() instance method, you can get the curve position voxels and the 
         corresponding n-th order polynomial parameters with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
 
@@ -1239,6 +1247,8 @@ class Interpolation:
         self.data = self.reorder_data(data)
         self.poly_order = order
         self.feet_sigma = feet_sigma
+        self.south_sigma = south_sigma
+        self.leg_threshold = leg_threshold
         self.processes = processes
         self.precision_nb = precision_nb
         self.full = full
@@ -1417,6 +1427,8 @@ class Interpolation:
             'nth_order_polynomial': self.generate_nth_order_polynomial(),
             'precision_nb': self.precision_nb,
             'feet_sigma': self.feet_sigma,
+            'south_sigma': self.south_sigma,
+            'leg_threshold': self.leg_threshold,
         }
         for i in range(process_nb):
             p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
@@ -1513,9 +1525,11 @@ class Interpolation:
             shape: tuple[int, ...],
             precision_nb: float,
             nth_order_polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
-            feet_sigma: float,
+            feet_sigma: int | float,
+            south_sigma: int | float,
+            leg_threshold: float,
         ) -> tuple[np.ndarray, np.ndarray]:
-        """
+        """ #TODO: update docstring
         To get the polynomial fit of a data cube.
 
         Args:
@@ -1534,10 +1548,22 @@ class Interpolation:
         """
 
         # Setting up interpolation weights
-        mask = sigma > 2
+        feet_mask = sigma > 2
+        beginning_mask = t < leg_threshold  #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to pass through the left leg.
+        t_mask = beginning_mask & ~feet_mask
 
         # Try to get params
-        params = Interpolation.scipy_curve_fit(nth_order_polynomial, t, coords, params_init, sigma, mask, feet_sigma)
+        params = Interpolation.scipy_curve_fit(
+            polynomial=nth_order_polynomial,
+            t=t,
+            t_mask=t_mask,
+            coords=coords,
+            params_init=params_init,
+            sigma=sigma,
+            feet_mask=feet_mask,
+            feet_sigma=feet_sigma,
+            south_sigma=south_sigma,
+        )
 
         # Get curve
         params_x, params_y, params_z = params
@@ -1568,16 +1594,18 @@ class Interpolation:
     def scipy_curve_fit(
             polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
             t: np.ndarray,
+            t_mask: np.ndarray,
             coords: np.ndarray,
             params_init: np.ndarray,
             sigma: np.ndarray,
-            mask: np.ndarray,
-            feet_sigma: float,
+            feet_mask: np.ndarray,
+            feet_sigma: int | float,
+            south_sigma: int | float,
         ) -> np.ndarray:
         """
         To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge on a solution due to the feet weight, 
         then the feet weight is divided by 4 (i.e. the corresponding sigma is multiplied by 4) and the fitting is tried again.
-
+        #TODO: update docstring
         Args:
             polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the function that outputs the n_th order polynomial function results.
             t (np.ndarray): the cumulative distance.
@@ -1591,11 +1619,22 @@ class Interpolation:
             np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
         """
 
+        kwargs = {
+            'polynomial': polynomial,
+            't': t, 
+            't_mask': t_mask,
+            'coords': coords,
+            'params_init': params_init,
+            'sigma': sigma,
+            'feet_mask': feet_mask,
+            'south_sigma': south_sigma,
+        }
         try: 
-            sigma[mask] = feet_sigma
+            sigma[feet_mask] = feet_sigma
             x, y, z = coords
             params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
-            sigma[~mask] = 20
+            sigma[~feet_mask] = 20
+            sigma[t_mask] = south_sigma
             params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init, sigma=sigma)
             params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
             params = np.vstack([params_x, params_y, params_z]).astype('float64')
@@ -1604,7 +1643,7 @@ class Interpolation:
             # Changing feet value
             feet_sigma *= 4
             print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_sigma}.\033[0m", flush=True)
-            params = Interpolation.scipy_curve_fit(polynomial, t, coords, params_init, sigma, mask, feet_sigma)
+            params = Interpolation.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
 
         finally:
             print(f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m", flush=True)
@@ -1641,12 +1680,22 @@ class Interpolation:
 
 if __name__=='__main__':
 
-    DataSaver(
-        f'order{"".join([str(nb) for nb in Interpolation.axes_order])}_sig5e2_moved.h5',
-        interpolation_order=[2, 3, 4, 5, 6],
-        processes=50,
-        feet_sigma=5e-2,
-        only_feet=False,  # TODO: need to update my code so that this option also works
+    kwargs = dict(
+        interpolation_order=[4, 5, 6, 8, 10],
+        processes=69,
+        feet_sigma=20,
+        south_leg_sigma=20,
+        leg_threshold=0.03,
+        only_feet=False,  #TODO: this option still isn't setup properly
         full=True,
+    )
+    
+    # Naming setup
+    splitted = str(kwargs['feet_sigma']).split('.')
+    feet_sig = '1' + 'e' + (str(len(splitted[1])) if len(splitted) > 1 else '')
+    thresh = "_".join(string for string in str(kwargs['leg_threshold']).split('.'))
+    DataSaver(
+        f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_thisone.h5",
+        **kwargs,
     )    
 

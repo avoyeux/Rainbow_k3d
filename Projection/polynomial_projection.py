@@ -37,8 +37,8 @@ class OrthographicalProjection:
             integration_time_hours: int = 24,
             saving_plots: bool = False,
             filename: str = 'order0321.h5',
-            folder_name: str = 'Projections_sig1e1',
-            data_type : str = 'No duplicates new with feet',
+            data_type : str = 'No duplicates new',
+            with_feet: bool = True,
             polynomial_order: int | list[int] = [4, 5, 6],
             plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial'], 
             verbose: int = 1,
@@ -46,12 +46,13 @@ class OrthographicalProjection:
         ) -> None:
 
         # Arguments
+        feet = ' with feet' if with_feet else ''
         self.integration_time = integration_time_hours
         self.multiprocessing = True if processes > 1 else False
         self.processes = processes
         self.filename = filename
-        self.folder_name = folder_name
-        self.data_type = data_type
+        self.data_type = data_type + feet
+        self.foldername = 'results_' + filename.split('.')[0] + ''.join(feet.split(' '))
         self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
         self.solar_r = 6.96e5  # in km
         self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
@@ -90,7 +91,7 @@ class OrthographicalProjection:
             'main': main_path,
             'codes': code_path,
             'data': os.path.join(code_path, 'Data', self.filename),
-            'save': os.path.join(main_path, 'Work_done', self.folder_name)
+            'save': os.path.join(main_path, 'Work_done', self.foldername)
         }
         os.makedirs(paths['save'], exist_ok=True)
         return paths
@@ -152,7 +153,8 @@ class OrthographicalProjection:
             print(
                 "CUBES INFO - "
                 f"shape: {cubes.shape} - "
-                f"size: {round(cubes.nbytes / 2**20, 2)}Mb."
+                f"size: {round(cubes.nbytes / 2**20, 2)}Mb.",
+                flush=self.flush,
             ) 
         return data
 
@@ -358,7 +360,7 @@ class OrthographicalProjection:
             shm_cubes, cubes = MultiProcessing.create_shared_memory(self.data_info['cubes']) 
             shm_interp, interpolations = MultiProcessing.create_shared_memory(self.data_info['interpolations'])
             indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
-            
+            colour_generator = Plot.different_colours(omit=['white', 'blue'])
             # Arguments
             kwargs = {
                 'cubes': cubes,
@@ -370,7 +372,7 @@ class OrthographicalProjection:
                 'integration_time': self.integration_time,
                 'paths': self.paths,
                 'plot_choices': self.plot_choices,
-                'colours': [next(Plot.random_hexadecimal_int_color_generator()) for _ in self.polynomial_order],
+                'colours': [next(colour_generator) for _ in self.polynomial_order],
                 'verbose': self.verbose,
                 'flush': self.flush,
             }
@@ -402,7 +404,7 @@ class OrthographicalProjection:
             self.plotting_sub(data_index=(0, len(self.numbers) - 1), **kwargs)
 
     @staticmethod
-    def plotting_sub(
+    def plotting_sub(  #TODO: add the curves with and without feet
             cubes: dict[str, any] | np.ndarray,
             interpolations: dict[str, any] | list[np.ndarray],
             multiprocessing: bool,
@@ -432,19 +434,6 @@ class OrthographicalProjection:
             cubes_filter  = cubes[0, :] == time
             cube = cubes[1:, cubes_filter]
 
-            # indexes = np.stack([
-            #     np.nonzero(interpolations[i, 0, :] == time)[0]
-            #     for i in range(interpolations.shape[0])
-            # ], axis=0)  
-            
-            # positions = np.stack([
-            #     np.stack([
-            #         interpolations[nb, i, indexes[nb]]
-            #         for i in range(1, 4)
-            #     ], axis=0)
-            #     for nb in range(interpolations.shape[0])
-            # ], axis=0)
-
             positions = [None] * len(interpolations)
             for nb in range(len(interpolations)):
                 indexes = np.nonzero(interpolations[nb][0, :] == time)[0]
@@ -455,7 +444,6 @@ class OrthographicalProjection:
 
             # Voxel positions
             x_cube, y_cube, _ = cube
-            # x_interp, y_interp = [positions[:, i] for i in range(2)]
             x_interp, y_interp = [
                 [
                     position[i]
@@ -504,6 +492,8 @@ class OrthographicalProjection:
             if plot_choices['polar']:
                 # Changing to polar coordinates
                 r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
+
+                #TODO: add a function here so that the cube is resised to the correct dimensions and so a contour can be plotted
 
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
@@ -554,7 +544,13 @@ class OrthographicalProjection:
         return r, theta
 
     @staticmethod
-    def envelop_preprocessing(self):
+    def cube_contour():
+        #TODO: to plot the contour of the data cube 
+        pass
+        
+
+    @staticmethod
+    def envelop_preprocessing():
         """
         Opens the two png images of the envelop in polar coordinates. Then, treats the data to use it in
         the polar plots.
@@ -568,16 +564,16 @@ class OrthographicalProjection:
     #     """
 
     #     image = fits.getdata(self.sdo_filepaths[index], 1)
-    #     pass # TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
+    #     pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
 
 
 if __name__=='__main__':
     OrthographicalProjection(
-        filename='order0321_sig1e1.h5',
-        folder_name='projections_1e1',
+        filename='sig1e20_leg20_lim0_03_thisone.h5',
+        with_feet=True,
         verbose=2,
-        processes=10,
-        polynomial_order=[2, 3, 4],
+        processes=64,
+        polynomial_order=[4, 6, 10],
         saving_plots=True,
         plot_choices=['polar', 'cartesian', 'cube', 'interpolations'],
         flush=True,
