@@ -1,5 +1,5 @@
 """
-To get the projection of the polynomial interpolation inside the envelop. 
+To get the projection of the polynomial interpolation inside the envelope. 
 This is done to get the angle between the projection seen by SDO and the 3D polynomial representation of the data.
 """
 
@@ -18,6 +18,7 @@ import multiprocessing.queues
 
 # Personal imports 
 from common import MultiProcessing, Decorators, Plot
+from extract_envelope import Envelope
 
 #TODO: need to see what the problem in the visualisation angle is. Seems off when comparing to the possibly erroneous 3D visualisation.
 #TODO: I need to also add the sdo image itself.
@@ -26,7 +27,7 @@ class OrthographicalProjection:
     """
     Does the 2D projection of a 3D volume.
     Used to recreate what is seen by SDO when looking at the cube, especially the curve fits.
-    Also, while not yet implemented, will also add the envelop around the projection.
+    Also, while not yet implemented, will also add the envelope around the projection.
     """
 
     @Decorators.running_time
@@ -40,7 +41,7 @@ class OrthographicalProjection:
             data_type : str = 'No duplicates new',
             with_feet: bool = True,
             polynomial_order: int | list[int] = [4, 5, 6],
-            plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelop', 'polynomial'], 
+            plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial'], 
             verbose: int = 1,
             flush: bool = False
         ) -> None:
@@ -91,7 +92,8 @@ class OrthographicalProjection:
             'main': main_path,
             'codes': code_path,
             'data': os.path.join(code_path, 'Data', self.filename),
-            'save': os.path.join(main_path, 'Work_done', self.foldername)
+            'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
+            'save': os.path.join(main_path, 'Work_done', self.foldername),
         }
         os.makedirs(paths['save'], exist_ok=True)
         return paths
@@ -173,7 +175,7 @@ class OrthographicalProjection:
         """
 
         # Initialisation of the possible choices
-        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelop', 'interpolations']
+        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations']
         plot_choices_kwargs = {
             key: False 
             for key in possibilities
@@ -185,7 +187,7 @@ class OrthographicalProjection:
             else: 
                 raise ValueError(f"Value for the 'plot_choices' argument not recognised.") 
             
-        if 'envelop' in plot_choices: plot_choices_kwargs['polar'] = True
+        if 'envelope' in plot_choices: plot_choices_kwargs['polar'] = True
         return plot_choices_kwargs
 
     @Decorators.running_time
@@ -263,6 +265,10 @@ class OrthographicalProjection:
             final_results[1:4, start_index: start_index + nb_columns] = result
             start_index += nb_columns
         return final_results
+
+    def get_image_from_cube(self):
+        #TODO: need to do this part
+        pass
 
     @staticmethod
     def time_loop(
@@ -355,6 +361,15 @@ class OrthographicalProjection:
         Parent function to plot the data.
         """
 
+        if self.plot_choices['envelope']:
+            envelope_data = Envelope.get(
+                polynomial_order=6,
+                number_of_points=1e5,
+                plot=True,
+            )
+        else:
+            envelope_data = None
+
         if self.multiprocessing:
             # Multiprocessing setup
             shm_cubes, cubes = MultiProcessing.create_shared_memory(self.data_info['cubes']) 
@@ -373,6 +388,7 @@ class OrthographicalProjection:
                 'paths': self.paths,
                 'plot_choices': self.plot_choices,
                 'colours': [next(colour_generator) for _ in self.polynomial_order],
+                'envelope_data': envelope_data,
                 'verbose': self.verbose,
                 'flush': self.flush,
             }
@@ -388,7 +404,7 @@ class OrthographicalProjection:
             shm_interp.unlink()
         else:
             # Arguments
-            kwargs = {
+            kwargs = {  #TODO: need to update this part if using no multiprocessing
                 'cubes': self.data_info['cubes'],
                 'interpolations': self.data_info['interpolations'],
                 'polynomial_orders': self.polynomial_order,
@@ -416,6 +432,7 @@ class OrthographicalProjection:
             polynomial_orders: list[int],
             data_index: tuple[int, int],
             colours: list[int],
+            envelope_data: None | tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]],
             verbose: int,
             flush: bool,
         ) -> None:
@@ -427,7 +444,8 @@ class OrthographicalProjection:
             shm_cubes, cubes = MultiProcessing.open_shared_memory(cubes)
             shm_interpolations, interpolations = MultiProcessing.open_shared_memory(interpolations)
 
-        if plot_choices['envelop']: OrthographicalProjection.envelop_preprocessing()  #TODO: need to add this part
+        if envelope_data is not None:
+            middle_t_curve, envelope_y_x_curve = envelope_data
 
         for time in range(data_index[0], data_index[1] + 1):
             # Filtering data
@@ -461,6 +479,7 @@ class OrthographicalProjection:
                 0: {
                     's': 1,
                     'color': 'blue',
+                    'alpha': 0.1,
                     'zorder': 1,
                     'label': 'Data points',
                 },
@@ -497,6 +516,10 @@ class OrthographicalProjection:
 
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
+                if plot_choices['envelope']: 
+                    plt.plot(middle_t_curve[0], middle_t_curve[1], linestyle='--', color='black', label='middle path', alpha=0.6)
+                    for i, envelope in enumerate(envelope_y_x_curve):
+                        plt.plot(envelope[0], envelope[1], linestyle='--', color='grey', label='Contour' if i==0 else None, alpha=0.5)
                 if plot_choices['cube']: plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
                     for i in range(len(interpolations)):
@@ -505,11 +528,11 @@ class OrthographicalProjection:
                             theta_interp,
                             r_interp / 10**3,
                             label=f'{polynomial_orders[i]}th order polynomial',
-                            color=f'#{colours[i]:06x}',
+                            color=colours[i],
                             **plot_kwargs[1],
                         )
                 plt.xlim(245, 295)
-                plt.ylim(700, 870)
+                plt.ylim(690, 870)
                 plt.title(f'SDO polar projection - {date}')
                 plt.xlabel('Polar angle [degrees]')
                 plt.ylabel('Radial distance [Mm]')
@@ -552,7 +575,7 @@ class OrthographicalProjection:
     @staticmethod
     def envelop_preprocessing():
         """
-        Opens the two png images of the envelop in polar coordinates. Then, treats the data to use it in
+        Opens the two png images of the envelope in polar coordinates. Then, treats the data to use it in
         the polar plots.
         """
 
@@ -575,6 +598,6 @@ if __name__=='__main__':
         processes=64,
         polynomial_order=[4, 6, 10],
         saving_plots=True,
-        plot_choices=['polar', 'cartesian', 'cube', 'interpolations'],
+        plot_choices=['polar', 'cartesian', 'cube', 'interpolations', 'envelope'],
         flush=True,
     )
