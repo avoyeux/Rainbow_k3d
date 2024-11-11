@@ -361,6 +361,21 @@ class OrthographicalProjection:
         Parent function to plot the data.
         """
 
+        # Contour setup
+        if self.plot_choices['cube']:
+            # Get dx in polar angle  #TODO: will need to move this before the multiprocessing
+            SDO_dsun_km = np.sqrt(
+                self.data_info['sdo_pos'][:, 0]**2 + self.data_info['sdo_pos'][:, 1]**2 + self.data_info['sdo_pos'][:, 2]**2
+            )
+            #sin(theta) = dx / adjacent
+            d_theta = np.arcsin(self.data_info['dx'] / SDO_dsun_km)  #TODO: will change the equation later
+            image_borders = {
+                'x_lim': (245, 295),
+                'y_lim': (690, 870),
+            }
+        else:
+            SDO_dsun_km, d_theta, image_borders = None, None, None
+
         if self.plot_choices['envelope']:
             envelope_data = Envelope.get(
                 polynomial_order=6,
@@ -388,7 +403,9 @@ class OrthographicalProjection:
                 'paths': self.paths,
                 'plot_choices': self.plot_choices,
                 'colours': [next(colour_generator) for _ in self.polynomial_order],
+                'dx': self.data_info['dx'],
                 'envelope_data': envelope_data,
+                'image_borders': image_borders,
                 'verbose': self.verbose,
                 'flush': self.flush,
             }
@@ -396,7 +413,12 @@ class OrthographicalProjection:
             # Run
             processes = [None] * len(indexes)
             for i, index in enumerate(indexes):
-                p = mp.Process(target=self.plotting_sub, kwargs={'data_index': index, **kwargs})
+                p = mp.Process(target=self.plotting_sub, kwargs={
+                    'data_index': index,
+                    'SDO_dsun_km': SDO_dsun_km[index[0], index[1] + 1],
+                    'd_theta': d_theta[index[0], index[1] + 1],
+                    **kwargs,
+                })
                 p.start()
                 processes[i] = p
             for p in processes: p.join()
@@ -433,6 +455,10 @@ class OrthographicalProjection:
             data_index: tuple[int, int],
             colours: list[int],
             envelope_data: None | tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]],
+            dx: float,
+            SDO_dsun_km: None | np.ndarray,
+            d_theta: None | np.ndarray,
+            image_borders: None | dict[str, tuple[int, int]],
             verbose: int,
             flush: bool,
         ) -> None:
@@ -517,10 +543,18 @@ class OrthographicalProjection:
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
                 if plot_choices['envelope']: 
-                    plt.plot(middle_t_curve[0], middle_t_curve[1], linestyle='--', color='black', label='middle path', alpha=0.6)
+                    plt.plot(middle_t_curve[0], middle_t_curve[1], linestyle='--', color='black', label='Middle path', alpha=0.6)
                     for i, envelope in enumerate(envelope_y_x_curve):
-                        plt.plot(envelope[0], envelope[1], linestyle='--', color='grey', label='Contour' if i==0 else None, alpha=0.5)
-                if plot_choices['cube']: plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
+                        plt.plot(envelope[0], envelope[1], linestyle='--', color='grey', label='Envelope' if i==0 else None, alpha=0.5)
+                if plot_choices['cube']: 
+                    OrthographicalProjection.cube_contour(
+                        polar_theta=theta_cube,
+                        polar_r=r_cube,
+                        d_theta=d_theta[time + data_index[0]],
+                        dx=dx,
+                        image_borders=image_borders,
+                    )
+                    # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
                     for i in range(len(interpolations)):
                         r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp[i], y_interp[i])
@@ -567,11 +601,44 @@ class OrthographicalProjection:
         return r, theta
 
     @staticmethod
-    def cube_contour(polar_data: np.ndarray):
-        #TODO: to plot the contour of the data cube 
-        
-        
-        pass
+    def cube_contour(
+            polar_theta: np.ndarray,
+            polar_r: np.ndarray,
+            d_theta: float,
+            dx: float,
+            image_borders: dict[str, tuple[int, int]],
+        ) -> None:
+
+        polar_theta -= image_borders['x_lim'][0]
+        polar_r = (polar_r - (image_borders['y_lim'][0] * 1e3)) / 1e6
+
+        image_shape = (
+            int((image_borders['x_lim'][1] - image_borders['x_lim'][2]) / d_theta),
+            int((image_borders['y_lim'][1] - image_borders['y_lim'][2]) / (dx * 1e3))   
+        )
+        image = np.zeros(image_shape, dtype='uint8')
+        # For the data for one process only 
+        # Binning the data
+        polar_theta //= d_theta
+        polar_r //= dx
+
+        polar = np.stack([polar_r, polar_theta], axis=0)
+        indexes = np.unique(polar, axis=1)
+
+        # Fillup the image
+        image[indexes.T] = 1
+
+        # Get contours
+        lines = Plot.contours(image)
+        for line in lines: 
+            plt.plot(
+                image_borders['x_lim'][0] + (line[1] * d_theta),
+                image_borders['y_lim'][0] + (line[0] * dx),
+                color='r',
+                linewidth=0.5,
+                alpha=0.2,
+                z=9,
+            )
         
 
     # def sdo_image(self, index: int):

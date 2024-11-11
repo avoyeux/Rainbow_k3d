@@ -38,7 +38,7 @@ class Visualise:
             interpolation_order: int | list[int] = [4, 6],
             nb_points: int = 10**3,
             saving_plots: bool = False,
-            axes_order: list[int, ...] = [2, 1, 0],
+            axes_order: list[int] = [2, 1, 0],
     ) -> None:
         """ #TODO: update docstring
         To test the visualisation given only one index index in the data gotten from the HDF5 file.
