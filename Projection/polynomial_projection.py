@@ -415,8 +415,8 @@ class OrthographicalProjection:
             for i, index in enumerate(indexes):
                 p = mp.Process(target=self.plotting_sub, kwargs={
                     'data_index': index,
-                    'SDO_dsun_km': SDO_dsun_km[index[0], index[1] + 1],
-                    'd_theta': d_theta[index[0], index[1] + 1],
+                    'SDO_dsun_km': SDO_dsun_km[index[0]:index[1] + 1],
+                    'd_theta': d_theta[index[0]:index[1] + 1],
                     **kwargs,
                 })
                 p.start()
