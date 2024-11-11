@@ -567,19 +567,12 @@ class OrthographicalProjection:
         return r, theta
 
     @staticmethod
-    def cube_contour():
+    def cube_contour(polar_data: np.ndarray):
         #TODO: to plot the contour of the data cube 
+        
+        
         pass
         
-
-    @staticmethod
-    def envelop_preprocessing():
-        """
-        Opens the two png images of the envelope in polar coordinates. Then, treats the data to use it in
-        the polar plots.
-        """
-
-        pass
 
     # def sdo_image(self, index: int):
     #     """
