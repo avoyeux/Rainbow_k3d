@@ -449,7 +449,7 @@ class DataSaver:
             header = astropy.io.fits.getheader(filepath)
             # Get positions
             coords = sunpy.coordinates.frames.HeliographicCarrington(
-                header['CRLN_OBS'] * u.deg, header['CRLT_OBS'] * u.deg, header['DSUN_OBS'] * u.m, 
+                header['CRLN_OBS'] * u.deg, header['CRLT_OBS'] * u.deg, header['DSUN_OBS'] * u.m,
                 obstime=header['DATE-OBS'], observer='self'
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)

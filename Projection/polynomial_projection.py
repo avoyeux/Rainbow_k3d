@@ -92,6 +92,7 @@ class OrthographicalProjection:
             'main': main_path,
             'codes': code_path,
             'data': os.path.join(code_path, 'Data', self.filename),
+            'sdo': os.path.join(main_path, 'sdo'),
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
             'save': os.path.join(main_path, 'Work_done', self.foldername),
         }
@@ -110,7 +111,7 @@ class OrthographicalProjection:
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
             # Get default data information
-            dx = H5PYFile['dx'][...]
+            dx = H5PYFile['dx'][...][0]
             indexes = H5PYFile['Time indexes'][...]
             all_dates = H5PYFile['Dates'][...]
             dates = [all_dates[i].decode('utf-8') for i in indexes]
@@ -302,8 +303,8 @@ class OrthographicalProjection:
         for time in range(data_index[0], data_index[1] + 1):
             data_filter = data[0, :] == time
             result = data[1:4, data_filter]
-            center = np.array([0, 0, 0]).reshape(3, 1)  # TODO: need to change this when the code works. This is only to see where the sun center is
-            result = np.column_stack((result, center))  # adding the sun center to see if the translation is correct
+            # center = np.array([0, 0, 0]).reshape(3, 1)  # TODO: need to change this when the code works. This is only to see where the sun center is
+            # result = np.column_stack((result, center))  # adding the sun center to see if the translation is correct
             satelitte_pos = sdo_pos[time]
 
             # Centering the SDO pov on the Sun center
@@ -361,6 +362,8 @@ class OrthographicalProjection:
         Parent function to plot the data.
         """
 
+        print(f"aaaaaaa dx is {self.data_info['dx']}")
+
         # Contour setup
         if self.plot_choices['cube']:
             # Get dx in polar angle  #TODO: will need to move this before the multiprocessing
@@ -368,7 +371,8 @@ class OrthographicalProjection:
                 self.data_info['sdo_pos'][:, 0]**2 + self.data_info['sdo_pos'][:, 1]**2 + self.data_info['sdo_pos'][:, 2]**2
             )
             #sin(theta) = dx / adjacent
-            d_theta = np.arcsin(self.data_info['dx'] / SDO_dsun_km)  #TODO: will change the equation later
+            d_theta = self.data_info['dx'] * 360 / (2 * np.pi * self.solar_r) 
+            # d_theta = np.degrees(self.data_info['dx'] / SDO_dsun_km)  #TODO: will change the equation later
             image_borders = {
                 'x_lim': (245, 295),
                 'y_lim': (690, 870),
@@ -415,8 +419,7 @@ class OrthographicalProjection:
             for i, index in enumerate(indexes):
                 p = mp.Process(target=self.plotting_sub, kwargs={
                     'data_index': index,
-                    'SDO_dsun_km': SDO_dsun_km[index[0]:index[1] + 1],
-                    'd_theta': d_theta[index[0]:index[1] + 1],
+                    'd_theta': d_theta,
                     **kwargs,
                 })
                 p.start()
@@ -456,8 +459,7 @@ class OrthographicalProjection:
             colours: list[int],
             envelope_data: None | tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]],
             dx: float,
-            SDO_dsun_km: None | np.ndarray,
-            d_theta: None | np.ndarray,
+            d_theta: None | float,
             image_borders: None | dict[str, tuple[int, int]],
             verbose: int,
             flush: bool,
@@ -529,8 +531,9 @@ class OrthographicalProjection:
                 plt.title(f'SDO POV for - {date}')
                 plt.xlabel('Solar X [au]')
                 plt.ylabel('Solar Y [au]')
-                plt.legend()
+                plt.legend(loc='upper right')
                 plot_name = f'sdoprojection_{date}_{integration_time}h.png'
+
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
@@ -547,13 +550,22 @@ class OrthographicalProjection:
                     for i, envelope in enumerate(envelope_y_x_curve):
                         plt.plot(envelope[0], envelope[1], linestyle='--', color='grey', label='Envelope' if i==0 else None, alpha=0.5)
                 if plot_choices['cube']: 
-                    OrthographicalProjection.cube_contour(
+                    lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_cube,
                         polar_r=r_cube,
-                        d_theta=d_theta[time + data_index[0]],
+                        d_theta=d_theta,
                         dx=dx,
                         image_borders=image_borders,
                     )
+                    for line in lines: 
+                        plt.plot(
+                            line[1],
+                            line[0],
+                            color='r',
+                            linewidth=1,
+                            alpha=1,
+                        )
+                    plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.4, origin='lower')  # origin lower seemed to be at the right place
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
                     for i in range(len(interpolations)):
@@ -567,10 +579,11 @@ class OrthographicalProjection:
                         )
                 plt.xlim(245, 295)
                 plt.ylim(690, 870)
+                plt.gca().set_aspect('auto')
                 plt.title(f'SDO polar projection - {date}')
                 plt.xlabel('Polar angle [degrees]')
                 plt.ylabel('Radial distance [Mm]')
-                plt.legend()
+                plt.legend(loc='upper right')
                 plot_name = f'sdopolarprojection_{date}_{integration_time}h.png'
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
@@ -607,47 +620,78 @@ class OrthographicalProjection:
             d_theta: float,
             dx: float,
             image_borders: dict[str, tuple[int, int]],
-        ) -> None:
+        ) -> list[tuple[list[float], list[float]]]:
+
+        print(f'0: min max of polar_theta are {np.min(polar_theta)}, {np.max(polar_theta)}')
+        print(f'1: min max of polar_r are {np.min(polar_r)}, {np.max(polar_r)}')
 
         polar_theta -= image_borders['x_lim'][0]
-        polar_r = (polar_r - (image_borders['y_lim'][0] * 1e3)) / 1e6
+        polar_r = (polar_r / 1e3) - image_borders['y_lim'][0]  # in Mm
 
         image_shape = (
-            int((image_borders['x_lim'][1] - image_borders['x_lim'][2]) / d_theta),
-            int((image_borders['y_lim'][1] - image_borders['y_lim'][2]) / (dx * 1e3))   
+            int((image_borders['y_lim'][1] - image_borders['y_lim'][0]) * 1e3 / dx),
+            int((image_borders['x_lim'][1] - image_borders['x_lim'][0]) / d_theta),
         )
+        print(f"image shape is {image_shape}")
         image = np.zeros(image_shape, dtype='uint8')
         # For the data for one process only 
         # Binning the data
+        # print(f'2: min max of polar_r are {np.min(polar_r)}, {np.max(polar_r)} with shape {polar_r.shape}')
+        # print(f'3: min max of polar_theta are {np.min(polar_theta)}, {np.max(polar_theta)}')
+
+        filters = (polar_theta >= 0) & (polar_r >= 0)
+        polar_theta = polar_theta[filters]  # As some cube values are outside the plot box
+        polar_r = polar_r[filters]  # the values in the range of the plot in Mm
+
+        # print(f'4: lastly polar_r min max are {np.min(polar_r)}, {np.max(polar_r)} with shape {polar_r.shape}')
+        # print(f'5: lastly polar_theta min max are {np.min(polar_theta)}, {np.max(polar_theta)} with shape {polar_theta.shape}')
+
         polar_theta //= d_theta
-        polar_r //= dx
+        polar_r //= (dx / 1e3)  # in Mm in the range of the plot. i.e. 0 is the plot border
 
         polar = np.stack([polar_r, polar_theta], axis=0)
-        indexes = np.unique(polar, axis=1)
+        # print(f'6: min max of polar_r is {np.min(polar_r)}, {np.max(polar_r)}')
+        # print(f'7: min max of polar_theta is {np.min(polar_theta)}, {np.max(polar_theta)}')
+        indexes = np.unique(polar, axis=1).astype('int64')
+        # print(f'8: max of polar after unique is {np.max(indexes)} with shape {indexes.shape}')
 
         # Fillup the image
-        image[indexes.T] = 1
+        # print(f'9: min max of index[0] is {np.min(indexes[0])}, {np.max(indexes[0])}')  # these are for polar_r
+        # print(f'10: min max of index[1] is {np.min(indexes[1])}, {np.max(indexes[1])}')  # for polar_theta
+        image[indexes[0], indexes[1]] = 1  # this should be right
 
         # Get contours
         lines = Plot.contours(image)
-        for line in lines: 
-            plt.plot(
-                image_borders['x_lim'][0] + (line[1] * d_theta),
-                image_borders['y_lim'][0] + (line[0] * dx),
-                color='r',
-                linewidth=0.5,
-                alpha=0.2,
-                z=9,
-            )
-        
+        # print(f'lines type is {type(lines)}')
+        # print(f'line type is {type(line)}')
+        # print(f'line[0] type is {type(line[0])}', flush=True)
+        # print(f'type of subline[0] is {type(sub_line[0])}')
 
-    # def sdo_image(self, index: int):
-    #     """
-    #     To open the SDO image data, preprocess it and return it as an array for use in plots.
-    #     """
+        # line = lines[0]
+        # print(f"11: min and max of line[1] is {min(line[1])}, {max(line[1])}")  # this is polar_r image indexes
+        # print(f"12: min and max of line[0] is {min(line[0])}, {max(line[0])}")  # for polar_theta
 
-    #     image = fits.getdata(self.sdo_filepaths[index], 1)
-    #     pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
+        nw_lines = [None] * len(lines)
+        # print(f'len(lines) is {len(lines)}')
+        for i, line in enumerate(lines):
+            nw_lines[i] = ((
+                [image_borders['y_lim'][0] + (value * dx) / 1e3 for value in line[0]],
+                [image_borders['x_lim'][0] + (value * d_theta) for value in line[1]],
+            ))
+
+        line = nw_lines[0]
+        print(f"13: min and max of nw_line[1] is {min(line[1])}, {max(line[1])}")
+        print(f"14: min and max of nw_line[0] is {min(line[0])}, {max(line[0])}")
+        return nw_lines, image
+
+
+    def sdo_image(self, image_number: int):
+        """
+        To open the SDO image data, preprocess it and return it as an array for use in plots.
+        """
+
+        image = fits.getdata(self.sdo_filepaths[index], 1)
+        pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
 
 
 if __name__=='__main__':
@@ -658,6 +702,11 @@ if __name__=='__main__':
         processes=64,
         polynomial_order=[4, 6, 10],
         saving_plots=True,
-        plot_choices=['polar', 'cartesian', 'cube', 'interpolations', 'envelope'],
+        plot_choices=['polar', 'cube', 'interpolations', 'envelope'],
         flush=True,
     )
+
+
+
+
+
