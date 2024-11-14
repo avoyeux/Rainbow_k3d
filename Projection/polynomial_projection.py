@@ -130,6 +130,8 @@ class OrthographicalProjection:
                 + f'/Time integration of {self.integration_time}.0 hours' 
             )
 
+            no_duplicates = H5PYFile['Filtered/' + self.data_type + '/coords'][...]
+
             cubes = H5PYFile[group_path + '/coords'][...]
             interpolations = [
                 H5PYFile[group_path + f'/{polynomial_order}th order interpolation/raw_coords'][...]
@@ -150,6 +152,7 @@ class OrthographicalProjection:
             self.matrix_rotation(self.cartesian_pos(interpolation, data), data)
             for interpolation in interpolations
         ]
+        data['no_duplicates'] = self.matrix_rotation(self.cartesian_pos(no_duplicates, data), data)
 
         # Data info prints
         if self.verbose > 0:
@@ -392,12 +395,14 @@ class OrthographicalProjection:
         if self.multiprocessing:
             # Multiprocessing setup
             shm_cubes, cubes = MultiProcessing.create_shared_memory(self.data_info['cubes']) 
+            shm_no_duplicates, no_duplicates = MultiProcessing.create_shared_memory(self.data_info['no_duplicates'])
             shm_interp, interpolations = MultiProcessing.create_shared_memory(self.data_info['interpolations'])
             indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
             colour_generator = Plot.different_colours(omit=['white', 'blue'])
             # Arguments
             kwargs = {
                 'cubes': cubes,
+                'no_duplicates': no_duplicates,
                 'interpolations': interpolations,
                 'polynomial_orders': self.polynomial_order,
                 'multiprocessing': True,
@@ -426,6 +431,7 @@ class OrthographicalProjection:
                 processes[i] = p
             for p in processes: p.join()
             shm_cubes.unlink()
+            shm_no_duplicates.unlink()
             shm_interp.unlink()
         else:
             # Arguments
@@ -447,6 +453,7 @@ class OrthographicalProjection:
     @staticmethod
     def plotting_sub(  #TODO: add the curves with and without feet
             cubes: dict[str, any] | np.ndarray,
+            no_duplicates: dict[str, any] | np.ndarray,
             interpolations: dict[str, any] | list[np.ndarray],
             multiprocessing: bool,
             dates: list[str],
@@ -470,6 +477,7 @@ class OrthographicalProjection:
         
         if multiprocessing:
             shm_cubes, cubes = MultiProcessing.open_shared_memory(cubes)
+            shm_no_duplicates, no_duplicates = MultiProcessing.open_shared_memory(no_duplicates)
             shm_interpolations, interpolations = MultiProcessing.open_shared_memory(interpolations)
 
         if envelope_data is not None:
@@ -479,6 +487,9 @@ class OrthographicalProjection:
             # Filtering data
             cubes_filter  = cubes[0, :] == time
             cube = cubes[1:, cubes_filter]
+
+            no_duplicates_filter = no_duplicates[0, :] == time
+            no_duplicate = no_duplicates[1:, no_duplicates_filter]
 
             positions = [None] * len(interpolations)
             for nb in range(len(interpolations)):
@@ -490,6 +501,7 @@ class OrthographicalProjection:
 
             # Voxel positions
             x_cube, y_cube, _ = cube
+            x_no_duplicate, y_no_duplicate, _ = no_duplicate
             x_interp, y_interp = [
                 [
                     position[i]
@@ -540,6 +552,7 @@ class OrthographicalProjection:
             if plot_choices['polar']:
                 # Changing to polar coordinates
                 r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
+                r_no_duplicate, theta_no_duplicate = OrthographicalProjection.to_polar(x_no_duplicate, y_no_duplicate)
 
                 #TODO: add a function here so that the cube is resised to the correct dimensions and so a contour can be plotted
 
@@ -565,7 +578,25 @@ class OrthographicalProjection:
                             linewidth=1,
                             alpha=1,
                         )
-                    plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.4, origin='lower')  # origin lower seemed to be at the right place
+                    plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.3, origin='lower')  # origin lower seemed to be at the right place
+
+                    lines, image = OrthographicalProjection.cube_contour(
+                        polar_theta=theta_no_duplicate,
+                        polar_r=r_no_duplicate,
+                        d_theta=d_theta,
+                        dx=dx,
+                        image_borders=image_borders,
+                    )
+                    # for line in lines: 
+                    #     plt.plot(
+                    #         line[1],
+                    #         line[0],
+                    #         color='r',
+                    #         linewidth=1,
+                    #         alpha=1,
+                    #     )
+                    plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.5, origin='lower')  # origin lower seemed to be at the right place
+
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
                     for i in range(len(interpolations)):
@@ -590,7 +621,7 @@ class OrthographicalProjection:
 
             if verbose > 1: print(f'SAVED - filename:{plot_name}', flush=flush)
         # Closing shared memories
-        if multiprocessing: shm_cubes.close(); shm_interpolations.close()
+        if multiprocessing: shm_cubes.close(); shm_no_duplicates; shm_interpolations.close()
 
     @staticmethod
     def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
