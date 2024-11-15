@@ -19,7 +19,21 @@ import scipy.interpolate
 # Personal imports
 from common import Decorators
 
+#TODO: will need to change the mask to polar values for the second plot, but can't be bothered for now.
+
 class Envelope:
+    """
+    To fit a curve on the png images (created by Dr. Auchere) of the 'envelope' of the studied protuberance in his 'Coronal Monsoon paper'.
+
+    Raises:
+        ValueError: if the main path to the code directories is not found.
+    """
+    # Image information
+    borders = {
+        'polar angle': (245, 295),
+        'radial distance': (690, 870),
+        'image shape': (400, 1250)
+    }
 
     def __init__(
             self,
@@ -35,26 +49,48 @@ class Envelope:
         Args:
             polynomial_order (int): the order of the polynomial used for the fit of the two curves (i.e. the envelope PNGs).
             number_of_points (int): the number of points used in the recreation of the envelopes and hence the number of points in the middle path curve.
-            plot (bool, optional): to decide to plot the paths and middle path.
+            plot (bool, optional): to decide to plot the paths and middle path. Defaults to False.
         """
 
+        # Class arguments setup
         self.polynomial_order = polynomial_order
         self.number_of_points = int(number_of_points)
         self.create_plot = plot        
-        # 
-        self.borders = self.get_borders()
+        
+        # Paths setup
         self.paths = self.path_setup()
 
+        # Initialisation run
         self.processing()
 
-    def get_borders(self):
+    @classmethod
+    def get(
+            cls,
+            polynomial_order: int,
+            number_of_points: int | float,
+            plot: bool,
+        ) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
+        """
+        to get the results of the envelope processing by just class this classmethod function.
 
-        borders = {
-            'polar angle': (245, 295),
-            'height [Mm]': (690, 870),
-            'image shape': (400, 1250)
-        }
-        return borders
+        Args:
+            polynomial_order (int): the order of the polynomial used to fit the envelope png curves.
+            number_of_points (int | float): the number of points used in the fitting result of the envelope and the middle path.
+            plot (bool): to decide to plot the results of the envelope fitting and middle path computation.
+
+        Returns:
+            tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]: the first object in the tuple is a list with the x_t values and y_t values of the middle
+                path curve. The second object in the tuple is a list for the upper and lower part of the envelope and containing the x values and corresponding 
+                y_x values for those curves.
+        """
+
+        instance = cls(
+            polynomial_order=polynomial_order,
+            number_of_points=number_of_points,
+            plot=plot,
+        )
+        instance.get_curves_results()
+        return instance.middle_t_curve, instance.envelope_y_x_curves
     
     def path_setup(self) -> dict[str, str]:
         """
@@ -89,6 +125,7 @@ class Envelope:
         """
 
         # Initialisation
+        masks = [None] * 2
         x_t_curves = [None] * 2
         y_t_curves = [None] * 2
         y_x_curves = [None] * 2
@@ -96,31 +133,35 @@ class Envelope:
             # Get image data
             im = pil.Image.open(path)
             image = np.array(im)
-            print(image.shape)
 
             # Process data
             x_normalised = np.linspace(0, 1, self.number_of_points)
-            x_t_function, y_x_coefs, x_range = self.get_image_coefs(image)
+            mask, x_t_function, y_x_coefs, x_range = self.get_image_coeffs(image)
             x = np.linspace(x_range[0], x_range[1], self.number_of_points)
 
             # Save data
+            masks[i] = mask
             y_x_curves[i] = (x, self.get_polynomial_array(y_x_coefs, x))
             x_t_curves[i] = x_t_function(x_normalised)
             y_t_curves[i] = self.get_polynomial_array(y_x_coefs, x_t_curves[i])
             im.close()
-
         # Compute middle path
         middle_x_t_curve = (x_t_curves[0] + x_t_curves[1]) / 2
         middle_y_t_curve = (y_t_curves[0] + y_t_curves[1]) / 2
 
+        # Format results
+        mask += masks[0]
+        self.masks = mask
         self.middle_t_curve = [middle_x_t_curve, middle_y_t_curve]
         self.envelope_y_x_curves = y_x_curves 
 
-        # Plotting the results
-        if self.create_plot: self.plot()
+        # Plotting
+        if self.create_plot: self.plot(saving_name='extract_envelope_raw.png')
 
-    def get_curves_results(self):
-
+    def get_curves_results(self) -> None:
+        """
+        To get the change the envelope information from the image reference frame to polar coordinates.
+        """
 
         image_axis_curves = []
         for axis in range(2):
@@ -130,59 +171,53 @@ class Envelope:
                 borders = 'polar angle'
                 axis_opos = 1
             else:
-                borders = 'height [Mm]'
+                borders = 'radial distance'
                 axis_opos = 0
 
+            # Re-ordering data
             axis_t_curve = self.middle_t_curve[axis]
-
             image_axis_curve= []
             for envelope in self.envelope_y_x_curves:
                 image_axis_curve.append(envelope[axis])
             
+            # Computing and saving new data
             final_data = []
             for data in [axis_t_curve] + image_axis_curve:
-
                 final_data.append(self.polar_positions(
                     arr=data,
-                    max_index=self.borders['image shape'][axis_opos],
+                    max_index=self.borders['image shape'][axis_opos] - 1,  #TODO: by looking at the plot, I need to find out if the -1 is needed.
                     borders=self.borders[borders],
                 ))
 
-            # Keep new data    
+            # Reformatting new data to correspond to the initial format   
             self.middle_t_curve[axis] = final_data[0]
             image_axis_curves.append([final_data[index] for index in [1, 2]])
-        
         self.envelope_y_x_curves = [
             (image_axis_curves[0][image], image_axis_curves[1][image])
             for image in range(2)
         ]
 
-        self.plot()
-        # Plot new data
-
-    @classmethod
-    def get(
-            cls,
-            polynomial_order: int,
-            number_of_points: int | float,
-            plot: bool,
-        ) -> tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
-
-        instance = cls(
-            polynomial_order=polynomial_order,
-            number_of_points=number_of_points,
-            plot=plot,
-        )
-        instance.get_curves_results()
-        return instance.middle_t_curve, instance.envelope_y_x_curves
+        # Plotting
+        if self.create_plot: self.plot(saving_name='extract_envelope_final.png')
 
     def polar_positions(self, arr: np.ndarray, max_index: int, borders: tuple[int, int]) -> np.ndarray:
+        """
+        Converts am array of index image positions to the corresponding polar positions.
+
+        Args:
+            arr (np.ndarray): the index image positions of a given fit or interpolation.
+            max_index (int): the maximum value possible for that index (i.e. the border which is also the shape - 1 for that axis).
+            borders (tuple[int, int]): the border values in polar for the given axis.
+
+        Returns:
+            np.ndarray: the corresponding polar positions for the given inputted ndarray.
+        """
 
         # Normalise image indexes to 1
-        arr /= max_index
+        arr /= max_index 
         return arr * abs(borders[0] - borders[1]) + min(borders)
 
-    def get_image_coefs(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    def get_image_coeffs(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float]]:
         """
         To get the curve functions and coefficients of a given image of the envelope.
 
@@ -190,15 +225,19 @@ class Envelope:
             image (np.ndarray): the image of the top or bottom section of the envelope.
 
         Returns:
-            tuple[np.ndarray, np.ndarray, tuple[float, float]]: the x(t) interpolation function with the y(x) fit coefficients with the range of the 
-                horizontal image indexes (i.e. the min and max of those values).
+            tuple[np.ndarray, np.ndarray, tuple[float, float]]: the mask gotten from the png file, the x(t) interpolation function with the y(x) fit coefficients 
+            with the range of the horizontal image indexes (i.e. the min and max of those values).
         """
 
+        # Find curve
         x, y = np.where(image.T == 0)
+        mask = np.zeros(image.shape, dtype='uint8')
 
         # Swap the image axes as python reads an image from the top left corner
-        y = -(y - np.max(y))  
+        y = -(y - np.max(y))  #TODO: need to check if this is what I need to also do for the contour plotting
+        mask[y, x] = 1
 
+        # Compute cumulative distance
         cumulative_distance = np.empty((len(x),), dtype='float64')
         cumulative_distance[0] = 0
         for i in range(1, len(x)):
@@ -207,9 +246,10 @@ class Envelope:
             )
         cumulative_distance /= cumulative_distance[-1]  # normalised
 
+        # Compute the fits and interpolation
         x_t_function = scipy.interpolate.interp1d(cumulative_distance, x, kind='cubic')
         y_x_coefs = np.polyfit(x, y, self.polynomial_order)
-        return x_t_function, y_x_coefs[::-1], (np.min(x), np.max(x))
+        return mask, x_t_function, y_x_coefs[::-1], (np.min(x), np.max(x))
 
     def get_polynomial_array(self, coeffs: list[int | float], x: np.ndarray) -> np.ndarray:
         """
@@ -230,31 +270,49 @@ class Envelope:
         for i in range(self.polynomial_order + 1): result += coeffs[i] * x ** i
         return result
 
-    def plot(self) -> None:
+    def plot(self, saving_name: str) -> None:
         """
         To plot the results of the processing of the envelope and computation of the middle path.
 
         Args:
-            middle_path (tuple[np.ndarray, np.ndarray]): the x and y position arrays for the middle of the envelope path.
-            y_x_curve (list[tuple[np.ndarray, np.ndarray]]): two tuples each representing one of the envelope images by containing
-                the y(x) values of the envelope interpolation and the corresponding x values. 
+            saving_name (str): the name of the png file to be saved.
         """
 
         # Set up
-        plt.figure()
-        plt.scatter(self.middle_t_curve[0], self.middle_t_curve[1], label='middle')
+        plt.figure(figsize=(12, 5))
+        plt.title('Envelope mask (yellow) vs 6th order fit.')
+        plt.plot(
+            self.middle_t_curve[0],
+            self.middle_t_curve[1],
+            linestyle='--',
+            color='black',
+            label='middle path',
+        )
         for path in self.envelope_y_x_curves:
-            plt.scatter(path[0], path[1])
+            plt.plot(
+                path[0],
+                path[1],
+                linestyle='--',
+                linewidth=0.7,
+                color='red',
+                label='envelope',
+            )
+        plt.imshow(
+            self.masks,
+            alpha=0.5,
+            origin='lower',
+            label='mask',
+        )
         plt.legend()
-        plt.savefig(os.path.join(self.paths['results'], 'extract_middle_path.png'), dpi=500)
+        plt.savefig(os.path.join(self.paths['results'], saving_name), dpi=1000)
         plt.close()
+
 
 
 if __name__=='__main__':
     instance = Envelope(
         polynomial_order=6,
         number_of_points=1e5,
-        plot=False,
+        plot=True,
     )
-
     instance.get_curves_results()
