@@ -6,6 +6,7 @@ This is done to get the angle between the projection seen by SDO and the 3D poly
 # Imports
 import os
 import h5py
+import astropy
 import typeguard
 
 # Aliases
@@ -20,9 +21,9 @@ import multiprocessing.queues
 from common import MultiProcessing, Decorators, Plot
 from extract_envelope import Envelope
 
-#TODO: there is clearly a problem in the reprojection of the curve made by Dr. Auchere for the Rainbow paper. Need to check this first (print the initial mask with the interpolation and stuff.)
-#TODO: I need to also add the sdo image itself.
-#TODO: need to update the code for when there is only one process used (i.e. no multiprocessing)
+#TODO: IMPORTANT: there is clearly a problem in the reprojection of the curve made by Dr. Auchere for the Rainbow paper. Need to check this first (print the initial mask with the interpolation and stuff.)
+#TODO: IMPORTANT: I need to also add the sdo image itself.
+#TODO: MINOR: need to update the code for when there is only one process used (i.e. no multiprocessing)
 
 class OrthographicalProjection:
     """
@@ -409,41 +410,50 @@ class OrthographicalProjection:
         else:
             envelope_data = None
 
+        # Init kwargs setup
+        colour_generator = Plot.different_colours(omit=['white', 'red'])
+        global_kwargs = {
+            'polynomial_orders': self.polynomial_order,
+            'multiprocessing': self.multiprocessing,
+            'dates': self.data_info['dates'],
+            'solar_r': self.solar_r,
+            'integration_time': self.integration_time,
+            'paths': self.paths,
+            'plot_choices': self.plot_choices,
+            'colours': [next(colour_generator) for _ in self.polynomial_order],
+            'dx': self.data_info['dx'],
+            'd_theta': d_theta,
+            'envelope_data': envelope_data,
+            'projection_borders': self.projection_borders,
+            'verbose': self.verbose,
+            'flush': self.flush,
+        }
+
         if self.multiprocessing:
             # Multiprocessing setup
             shm_cubes, cubes = MultiProcessing.create_shared_memory(self.data_info['cubes']) 
             shm_no_duplicates, no_duplicates = MultiProcessing.create_shared_memory(self.data_info['no_duplicates'])
             shm_interp, interpolations = MultiProcessing.create_shared_memory(self.data_info['interpolations'])
             indexes = MultiProcessing.pool_indexes(len(self.data_info['dates']), self.processes)
-            colour_generator = Plot.different_colours(omit=['white', 'blue'])
+
             # Arguments
-            kwargs = {
+            multip_kwargs = {
                 'cubes': cubes,
                 'no_duplicates': no_duplicates,
                 'interpolations': interpolations,
-                'polynomial_orders': self.polynomial_order,
-                'multiprocessing': True,
-                'dates': self.data_info['dates'],
-                'solar_r': self.solar_r,
-                'integration_time': self.integration_time,
-                'paths': self.paths,
-                'plot_choices': self.plot_choices,
-                'colours': [next(colour_generator) for _ in self.polynomial_order],
-                'dx': self.data_info['dx'],
-                'envelope_data': envelope_data,
-                'projection_borders': self.projection_borders,
-                'verbose': self.verbose,
-                'flush': self.flush,
             }
 
             # Run
             processes = [None] * len(indexes)
             for i, index in enumerate(indexes):
-                p = mp.Process(target=self.plotting_sub, kwargs={
-                    'data_index': index,
-                    'd_theta': d_theta,
-                    **kwargs,
-                })
+                p = mp.Process(
+                    target=self.plotting_sub,
+                    kwargs={
+                        'data_index': index,
+                        **global_kwargs,
+                        **multip_kwargs,
+                    },
+                )
                 p.start()
                 processes[i] = p
             for p in processes: p.join()
@@ -452,20 +462,16 @@ class OrthographicalProjection:
             shm_interp.unlink()
         else:
             # Arguments
-            kwargs = {  #TODO: need to update this part if using no multiprocessing
+            kwargs = {
                 'cubes': self.data_info['cubes'],
+                'no_duplicates': self.data_info['no_duplicates'],
                 'interpolations': self.data_info['interpolations'],
-                'polynomial_orders': self.polynomial_order,
-                'multiprocessing': False,
-                'dates': self.data_info['dates'],
-                'solar_r': self.solar_r,
-                'integration_time': self.integration_time,
-                'paths': self.paths,
-                'plot_choices': self.plot_choices,
-                'verbose': self.verbose,
-                'flush': self.flush,
             }
-            self.plotting_sub(data_index=(0, len(self.numbers) - 1), **kwargs)
+            self.plotting_sub(
+                data_index=(0, len(self.numbers) - 1),
+                **global_kwargs,
+                **kwargs,
+            )
 
     @staticmethod
     def plotting_sub(  #TODO: add the curves with and without feet
@@ -483,7 +489,7 @@ class OrthographicalProjection:
             colours: list[int],
             envelope_data: None | tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]],
             dx: float,
-            d_theta: None | float,
+            d_theta: float,
             projection_borders: dict[str, tuple[int, int]],
             verbose: int,
             flush: bool,
@@ -671,77 +677,68 @@ class OrthographicalProjection:
             dx: float,
             projection_borders: dict[str, tuple[int, int]],
         ) -> list[tuple[list[float], list[float]]]:
+        """
+        To get the contours of the data cube when it is seen by SDO and using dx (i.e. the voxel size) as the pixel size.
+        The contours positions are given in polar coordinates units (i.e. radial distance and polar angle).
 
-        print(f'0: min max of polar_theta are {np.min(polar_theta)}, {np.max(polar_theta)}')
-        print(f'1: min max of polar_r are {np.min(polar_r)}, {np.max(polar_r)}')
+        Args:
+            polar_theta (np.ndarray): the polar angle positions of the cube's voxels.
+            polar_r (np.ndarray): the radial distance positions of the cube's voxels.
+            d_theta (float): dx in polar angle degree units.
+            dx (float): the length size of one of the cube's voxels in km.
+            projection_borders (dict[str, tuple[int, int]]): the borders of the plot and hence also of the corresponding image.
+
+        Returns:
+            list[tuple[list[float], list[float]]]: the lines of the contours of the image and the actual image.
+        """
 
         polar_theta -= projection_borders['polar angle'][0]
         polar_r = (polar_r / 1e3) - projection_borders['radial distance'][0]  # in Mm
 
+        # Initialising the image
         image_shape = (
             int((projection_borders['radial distance'][1] - projection_borders['radial distance'][0]) * 1e3 / dx),
             int((projection_borders['polar angle'][1] - projection_borders['polar angle'][0]) / d_theta),
         )
-        print(f"image shape is {image_shape}")
         image = np.zeros(image_shape, dtype='uint8')
-        # For the data for one process only 
-        # Binning the data
-        # print(f'2: min max of polar_r are {np.min(polar_r)}, {np.max(polar_r)} with shape {polar_r.shape}')
-        # print(f'3: min max of polar_theta are {np.min(polar_theta)}, {np.max(polar_theta)}')
 
+        # Filtering the pixels outside the final image
         filters = (polar_theta >= 0) & (polar_r >= 0)
         polar_theta = polar_theta[filters]  # As some cube values are outside the plot box
         polar_r = polar_r[filters]  # the values in the range of the plot in Mm
-
-        # print(f'4: lastly polar_r min max are {np.min(polar_r)}, {np.max(polar_r)} with shape {polar_r.shape}')
-        # print(f'5: lastly polar_theta min max are {np.min(polar_theta)}, {np.max(polar_theta)} with shape {polar_theta.shape}')
-
+        # Binning the data
         polar_theta //= d_theta
         polar_r //= (dx / 1e3)  # in Mm in the range of the plot. i.e. 0 is the plot border
-
+        # Filtering the duplicates
         polar = np.stack([polar_r, polar_theta], axis=0)
-        # print(f'6: min max of polar_r is {np.min(polar_r)}, {np.max(polar_r)}')
-        # print(f'7: min max of polar_theta is {np.min(polar_theta)}, {np.max(polar_theta)}')
         indexes = np.unique(polar, axis=1).astype('int64')
-        # print(f'8: max of polar after unique is {np.max(indexes)} with shape {indexes.shape}')
 
+        # If no pixels found in the image
         if len(indexes[0]) == 0: return None, None  #TODO: will need to make this a bit cleaner
-        # Fillup the image
-        # print(f'9: min max of index[0] is {np.min(indexes[0])}, {np.max(indexes[0])}')  # these are for polar_r
-        # print(f'10: min max of index[1] is {np.min(indexes[1])}, {np.max(indexes[1])}')  # for polar_theta
+        
+        # Populating the image
         image[indexes[0], indexes[1]] = 1  # this should be right
 
         # Get contours
         lines = Plot.contours(image)
-        # print(f'lines type is {type(lines)}')
-        # print(f'line type is {type(line)}')
-        # print(f'line[0] type is {type(line[0])}', flush=True)
-        # print(f'type of subline[0] is {type(sub_line[0])}')
 
-        # line = lines[0]
-        # print(f"11: min and max of line[1] is {min(line[1])}, {max(line[1])}")  # this is polar_r image indexes
-        # print(f"12: min and max of line[0] is {min(line[0])}, {max(line[0])}")  # for polar_theta
-
+        # Get corresponding polar coordinates
         nw_lines = [None] * len(lines)
-        # print(f'len(lines) is {len(lines)}')
         for i, line in enumerate(lines):
             nw_lines[i] = ((
                 [projection_borders['radial distance'][0] + (value * dx) / 1e3 for value in line[0]],
                 [projection_borders['polar angle'][0] + (value * d_theta) for value in line[1]],
             ))
-
-        line = nw_lines[0]
-        print(f"13: min and max of nw_line[1] is {min(line[1])}, {max(line[1])}")
-        print(f"14: min and max of nw_line[0] is {min(line[0])}, {max(line[0])}")
         return nw_lines, image
-
 
     def sdo_image(self, image_number: int):
         """
         To open the SDO image data, preprocess it and return it as an array for use in plots.
         """
 
-        image = fits.getdata(self.sdo_filepaths[index], 1)
+        index = ...
+
+        image = astropy.io.fits.getdata(self.sdo_filepaths[index], 1)
         pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
 
 
