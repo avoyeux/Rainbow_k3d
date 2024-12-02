@@ -552,6 +552,22 @@ class OrthographicalProjection:
                 },
             }
 
+            # Setup image contour
+            image_kwargs = {
+                'extent': (
+                    245 - d_theta / (2 * 1000),
+                    295 + d_theta / (2 * 1000),
+                    690 - dx / (2 * 1000),
+                    870 + dx / (2 * 1000),
+                ),
+                'alpha': 0.5,
+                'origin': 'lower',
+            }
+            contour_kwargs = {
+                'linewidth': 0.8,
+                'alpha': 0.8,
+            }
+
             if plot_choices['cartesian']:
                 # SDO projection plotting
                 plt.figure(figsize=(5, 5))
@@ -577,8 +593,6 @@ class OrthographicalProjection:
                 r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
                 r_no_duplicate, theta_no_duplicate = OrthographicalProjection.to_polar(x_no_duplicate, y_no_duplicate)
 
-                #TODO: add a function here so that the cube is resised to the correct dimensions and so a contour can be plotted
-
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
                 if plot_choices['envelope']: 
@@ -593,15 +607,14 @@ class OrthographicalProjection:
                         dx=dx,
                         projection_borders=projection_borders,
                     )
-                    for line in lines: 
-                        plt.plot(
-                            line[1],
-                            line[0],
-                            color='r',
+                    line = lines[0]
+                    plt.plot(line[1], line[0], color='r', linewidth=1, alpha=0.8, label='time integrated contours')
+                    for line in lines[1:]: 
+                        plt.plot(line[1], line[0], color='r',
                             linewidth=1,
-                            alpha=1,
+                            alpha=0.8,
                         )
-                    plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.3, origin='lower')  # origin lower seemed to be at the right place
+                    plt.imshow(image, **image_kwargs) 
 
                     lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
@@ -611,16 +624,30 @@ class OrthographicalProjection:
                         projection_borders=projection_borders,
                     )
 
-                    if lines is not None: plt.imshow(image, extent=(245, 295, 690, 870), alpha=0.5, origin='lower')  # origin lower seemed to be at the right place
+                    if lines is not None:
+                        plt.imshow(
+                            image,
+                            extent=extent,
+                            alpha=0.5,
+                            origin='lower',
+                        )  # origin lower seemed to be at the right place
 
-                    # for line in lines: 
-                    #     plt.plot(
-                    #         line[1],
-                    #         line[0],
-                    #         color='r',
-                    #         linewidth=1,
-                    #         alpha=1,
-                    #     )
+                        line = lines[0]
+                        plt.plot(
+                            line[1], 
+                            line[0],
+                            color='orange',
+                            linewidth=1,
+                            alpa
+                        )
+                        for line in lines: 
+                            plt.plot(
+                                line[1],
+                                line[0],
+                                color='r',
+                                linewidth=1,
+                                alpha=1,
+                            )
                     
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
@@ -700,7 +727,7 @@ class OrthographicalProjection:
             int((projection_borders['radial distance'][1] - projection_borders['radial distance'][0]) * 1e3 / dx),
             int((projection_borders['polar angle'][1] - projection_borders['polar angle'][0]) / d_theta),
         )
-        image = np.zeros(image_shape, dtype='uint8')
+        image = np.zeros(image_shape)
 
         # Filtering the pixels outside the final image
         filters = (polar_theta >= 0) & (polar_r >= 0)
@@ -715,9 +742,9 @@ class OrthographicalProjection:
 
         # If no pixels found in the image
         if len(indexes[0]) == 0: return None, None  #TODO: will need to make this a bit cleaner
-        
+
         # Populating the image
-        image[indexes[0], indexes[1]] = 1  # this should be right
+        image[indexes[0], indexes[1]] = 1  
 
         # Get contours
         lines = Plot.contours(image)
@@ -747,9 +774,8 @@ if __name__=='__main__':
         filename='sig1e20_leg20_lim0_03_thisone.h5',
         with_feet=True,
         verbose=2,
-        processes=64,
+        processes=48,
         polynomial_order=[4],
-        saving_plots=True,
         plot_choices=['polar', 'cube', 'interpolations', 'envelope'],
         flush=True,
     )
