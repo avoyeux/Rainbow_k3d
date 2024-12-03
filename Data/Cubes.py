@@ -1695,7 +1695,7 @@ if __name__=='__main__':
     feet_sig = '1' + 'e' + (str(len(splitted[1])) if len(splitted) > 1 else '')
     thresh = "_".join(string for string in str(kwargs['leg_threshold']).split('.'))
     DataSaver(
-        f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_thisone.h5",
+        f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}.h5",
         **kwargs,
     )    
 

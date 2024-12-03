@@ -68,7 +68,7 @@ class OrthographicalProjection:
         self.processes = processes
         self.filename = filename
         self.data_type = data_type + feet
-        self.foldername = 'results_' + filename.split('.')[0] + ''.join(feet.split(' '))
+        self.foldername = filename.split('.')[0] + ''.join(feet.split(' '))
         self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
         self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
         self.verbose = verbose
@@ -80,7 +80,7 @@ class OrthographicalProjection:
             'radial distance': (690, 870),  # in Mm
             'polar angle': (245, 295),  # in degrees
         }
-        Envelope.borders = {**Envelope.borders, **self.projection_borders}  #TODO: need to make sure that this makes sense when I get access to the web.
+        Envelope.borders = {**Envelope.borders, **self.projection_borders} 
 
         # Paths setup
         self.paths = self.path_setup()
@@ -497,6 +497,35 @@ class OrthographicalProjection:
         """
         To be able to multiprocess the plotting.
         """
+
+        # Ordering plot kwargs
+        plot_kwargs = {
+            'interpolation': {
+                's': 2,
+                'zorder': 2,
+            },
+            'envelope': {
+                'linestyle': '--',
+                'alpha': 0.9,
+                'zorder': 4,
+            },
+            'image': {
+                'extent': (
+                    245,
+                    295,
+                    690,
+                    870,
+                ),
+                'alpha': 0.5,
+                'origin': 'lower',
+                'zorder': 0,
+            },
+            'contour': {
+                'linewidth': 0.6,
+                'alpha': 1,
+                'zorder': 3,
+            },
+        }
         
         if multiprocessing:
             shm_cubes, cubes = MultiProcessing.open_shared_memory(cubes)
@@ -537,35 +566,6 @@ class OrthographicalProjection:
             date = dates[time]
 
             # if self.plot_choices['sdo image']: self.sdo_image(index=time)  #TODO: need to add this part too
-
-            # Ordering plot kwargs
-            plot_kwargs = {
-                'interpolation': {
-                    's': 2,
-                    'zorder': 2,
-                },
-                'envelope': {
-                    'linestyle': '--',
-                    'alpha': 0.9,
-                    'zorder': 4,
-                },
-                'image': {
-                    'extent': (
-                        245 - d_theta / (2 * 1000),
-                        295 + d_theta / (2 * 1000),
-                        690 - dx / (2 * 1000),
-                        870 + dx / (2 * 1000),
-                    ),
-                    'alpha': 0.5,
-                    'origin': 'lower',
-                    'zorder': 0,
-                },
-                'contour': {
-                    'linewidth': 0.8,
-                    'alpha': 0.8,
-                    'zorder': 3,
-                },
-            }
 
             if plot_choices['cartesian']:
 
@@ -620,7 +620,7 @@ class OrthographicalProjection:
                     line = lines[0]
                     plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
                     for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
-                    plt.imshow(image, **plot_kwargs['image']) 
+                    # plt.imshow(image, **plot_kwargs['image']) 
 
                     lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
@@ -631,7 +631,7 @@ class OrthographicalProjection:
                     )
 
                     if lines is not None:
-                        plt.imshow(image, **plot_kwargs['image'])
+                        # plt.imshow(image, **plot_kwargs['image'])
 
                         line = lines[0]
                         plt.plot(line[1], line[0], color='orange', label='no duplicate contours', **plot_kwargs['contour'])
