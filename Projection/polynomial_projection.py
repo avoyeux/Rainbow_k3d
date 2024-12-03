@@ -538,38 +538,37 @@ class OrthographicalProjection:
 
             # if self.plot_choices['sdo image']: self.sdo_image(index=time)  #TODO: need to add this part too
 
+            # Ordering plot kwargs
             plot_kwargs = {
-                0: {
-                    's': 1,
-                    'color': 'blue',
-                    'alpha': 0.1,
-                    'zorder': 1,
-                    'label': 'Data points',
-                },
-                1: {
+                'interpolation': {
                     's': 2,
                     'zorder': 2,
                 },
-            }
-
-            # Setup image contour
-            image_kwargs = {
-                'extent': (
-                    245 - d_theta / (2 * 1000),
-                    295 + d_theta / (2 * 1000),
-                    690 - dx / (2 * 1000),
-                    870 + dx / (2 * 1000),
-                ),
-                'alpha': 0.5,
-                'origin': 'lower',
-            }
-            contour_kwargs = {
-                'linewidth': 0.8,
-                'alpha': 0.8,
+                'envelope': {
+                    'linestyle': '--',
+                    'alpha': 0.9,
+                    'zorder': 4,
+                },
+                'image': {
+                    'extent': (
+                        245 - d_theta / (2 * 1000),
+                        295 + d_theta / (2 * 1000),
+                        690 - dx / (2 * 1000),
+                        870 + dx / (2 * 1000),
+                    ),
+                    'alpha': 0.5,
+                    'origin': 'lower',
+                    'zorder': 0,
+                },
+                'contour': {
+                    'linewidth': 0.8,
+                    'alpha': 0.8,
+                    'zorder': 3,
+                },
             }
 
             if plot_choices['cartesian']:
-                # SDO projection plotting
+
                 plt.figure(figsize=(5, 5))
                 if plot_choices['cube']: plt.scatter(x_cube / solar_r, y_cube / solar_r, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
@@ -577,18 +576,21 @@ class OrthographicalProjection:
                         plt.scatter(
                             x_interp[i] / solar_r, y_interp[i] / solar_r,
                             label=f'{polynomial_orders[i]}th order polynomial',
-                            **plot_kwargs[1],
+                            color=colours[i],
+                            **plot_kwargs['interpolation'],
                         )
                 plt.title(f'SDO POV for - {date}')
                 plt.xlabel('Solar X [au]')
                 plt.ylabel('Solar Y [au]')
                 plt.legend(loc='upper right')
                 plot_name = f'sdoprojection_{date}_{integration_time}h.png'
-
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
+                if verbose > 1: print(f'SAVED - filename:{plot_name}')
+
             if plot_choices['polar']:
+
                 # Changing to polar coordinates
                 r_cube, theta_cube = OrthographicalProjection.to_polar(x_cube, y_cube)
                 r_no_duplicate, theta_no_duplicate = OrthographicalProjection.to_polar(x_no_duplicate, y_no_duplicate)
@@ -596,10 +598,16 @@ class OrthographicalProjection:
                 # SDO polar projection plotting
                 plt.figure(figsize=(12, 5))
                 if plot_choices['envelope']: 
-                    plt.plot(middle_t_curve[0], middle_t_curve[1], linestyle='--', color='black', label='Middle path', alpha=0.9)
-                    for i, envelope in enumerate(envelope_y_x_curve):
-                        plt.plot(envelope[0], envelope[1], linestyle='--', color='grey', label='Envelope' if i==0 else None, alpha=0.9)
+
+                    plt.plot(middle_t_curve[0], middle_t_curve[1], color='black', label='Middle path', **plot_kwargs['envelope'])
+                    
+                    envelope = envelope_y_x_curve[0]
+                    plt.plot(envelope[0], envelope[1], color='grey', label='Envelope', **plot_kwargs['envelope'])
+                    for envelope in envelope_y_x_curve[1:]: plt.plot(envelope[0], envelope[1], color='grey', **plot_kwargs['envelope'])
+
                 if plot_choices['cube']: 
+
+                    # Get image and contours
                     lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_cube,
                         polar_r=r_cube,
@@ -607,14 +615,12 @@ class OrthographicalProjection:
                         dx=dx,
                         projection_borders=projection_borders,
                     )
+
+                    # Plot
                     line = lines[0]
-                    plt.plot(line[1], line[0], color='r', linewidth=1, alpha=0.8, label='time integrated contours')
-                    for line in lines[1:]: 
-                        plt.plot(line[1], line[0], color='r',
-                            linewidth=1,
-                            alpha=0.8,
-                        )
-                    plt.imshow(image, **image_kwargs) 
+                    plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
+                    for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
+                    plt.imshow(image, **plot_kwargs['image']) 
 
                     lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
@@ -625,40 +631,25 @@ class OrthographicalProjection:
                     )
 
                     if lines is not None:
-                        plt.imshow(
-                            image,
-                            extent=extent,
-                            alpha=0.5,
-                            origin='lower',
-                        )  # origin lower seemed to be at the right place
+                        plt.imshow(image, **plot_kwargs['image'])
 
                         line = lines[0]
-                        plt.plot(
-                            line[1], 
-                            line[0],
-                            color='orange',
-                            linewidth=1,
-                            alpa
-                        )
-                        for line in lines: 
-                            plt.plot(
-                                line[1],
-                                line[0],
-                                color='r',
-                                linewidth=1,
-                                alpha=1,
-                            )
+                        plt.plot(line[1], line[0], color='orange', label='no duplicate contours', **plot_kwargs['contour'])
+                        for line in lines: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
                     
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
                     for i in range(len(interpolations)):
+                        # Get polar positions
                         r_interp, theta_interp = OrthographicalProjection.to_polar(x_interp[i], y_interp[i])
+
+                        # Plot
                         plt.scatter(
                             theta_interp,
                             r_interp / 10**3,
                             label=f'{polynomial_orders[i]}th order polynomial',
                             color=colours[i],
-                            **plot_kwargs[1],
+                            **plot_kwargs['interpolation'],
                         )
                 plt.xlim(245, 295)
                 plt.ylim(690, 870)
@@ -673,7 +664,7 @@ class OrthographicalProjection:
 
             if verbose > 1: print(f'SAVED - filename:{plot_name}', flush=flush)
         # Closing shared memories
-        if multiprocessing: shm_cubes.close(); shm_no_duplicates; shm_interpolations.close()
+        if multiprocessing: shm_cubes.close(); shm_no_duplicates.close(); shm_interpolations.close()
 
     @staticmethod
     def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -733,9 +724,11 @@ class OrthographicalProjection:
         filters = (polar_theta >= 0) & (polar_r >= 0)
         polar_theta = polar_theta[filters]  # As some cube values are outside the plot box
         polar_r = polar_r[filters]  # the values in the range of the plot in Mm
+
         # Binning the data
         polar_theta //= d_theta
         polar_r //= (dx / 1e3)  # in Mm in the range of the plot. i.e. 0 is the plot border
+        
         # Filtering the duplicates
         polar = np.stack([polar_r, polar_theta], axis=0)
         indexes = np.unique(polar, axis=1).astype('int64')
