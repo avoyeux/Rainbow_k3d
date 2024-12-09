@@ -38,7 +38,7 @@ class OrthographicalProjection:
             self,
             processes: int = 0,
             integration_time_hours: int = 24,
-            filename: str = 'sig1e20_leg20_lim0_03_thisone.h5',
+            filename: str = 'sig1e20_leg20_lim0_03.h5',
             data_type : str = 'No duplicates new',
             with_feet: bool = True,
             polynomial_order: int | list[int] = [4, 5, 6],
@@ -782,7 +782,7 @@ class OrthographicalProjection:
 
 if __name__ == '__main__':
     OrthographicalProjection(
-        filename='sig1e20_leg20_lim0_03_thisone.h5',
+        filename='sig1e20_leg20_lim0_03.h5',
         with_feet=True,
         verbose=2,
         processes=48,

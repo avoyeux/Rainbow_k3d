@@ -98,10 +98,8 @@ class CartesianToPolar:
             'sun radius': header['RSUN_REF'],
             'dx': (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2,  # CUNIT is 'arcsec'
         }
-        print(f"dx is {data_info['dx']}")
         data_info['max index'] = max(self.borders['radial distance']) * 1e6 / data_info['dx']
         data_info['min index'] = min(self.borders['radial distance']) * 1e6 / data_info['dx']
-        print(f"the max index is {data_info['max index']}")
         hdul.close()
         return data_info
 
@@ -123,7 +121,6 @@ class CartesianToPolar:
         To change the cartesian coordinates to the polar ones.
         """
 
-        print(f"_coord: max of image is {np.max(self.data['image'])}")
         image = skimage.transform.warp_polar(
             image=self.data['image'],
             center=self.data['center'],
@@ -131,16 +128,10 @@ class CartesianToPolar:
             channel_axis=self.channel_axis,
             radius=self.data['max index'],  #TODO: most likely an error here
         )
-        print(f'_coord0: max of image is {np.max(image)}')
 
         # Corrections
-        if self.theta_offset != 0:
-            image = self._rotate_polar(image, self.theta_offset)
-            print(f"_coord1: max of image is {np.max(image)}")
-        if self.direction == 'clockwise':
-            image = np.flip(image, axis=0)
-            print(f"_coord2: max of image is {np.max(image)}")
-        
+        if self.theta_offset != 0: image = self._rotate_polar(image, self.theta_offset)
+        if self.direction == 'anticlockwise': image = np.flip(image, axis=0)
         return self._slice_image(image)
     
     def _rotate_polar(self, polar_image: np.ndarray, angle: int | float) -> np.ndarray:
