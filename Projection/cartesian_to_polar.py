@@ -100,14 +100,23 @@ class CartesianToPolar:
         }
         print(f"dx is {data_info['dx']}")
         data_info['max index'] = max(self.borders['radial distance']) * 1e6 / data_info['dx']
+        data_info['min index'] = min(self.borders['radial distance']) * 1e6 / data_info['dx']
         print(f"the max index is {data_info['max index']}")
         hdul.close()
         return data_info
 
-    def _image_slice(self) -> np.ndarray:
-        """To select a part of the image so that you can change it to polar and know the bounds."""
+    def _slice_image(self, image: np.ndarray) -> np.ndarray:
+        """To cut the image so that the bounds are the same than for the inputted borders"""
 
-        pass
+        # Radial distance section
+        new_dx = max(self.borders['radial distance']) * 1e6 / image.shape[1]
+        min_radial_index = round(min(self.borders['radial distance']) * 1e6 / new_dx)
+
+        # Polar angle section
+        d_theta = 360 / image.shape[0]
+        max_polar_index = round(max(self.borders['polar angle']) / d_theta)
+        min_polar_index = round(min(self.borders['polar angle']) / d_theta)
+        return image[min_polar_index:max_polar_index + 1, min_radial_index:]
 
     def _coordinates_cartesian_to_polar(self) -> np.ndarray:
         """
@@ -131,7 +140,8 @@ class CartesianToPolar:
         if self.direction == 'clockwise':
             image = np.flip(image, axis=0)
             print(f"_coord2: max of image is {np.max(image)}")
-        return image
+        
+        return self._slice_image(image)
     
     def _rotate_polar(self, polar_image: np.ndarray, angle: int | float) -> np.ndarray:
         

@@ -18,8 +18,9 @@ import matplotlib.pyplot as plt
 import multiprocessing.queues
 
 # Personal imports 
-from common import MultiProcessing, Decorators, Plot
 from extract_envelope import Envelope
+from cartesian_to_polar import CartesianToPolar
+from common import MultiProcessing, Decorators, Plot
 
 #TODO: IMPORTANT: there is clearly a problem in the reprojection of the curve made by Dr. Auchere for the Rainbow paper. Need to check this first (print the initial mask with the interpolation and stuff.)
 #TODO: IMPORTANT: I need to also add the sdo image itself.
@@ -68,7 +69,7 @@ class OrthographicalProjection:
         self.processes = processes
         self.filename = filename
         self.data_type = data_type + feet
-        self.foldername = filename.split('.')[0] + ''.join(feet.split(' '))
+        self.foldername = filename.split('.')[0] + ''.join(feet.split(' ')) + 'testing'
         self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
         self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
         self.verbose = verbose
@@ -164,6 +165,7 @@ class OrthographicalProjection:
         # Formatting data
         data = {
             'dx': dx,
+            'time indexes': indexes,
             'dates': dates,
             'xmin': xmin,
             'ymin': ymin,
@@ -416,6 +418,7 @@ class OrthographicalProjection:
             'polynomial_orders': self.polynomial_order,
             'multiprocessing': self.multiprocessing,
             'dates': self.data_info['dates'],
+            'time_indexes': self.data_info['time indexes'],
             'solar_r': self.solar_r,
             'integration_time': self.integration_time,
             'paths': self.paths,
@@ -480,6 +483,7 @@ class OrthographicalProjection:
             interpolations: dict[str, any] | list[np.ndarray],
             multiprocessing: bool,
             dates: list[str],
+            time_indexes: list[int],
             solar_r: float,
             integration_time: int,
             paths: dict[str, str],
@@ -539,6 +543,7 @@ class OrthographicalProjection:
             # Filtering data
             cubes_filter  = cubes[0, :] == time
             cube = cubes[1:, cubes_filter]
+            polar_image = OrthographicalProjection.sdo_image(time_indexes[time], projection_borders=projection_borders)
 
             no_duplicates_filter = no_duplicates[0, :] == time
             no_duplicate = no_duplicates[1:, no_duplicates_filter]
@@ -620,7 +625,9 @@ class OrthographicalProjection:
                     line = lines[0]
                     plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
                     for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
-                    # plt.imshow(image, **plot_kwargs['image']) 
+                    # plt.imshow(image, **plot_kwargs['image'])
+
+                    plt.imshow(polar_image, **plot_kwargs['image']) 
 
                     lines, image = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
@@ -751,15 +758,26 @@ class OrthographicalProjection:
             ))
         return nw_lines, image
 
-    def sdo_image(self, image_number: int):
+    @staticmethod
+    def sdo_image(
+            image_number: int,
+            projection_borders: dict[str, tuple[int, int]],  
+        ) -> np.ndarray:
         """
         To open the SDO image data, preprocess it and return it as an array for use in plots.
         """
 
-        index = ...
+        polar_image = CartesianToPolar.get_polar_image(
+            image_nb=image_number,
+            output_shape=(10_000, 10_000),
+            borders=projection_borders,
+            direction='clockwise',
+            theta_offset=90,
+            channel_axis=None,
+        )
+        return polar_image
 
-        image = astropy.io.fits.getdata(self.sdo_filepaths[index], 1)
-        pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
+
 
 
 if __name__ == '__main__':
