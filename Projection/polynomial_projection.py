@@ -762,7 +762,7 @@ class OrthographicalProjection:
         pass #TODO: will do it later as I need to take into account CRPIX1 and CRPIX2 but also conversion image to plot values
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     OrthographicalProjection(
         filename='sig1e20_leg20_lim0_03_thisone.h5',
         with_feet=True,
