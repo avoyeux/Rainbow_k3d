@@ -775,7 +775,7 @@ class OrthographicalProjection:
             theta_offset=90,
             channel_axis=None,
         )
-        return polar_image
+        return polar_image.T
 
 
 

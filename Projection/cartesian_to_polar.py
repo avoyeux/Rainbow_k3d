@@ -130,15 +130,15 @@ class CartesianToPolar:
         )
 
         # Corrections
-        if self.theta_offset != 0: image = self._rotate_polar(image, self.theta_offset)
-        if self.direction == 'anticlockwise': image = np.flip(image, axis=0)
+        if self.theta_offset != 0: image = self._rotate_polar(image)
+        if self.direction == 'clockwise': image = np.flip(image, axis=0)
         return self._slice_image(image)
     
-    def _rotate_polar(self, polar_image: np.ndarray, angle: int | float) -> np.ndarray:
+    def _rotate_polar(self, polar_image: np.ndarray) -> np.ndarray:
         
         d_theta = 360 / polar_image.shape[0]  #TODO: need to check if it is the right ax
-        shift = round(angle / d_theta)
-        return np.roll(polar_image, shift=shift, axis=0)
+        shift = round(self.theta_offset / d_theta)
+        return np.roll(polar_image, shift=-shift, axis=0)
     
 
 

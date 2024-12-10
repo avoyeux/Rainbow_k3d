@@ -21,6 +21,9 @@ import numpy as np
 from common import Decorators
 
 
+#TODO: I have a problem with the north and south pole in the visualisation. Problem most likely comes from the data.h5 itself as the same problem arises in the
+#final reprojection.
+
 class Setup:
     """
     Manipulates the HDF5 filament data file to setup the necessary data choices for the visualisation.
@@ -167,7 +170,7 @@ class Setup:
             if self.time_interval_all_data: 
                 paths.append('Time integrated/All data' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
                 self.cubes_integrated_all_data = self.get_COO(H5PYFile, paths[-1])
-                if shape is None: shape = self.cubes_integrated_all_data.shape;
+                if shape is None: shape = self.cubes_integrated_all_data.shape
 
             if self.time_interval_no_duplicates:
                 paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
@@ -210,8 +213,9 @@ class Setup:
                     for path in interpolation_paths
                 ]
             
+            #TODO: weirdly, the [2,1,0] seems to be right as I am pointing on the right side of the sun. Problem is the cubes themselves
             if self.sdo_pov:
-                self.sdo_pos = (H5PYFile['SDO positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  # TODO: need to add fov for sdo
+                self.sdo_pos = (H5PYFile['SDO positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  #TODO: need to add fov for sdo
             elif self.stereo_pov:
                 self.stereo_pos = (H5PYFile['STEREO B positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
 
@@ -302,7 +306,7 @@ class K3dAnimation(Setup):
             camera_fov: int | float | str = 0.23, 
             camera_zoom_speed: int | float = 0.7, 
             camera_pos: tuple[int | float, int | float, int | float] | None = None,
-            up_vector: tuple[int, int, int] = (1, 0, 0), 
+            up_vector: tuple[int, int, int] = (0, 0, 1), 
             visible_grid: bool = False, 
             outlines: bool = False,
             texture_resolution: int = 960,  
