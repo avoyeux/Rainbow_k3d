@@ -93,12 +93,13 @@ class CartesianToPolar:
         return paths
     
     def _open_data(self) -> dict[str, any]:
-
+        
+        index = 0 if 'AIA' in self.filepath else 1
         hdul = astropy.io.fits.open(self.filepath)
-        header = hdul[0].header
+        header = hdul[index].header
 
         data_info = {
-            'image': hdul[0].data,
+            'image': hdul[index].data,
             'center': (header['X0_MP'], header['Y0_MP']),
             'sun radius': header['RSUN_REF'],
             'dx': (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2,  # CUNIT is 'arcsec'

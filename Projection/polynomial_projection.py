@@ -821,6 +821,7 @@ class OrthographicalProjection:
         timestamp_to_path = {}
         for s in tuple_list:
             path, timestamp = s
+            timestamp = timestamp.replace(':', '-')
             timestamp_to_path[timestamp[:-3]] = path + filepath_end
         return timestamp_to_path
 
