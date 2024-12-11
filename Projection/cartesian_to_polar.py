@@ -20,7 +20,7 @@ class CartesianToPolar:
 
     def __init__(
             self,
-            image_nb: int,
+            filepath: str,
             output_shape: tuple[int, int],
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
@@ -30,7 +30,7 @@ class CartesianToPolar:
         ) -> None:
 
         # Attributes
-        self.image_nb = image_nb
+        self.filepath = filepath
         self.output_shape = output_shape
         self.borders = borders
         self.direction = direction
@@ -47,17 +47,17 @@ class CartesianToPolar:
     @classmethod
     def get_polar_image(
             cls,
-            image_nb: int,
+            filepath: str,
             output_shape: tuple[int, int],
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
             channel_axis: None | int = None,
             **kwargs,
-        ) -> np.ndarray:
+        ) -> dict[str, float | np.ndarray]:
 
         instance = cls(
-            image_nb=image_nb,
+            filepath=filepath,
             output_shape=output_shape,
             borders=borders,
             direction=direction,
@@ -65,7 +65,13 @@ class CartesianToPolar:
             channel_axis=channel_axis,
             **kwargs,
         )
-        return instance._coordinates_cartesian_to_polar()
+        image = instance._coordinates_cartesian_to_polar()
+        image_info = {
+            'image': image.T,
+            'dx': max(instance.borders['radial distance']) * 1e6 / instance.output_shape[1],
+            'd_theta': 360 / instance.output_shape[0],
+        }
+        return image_info
 
     def _initial_checks(self) -> None:
 
@@ -88,8 +94,7 @@ class CartesianToPolar:
     
     def _open_data(self) -> dict[str, any]:
 
-        filename = f"AIA_fullhead_{self.image_nb:03d}.fits.gz"
-        hdul = astropy.io.fits.open(os.path.join(self.paths['sdo'], filename))
+        hdul = astropy.io.fits.open(self.filepath)
         header = hdul[0].header
 
         data_info = {

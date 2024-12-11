@@ -89,7 +89,8 @@ class OrthographicalProjection:
         # Get interpolations data
         self.data_info = self.data_setup()
 
-        self.heliographic_cubes_origin = np.array([self.data_info['xmin'], self.data_info['ymin'], self.data_info['zmin']], dtype='float32')
+        # Get sdo image paths
+        self.sdo_timestamps = self.SDO_image_finder()
 
         # Plotting
         self.plotting()
@@ -428,6 +429,7 @@ class OrthographicalProjection:
             'd_theta': d_theta,
             'envelope_data': envelope_data,
             'projection_borders': self.projection_borders,
+            'sdo_timestamps': self.sdo_timestamps,
             'verbose': self.verbose,
             'flush': self.flush,
         }
@@ -495,6 +497,7 @@ class OrthographicalProjection:
             dx: float,
             d_theta: float,
             projection_borders: dict[str, tuple[int, int]],
+            sdo_timestamps: dict[str, str],
             verbose: int,
             flush: bool,
         ) -> None:
@@ -515,17 +518,17 @@ class OrthographicalProjection:
             },
             'image': {
                 'extent': (
-                    245,
-                    295,
-                    690,
-                    870,
+                    projection_borders['polar angle'][0],
+                    projection_borders['polar angle'][1],
+                    projection_borders['radial distance'][0],
+                    projection_borders['radial distance'][1],
                 ),
                 'alpha': 0.5,
                 'origin': 'lower',
                 'zorder': 0,
             },
             'contour': {
-                'linewidth': 0.6,
+                'linewidth': 1,
                 'alpha': 1,
                 'zorder': 3,
             },
@@ -536,14 +539,12 @@ class OrthographicalProjection:
             shm_no_duplicates, no_duplicates = MultiProcessing.open_shared_memory(no_duplicates)
             shm_interpolations, interpolations = MultiProcessing.open_shared_memory(interpolations)
 
-        if envelope_data is not None:
-            middle_t_curve, envelope_y_x_curve = envelope_data
+        if envelope_data is not None: middle_t_curve, envelope_y_x_curve = envelope_data
 
         for time in range(data_index[0], data_index[1] + 1):
             # Filtering data
             cubes_filter  = cubes[0, :] == time
             cube = cubes[1:, cubes_filter]
-            polar_image = OrthographicalProjection.sdo_image(time_indexes[time], projection_borders=projection_borders)
 
             no_duplicates_filter = no_duplicates[0, :] == time
             no_duplicate = no_duplicates[1:, no_duplicates_filter]
@@ -569,8 +570,6 @@ class OrthographicalProjection:
 
             # Data info
             date = dates[time]
-
-            # if self.plot_choices['sdo image']: self.sdo_image(index=time)  #TODO: need to add this part too
 
             if plot_choices['cartesian']:
 
@@ -611,9 +610,33 @@ class OrthographicalProjection:
                     for envelope in envelope_y_x_curve[1:]: plt.plot(envelope[0], envelope[1], color='grey', **plot_kwargs['envelope'])
 
                 if plot_choices['cube']: 
+                    if plot_choices['sdo image']: 
+                        # SDO mask
+                        filepath = os.path.join(paths['sdo'], f"AIA_fullhead_{time_indexes[time]:03d}.fits.gz")
+                        polar_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
+
+                        # Get contours
+                        lines = OrthographicalProjection.image_contour(
+                            image=polar_image_info['image'],
+                            projection_borders=projection_borders,
+                            dx=polar_image_info['dx'],
+                            d_theta=polar_image_info['d_theta'],
+                        )
+                        plt.imshow(polar_image_info['image'], **plot_kwargs['image']) 
+
+                        # Plot contours
+                        line = lines[0]
+                        plt.plot(line[1], line[0], color='orange', label='SDO mask contours', **plot_kwargs['contour'])
+                        for line in lines[1:]: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
+
+                        # SDO image
+                        filepath = sdo_timestamps[date]
+                        sdo_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
+
+                        plt.imshow(sdo_image_info['image'], **plot_kwargs['image'])
 
                     # Get image and contours
-                    lines, image = OrthographicalProjection.cube_contour(
+                    lines, _ = OrthographicalProjection.cube_contour(
                         polar_theta=theta_cube,
                         polar_r=r_cube,
                         d_theta=d_theta,
@@ -623,13 +646,10 @@ class OrthographicalProjection:
 
                     # Plot
                     line = lines[0]
-                    plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
-                    for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
-                    # plt.imshow(image, **plot_kwargs['image'])
+                    plt.plot(line[1], line[0], color='purple', label='time integrated contours', **plot_kwargs['contour'])
+                    for line in lines[1:]: plt.plot(line[1], line[0], color='purple', **plot_kwargs['contour'])
 
-                    plt.imshow(polar_image, **plot_kwargs['image']) 
-
-                    lines, image = OrthographicalProjection.cube_contour(
+                    lines, _ = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
                         polar_r=r_no_duplicate,
                         d_theta=d_theta,
@@ -638,11 +658,9 @@ class OrthographicalProjection:
                     )
 
                     if lines is not None:
-                        # plt.imshow(image, **plot_kwargs['image'])
-
                         line = lines[0]
-                        plt.plot(line[1], line[0], color='orange', label='no duplicate contours', **plot_kwargs['contour'])
-                        for line in lines: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
+                        plt.plot(line[1], line[0], color='red', label='no duplicate contours', **plot_kwargs['contour'])
+                        for line in lines: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
                     
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
@@ -658,8 +676,8 @@ class OrthographicalProjection:
                             color=colours[i],
                             **plot_kwargs['interpolation'],
                         )
-                plt.xlim(245, 295)
-                plt.ylim(690, 870)
+                plt.xlim(projection_borders['polar angle'][0], projection_borders['polar angle'][1])
+                plt.ylim(projection_borders['radial distance'][0], projection_borders['radial distance'][1])
                 plt.gca().set_aspect('auto')
                 plt.title(f'SDO polar projection - {date}')
                 plt.xlabel('Polar angle [degrees]')
@@ -701,7 +719,7 @@ class OrthographicalProjection:
             d_theta: float,
             dx: float,
             projection_borders: dict[str, tuple[int, int]],
-        ) -> list[tuple[list[float], list[float]]]:
+        ) -> tuple[list[tuple[list[float], list[float]]], np.ndarray]:
         """
         To get the contours of the data cube when it is seen by SDO and using dx (i.e. the voxel size) as the pixel size.
         The contours positions are given in polar coordinates units (i.e. radial distance and polar angle).
@@ -720,13 +738,6 @@ class OrthographicalProjection:
         polar_theta -= projection_borders['polar angle'][0]
         polar_r = (polar_r / 1e3) - projection_borders['radial distance'][0]  # in Mm
 
-        # Initialising the image
-        image_shape = (
-            int((projection_borders['radial distance'][1] - projection_borders['radial distance'][0]) * 1e3 / dx),
-            int((projection_borders['polar angle'][1] - projection_borders['polar angle'][0]) / d_theta),
-        )
-        image = np.zeros(image_shape)
-
         # Filtering the pixels outside the final image
         filters = (polar_theta >= 0) & (polar_r >= 0)
         polar_theta = polar_theta[filters]  # As some cube values are outside the plot box
@@ -743,9 +754,25 @@ class OrthographicalProjection:
         # If no pixels found in the image
         if len(indexes[0]) == 0: return None, None  #TODO: will need to make this a bit cleaner
 
+        # Initialising the image
+        image_shape = (
+            int((projection_borders['radial distance'][1] - projection_borders['radial distance'][0]) * 1e3 / dx),
+            int((projection_borders['polar angle'][1] - projection_borders['polar angle'][0]) / d_theta),
+        )
+        image = np.zeros(image_shape)
+
         # Populating the image
         image[indexes[0], indexes[1]] = 1  
+        lines = OrthographicalProjection.image_contour(image, projection_borders, dx, d_theta)
+        return lines, image
 
+    @staticmethod
+    def image_contour(
+        image: np.ndarray,
+        projection_borders: dict[str, tuple[int, int]],
+        dx: float,
+        d_theta: float,
+    ) -> list[tuple[list[float], list[float]]]:
         # Get contours
         lines = Plot.contours(image)
 
@@ -756,29 +783,46 @@ class OrthographicalProjection:
                 [projection_borders['radial distance'][0] + (value * dx) / 1e3 for value in line[0]],
                 [projection_borders['polar angle'][0] + (value * d_theta) for value in line[1]],
             ))
-        return nw_lines, image
+        return nw_lines
 
     @staticmethod
     def sdo_image(
-            image_number: int,
+            filepath: str,
             projection_borders: dict[str, tuple[int, int]],  
-        ) -> np.ndarray:
+        ) -> dict[str, float | np.ndarray]:
         """
         To open the SDO image data, preprocess it and return it as an array for use in plots.
         """
 
-        polar_image = CartesianToPolar.get_polar_image(
-            image_nb=image_number,
+        polar_image_info = CartesianToPolar.get_polar_image(
+            filepath=filepath,
             output_shape=(10_000, 10_000),
             borders=projection_borders,
             direction='clockwise',
             theta_offset=90,
             channel_axis=None,
         )
-        return polar_image.T
+        return polar_image_info
+    
+    def SDO_image_finder(self) -> dict[str, str]:
+        """
+        To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
+        """
 
-
-
+        # Setup
+        filepath_end = '/S00000/image_lev1.fits'
+        with open(os.path.join(self.paths['codes'], 'SDO_timestamps.txt'), 'r') as files:
+            strings = files.read().splitlines()
+        tuple_list = [s.split(" ; ") for s in strings]
+        
+        # Looking for the data
+        first_path = os.path.join(tuple_list[0][0], filepath_end)
+    
+        timestamp_to_path = {}
+        for s in tuple_list:
+            path, timestamp = s
+            timestamp_to_path[timestamp[:-3]] = path + filepath_end
+        return timestamp_to_path
 
 if __name__ == '__main__':
     OrthographicalProjection(
@@ -787,7 +831,7 @@ if __name__ == '__main__':
         verbose=2,
         processes=48,
         polynomial_order=[4],
-        plot_choices=['polar', 'cube', 'interpolations', 'envelope'],
+        plot_choices=['polar', 'cube', 'interpolations', 'envelope', 'sdo image'],
         flush=True,
     )
 
