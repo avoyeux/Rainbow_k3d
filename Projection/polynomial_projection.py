@@ -615,7 +615,6 @@ class OrthographicalProjection:
                         # SDO mask
                         filepath = os.path.join(paths['sdo'], f"AIA_fullhead_{time_indexes[time]:03d}.fits.gz")
                         polar_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
-
                         image = np.zeros(polar_image_info['image'].shape)
                         image[polar_image_info['image'] > 0] = 1
 
@@ -626,7 +625,6 @@ class OrthographicalProjection:
                             dx=polar_image_info['dx'] / 1e3,
                             d_theta=polar_image_info['d_theta'],
                         )
-                        plt.imshow(image, **plot_kwargs['image']) 
 
                         # Plot contours
                         line = lines[0]
@@ -691,7 +689,10 @@ class OrthographicalProjection:
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
-            if verbose > 1: print(f'SAVED - filename:{plot_name}', flush=flush)
+            if verbose > 1: 
+                print(f'the image nb is {time_indexes[time]}')
+                print(f'the date is {date}')
+                print(f'SAVED - filename:{plot_name}', flush=flush)
         # Closing shared memories
         if multiprocessing: shm_cubes.close(); shm_no_duplicates.close(); shm_interpolations.close()
 
@@ -809,11 +810,11 @@ class OrthographicalProjection:
         return polar_image_info
     
     @staticmethod
-    def sdo_image_treatment(image: np.ndarray):
+    def sdo_image_treatment(image: np.ndarray) -> np.ndarray:
         
         # Clipping
         lower_cut = np.nanpercentile(image, 0.5)
-        higher_cut = np.nanpercentile(image, 99.5)
+        higher_cut = np.nanpercentile(image, 95)
 
         # Saturating
         image[image < lower_cut] = lower_cut
@@ -832,16 +833,19 @@ class OrthographicalProjection:
         with open(os.path.join(self.paths['codes'], 'SDO_timestamps.txt'), 'r') as files:
             strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
-        
-        # Looking for the data
-        first_path = os.path.join(tuple_list[0][0], filepath_end)
     
         timestamp_to_path = {}
         for s in tuple_list:
             path, timestamp = s
-            timestamp = timestamp.replace(':', '-')
+            timestamp = timestamp.replace(':', '-')[:-6]
+
+            # Weird exception...
+            if timestamp == '2012-07-24T20-07': timestamp = '2012-07-24T20-06'
+
             timestamp_to_path[timestamp[:-6]] = path + filepath_end
         return timestamp_to_path
+
+
 
 if __name__ == '__main__':
     OrthographicalProjection(

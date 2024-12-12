@@ -71,7 +71,6 @@ class CartesianToPolar:
             'dx': max(instance.borders['radial distance']) * 1e6 / instance.output_shape[1],
             'd_theta': 360 / instance.output_shape[0],
         }
-        print(f'image.shape[1] is {image.shape[1]}')
         return image_info
 
     def _initial_checks(self) -> None:
