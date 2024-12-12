@@ -68,9 +68,10 @@ class CartesianToPolar:
         image = instance._coordinates_cartesian_to_polar()
         image_info = {
             'image': image.T,
-            'dx': max(instance.borders['radial distance']) * 1e6 / instance.output_shape[1],
-            'd_theta': 360 / instance.output_shape[0],
+            'dx': abs(instance.borders['radial distance'][0] - instance.borders['radial distance'][1]) * 1e6 / image.shape[1],
+            'd_theta': 360 / image.output_shape[0],
         }
+        print(f'image.shape[1] is {image.shape[1]}')
         return image_info
 
     def _initial_checks(self) -> None:

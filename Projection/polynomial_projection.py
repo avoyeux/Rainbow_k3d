@@ -528,7 +528,7 @@ class OrthographicalProjection:
                 'zorder': 0,
             },
             'contour': {
-                'linewidth': 1,
+                'linewidth': 1.5,
                 'alpha': 1,
                 'zorder': 3,
             },
@@ -626,11 +626,11 @@ class OrthographicalProjection:
 
                         # Plot contours
                         line = lines[0]
-                        plt.plot(line[1], line[0], color='orange', label='SDO mask contours', **plot_kwargs['contour'])
-                        for line in lines[1:]: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
+                        plt.plot(line[1], line[0], color='yellow', label='SDO mask contours', **plot_kwargs['contour'])
+                        for line in lines[1:]: plt.plot(line[1], line[0], color='yellow', **plot_kwargs['contour'])
 
                         # SDO image
-                        filepath = sdo_timestamps[date]
+                        filepath = sdo_timestamps[date[:-3]]
                         sdo_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
 
                         plt.imshow(sdo_image_info['image'], **plot_kwargs['image'])
@@ -646,8 +646,8 @@ class OrthographicalProjection:
 
                     # Plot
                     line = lines[0]
-                    plt.plot(line[1], line[0], color='purple', label='time integrated contours', **plot_kwargs['contour'])
-                    for line in lines[1:]: plt.plot(line[1], line[0], color='purple', **plot_kwargs['contour'])
+                    plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
+                    for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
 
                     lines, _ = OrthographicalProjection.cube_contour(
                         polar_theta=theta_no_duplicate,
@@ -659,8 +659,8 @@ class OrthographicalProjection:
 
                     if lines is not None:
                         line = lines[0]
-                        plt.plot(line[1], line[0], color='red', label='no duplicate contours', **plot_kwargs['contour'])
-                        for line in lines: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
+                        plt.plot(line[1], line[0], color='orange', label='no duplicate contours', **plot_kwargs['contour'])
+                        for line in lines: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
                     
                     # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
                 if plot_choices['interpolations']: 
@@ -804,6 +804,10 @@ class OrthographicalProjection:
         )
         return polar_image_info
     
+    @staticmethod
+    def sdo_image_treatment():
+        pass
+    
     def SDO_image_finder(self) -> dict[str, str]:
         """
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
@@ -822,7 +826,7 @@ class OrthographicalProjection:
         for s in tuple_list:
             path, timestamp = s
             timestamp = timestamp.replace(':', '-')
-            timestamp_to_path[timestamp[:-3]] = path + filepath_end
+            timestamp_to_path[timestamp[:-6]] = path + filepath_end
         return timestamp_to_path
 
 if __name__ == '__main__':
