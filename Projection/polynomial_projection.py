@@ -523,6 +523,7 @@ class OrthographicalProjection:
                     projection_borders['radial distance'][0],
                     projection_borders['radial distance'][1],
                 ),
+                'interpolation': 'none',
                 'alpha': 0.5,
                 'origin': 'lower',
                 'zorder': 0,
@@ -615,14 +616,17 @@ class OrthographicalProjection:
                         filepath = os.path.join(paths['sdo'], f"AIA_fullhead_{time_indexes[time]:03d}.fits.gz")
                         polar_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
 
+                        image = np.zeros(polar_image_info['image'].shape)
+                        image[polar_image_info['image'] > 0] = 1
+
                         # Get contours
                         lines = OrthographicalProjection.image_contour(
-                            image=polar_image_info['image'],
+                            image=image,
                             projection_borders=projection_borders,
-                            dx=polar_image_info['dx'],
+                            dx=polar_image_info['dx'] / 1e3,
                             d_theta=polar_image_info['d_theta'],
                         )
-                        plt.imshow(polar_image_info['image'], **plot_kwargs['image']) 
+                        plt.imshow(image, **plot_kwargs['image']) 
 
                         # Plot contours
                         line = lines[0]
@@ -633,7 +637,7 @@ class OrthographicalProjection:
                         filepath = sdo_timestamps[date[:-3]]
                         sdo_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
 
-                        plt.imshow(sdo_image_info['image'], **plot_kwargs['image'])
+                        plt.imshow(OrthographicalProjection.sdo_image_treatment(sdo_image_info['image']), **plot_kwargs['image'])
 
                     # Get image and contours
                     lines, _ = OrthographicalProjection.cube_contour(
@@ -805,8 +809,18 @@ class OrthographicalProjection:
         return polar_image_info
     
     @staticmethod
-    def sdo_image_treatment():
-        pass
+    def sdo_image_treatment(image: np.ndarray):
+        
+        # Clipping
+        lower_cut = np.nanpercentile(image, 0.5)
+        higher_cut = np.nanpercentile(image, 99.5)
+
+        # Saturating
+        image[image < lower_cut] = lower_cut
+        image[image > higher_cut] = higher_cut
+
+        # Changing to log
+        return np.log(image)
     
     def SDO_image_finder(self) -> dict[str, str]:
         """
