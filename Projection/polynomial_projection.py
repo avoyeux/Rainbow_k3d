@@ -6,8 +6,6 @@ This is done to get the angle between the projection seen by SDO and the 3D poly
 # Imports
 import os
 import h5py
-import astropy
-import typeguard
 
 # Aliases
 import numpy as np
@@ -23,17 +21,15 @@ from cartesian_to_polar import CartesianToPolar
 from common import MultiProcessing, Decorators, Plot
 
 #TODO: IMPORTANT: there is clearly a problem in the reprojection of the curve made by Dr. Auchere for the Rainbow paper. Need to check this first (print the initial mask with the interpolation and stuff.)
-#TODO: IMPORTANT: I need to also add the sdo image itself.
 #TODO: MINOR: need to update the code for when there is only one process used (i.e. no multiprocessing)
 
 class OrthographicalProjection:
     """
     Does the 2D projection of a 3D volume.
-    Used to recreate what is seen by SDO when looking at the cube. Done to recreate the plots made by Dr. Auchere in his 'the coronal Monsoon' paper.
+    Used to recreate recreate the plots made by Dr. Auchere in his 'the coronal Monsoon' paper.
     """
 
     @Decorators.running_time
-    @typeguard.typechecked
     def __init__(
             self,
             processes: int = 0,
@@ -47,7 +43,8 @@ class OrthographicalProjection:
             flush: bool = False
         ) -> None:
         """
-        Reprojection of the computed 3D volume to recreate a 2D image of what is seen from SDO's POV. This is done to recreate the analysis of Dr. Auchere's paper; 'The coronal Monsoon'.
+        Re-projection of the computed 3D volume to recreate a 2D image of what is seen from SDO's POV.
+        This is done to recreate the analysis of Dr. Auchere's paper; 'The coronal Monsoon'.
 
         Args:
             processes (int, optional): the number of parallel processes used in the multiprocessing. Defaults to 0.
@@ -396,7 +393,7 @@ class OrthographicalProjection:
     @Decorators.running_time
     def plotting(self) -> None:
         """
-        To plot the reprojection of the 3D volumes.
+        To plot the re-projection of the 3D volumes.
         """
 
         #TODO: maybe add a print that prints all the information in self.data_info
@@ -524,7 +521,9 @@ class OrthographicalProjection:
                     projection_borders['radial distance'][1],
                 ),
                 'interpolation': 'none',
-                'alpha': 0.5,
+                'cmap': 'gray',
+                'aspect': 'auto',
+                'alpha': 1,
                 'origin': 'lower',
                 'zorder': 0,
             },
@@ -601,7 +600,7 @@ class OrthographicalProjection:
                 r_no_duplicate, theta_no_duplicate = OrthographicalProjection.to_polar(x_no_duplicate, y_no_duplicate)
 
                 # SDO polar projection plotting
-                plt.figure(figsize=(12, 5))
+                plt.figure(figsize=(14, 8))
                 if plot_choices['envelope']: 
 
                     plt.plot(middle_t_curve[0], middle_t_curve[1], color='black', label='Middle path', **plot_kwargs['envelope'])
@@ -727,7 +726,8 @@ class OrthographicalProjection:
             projection_borders: dict[str, tuple[int, int]],
         ) -> tuple[list[tuple[list[float], list[float]]], np.ndarray]:
         """
-        To get the contours of the data cube when it is seen by SDO and using dx (i.e. the voxel size) as the pixel size.
+        To get the get an image seen by SDO of the 3D volume (using dx, i.e. the voxel size, as the pixel size).
+        The corresponding image contours are also computed.
         The contours positions are given in polar coordinates units (i.e. radial distance and polar angle).
 
         Args:
@@ -738,7 +738,7 @@ class OrthographicalProjection:
             projection_borders (dict[str, tuple[int, int]]): the borders of the plot and hence also of the corresponding image.
 
         Returns:
-            list[tuple[list[float], list[float]]]: the lines of the contours of the image and the actual image.
+            tuple[list[tuple[list[float], list[float]]], np.ndarray]: the lines of the contours of the image and the actual image.
         """
 
         polar_theta -= projection_borders['polar angle'][0]
@@ -779,6 +779,19 @@ class OrthographicalProjection:
         dx: float,
         d_theta: float,
     ) -> list[tuple[list[float], list[float]]]:
+        """
+        To get the contours in the final plot coordinates of a mask given the corresponding information.
+
+        Args:
+            image (np.ndarray): the mask.
+            projection_borders (dict[str, tuple[int, int]]): the borders of the mask.
+            dx (float): the vertical pixel length in km.
+            d_theta (float): the horizontal pixel length in degrees.
+
+        Returns:
+            list[tuple[list[float], list[float]]]: the lines representing the mask contours.
+        """
+
         # Get contours
         lines = Plot.contours(image)
 
@@ -797,7 +810,15 @@ class OrthographicalProjection:
             projection_borders: dict[str, tuple[int, int]],  
         ) -> dict[str, float | np.ndarray]:
         """
-        To open the SDO image data, preprocess it and return it as an array for use in plots.
+        To get the sdo image in polar coordinates and delimited by the final plot borders. Furthermore, needed information are also saved in the 
+        output, e.g. dx and d_theta for the created sdo image in polar coordinates.
+
+        Args:
+            filepath (str): the filepath to the corresponding sdo FITS file.
+            projection_borders (dict[str, tuple[int, int]]): the plot borders.
+
+        Returns:
+            dict[str, float | np.ndarray]: the polar sdo image with the necessary image information, e.g. dx and d_theta.
         """
 
         polar_image_info = CartesianToPolar.get_polar_image(
@@ -812,10 +833,19 @@ class OrthographicalProjection:
     
     @staticmethod
     def sdo_image_treatment(image: np.ndarray) -> np.ndarray:
+        """
+        Pre-treatment for the sdo image for better visualisation of the regions of interest.
+
+        Args:
+            image (np.ndarray): the SDO image to be treated.
+
+        Returns:
+            np.ndarray: the treated SDO image.
+        """
         
         # Clipping
-        lower_cut = np.nanpercentile(image, 1)
-        higher_cut = np.nanpercentile(image, 90)
+        lower_cut = np.nanpercentile(image, 2)
+        higher_cut = np.nanpercentile(image, 99.99)
 
         # Saturating
         image[image < lower_cut] = lower_cut
@@ -827,6 +857,9 @@ class OrthographicalProjection:
     def SDO_image_finder(self) -> dict[str, str]:
         """
         To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
+
+        Returns:
+            dict[str, str]: the timestamps as keys with the item being the SDO image filepath.
         """
 
         # Setup
