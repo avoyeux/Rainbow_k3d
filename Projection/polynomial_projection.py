@@ -686,6 +686,7 @@ class OrthographicalProjection:
                 plt.ylabel('Radial distance [Mm]')
                 plt.legend(loc='upper right')
                 plot_name = f'sdopolarprojection_{date}_{integration_time}h.png'
+                plt.colorbar()
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
@@ -813,8 +814,8 @@ class OrthographicalProjection:
     def sdo_image_treatment(image: np.ndarray) -> np.ndarray:
         
         # Clipping
-        lower_cut = np.nanpercentile(image, 0.5)
-        higher_cut = np.nanpercentile(image, 95)
+        lower_cut = np.nanpercentile(image, 1)
+        higher_cut = np.nanpercentile(image, 90)
 
         # Saturating
         image[image < lower_cut] = lower_cut
@@ -841,8 +842,9 @@ class OrthographicalProjection:
 
             # Weird exception...
             if timestamp == '2012-07-24T20-07': timestamp = '2012-07-24T20-06'
+            if timestamp == '2012-07-24T20-20': timestamp = '2012-07-24T20-16'
 
-            timestamp_to_path[timestamp[:-6]] = path + filepath_end
+            timestamp_to_path[timestamp] = path + filepath_end
         return timestamp_to_path
 
 
