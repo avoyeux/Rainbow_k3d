@@ -528,7 +528,7 @@ class OrthographicalProjection:
                 'zorder': 0,
             },
             'contour': {
-                'linewidth': 1.5,
+                'linewidth': 0.8,
                 'alpha': 1,
                 'zorder': 3,
             },
@@ -600,7 +600,7 @@ class OrthographicalProjection:
                 r_no_duplicate, theta_no_duplicate = OrthographicalProjection.to_polar(x_no_duplicate, y_no_duplicate)
 
                 # SDO polar projection plotting
-                plt.figure(figsize=(14, 8))
+                plt.figure(figsize=(14, 5))
                 if plot_choices['envelope']: 
 
                     plt.plot(middle_t_curve[0], middle_t_curve[1], color='black', label='Middle path', **plot_kwargs['envelope'])
@@ -627,8 +627,8 @@ class OrthographicalProjection:
 
                         # Plot contours
                         line = lines[0]
-                        plt.plot(line[1], line[0], color='yellow', label='SDO mask contours', **plot_kwargs['contour'])
-                        for line in lines[1:]: plt.plot(line[1], line[0], color='yellow', **plot_kwargs['contour'])
+                        plt.plot(line[1], line[0], color='grey', label='SDO mask contours', **plot_kwargs['contour'])
+                        for line in lines[1:]: plt.plot(line[1], line[0], color='grey', **plot_kwargs['contour'])
 
                         # SDO image
                         filepath = sdo_timestamps[date[:-3]]
@@ -679,19 +679,19 @@ class OrthographicalProjection:
                         )
                 plt.xlim(projection_borders['polar angle'][0], projection_borders['polar angle'][1])
                 plt.ylim(projection_borders['radial distance'][0], projection_borders['radial distance'][1])
-                plt.gca().set_aspect('auto')
+                ax = plt.gca()
+                ax.minorticks_on()
+                ax.set_aspect('auto')
                 plt.title(f'SDO polar projection - {date}')
                 plt.xlabel('Polar angle [degrees]')
                 plt.ylabel('Radial distance [Mm]')
                 plt.legend(loc='upper right')
                 plot_name = f'sdopolarprojection_{date}_{integration_time}h.png'
-                plt.colorbar()
                 plt.savefig(os.path.join(paths['save'], plot_name), dpi=500)
                 plt.close()
 
             if verbose > 1: 
                 print(f'the image nb is {time_indexes[time]}')
-                print(f'the date is {date}')
                 print(f'SAVED - filename:{plot_name}', flush=flush)
         # Closing shared memories
         if multiprocessing: shm_cubes.close(); shm_no_duplicates.close(); shm_interpolations.close()

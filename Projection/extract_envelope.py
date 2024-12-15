@@ -40,6 +40,7 @@ class Envelope:
             polynomial_order: int,
             number_of_points: int,
             plot: bool = False,
+            verbose: int = 0,
         ) -> None:
         """
         To get the curve equations of the two PNGs (created by Dr. Auchere) of the envelope encompassing the Rainbow protuberance. 
@@ -50,12 +51,14 @@ class Envelope:
             polynomial_order (int): the order of the polynomial used for the fit of the two curves (i.e. the envelope PNGs).
             number_of_points (int): the number of points used in the recreation of the envelopes and hence the number of points in the middle path curve.
             plot (bool, optional): to decide to plot the paths and middle path. Defaults to False.
+            verbose (int, optional): decides on the details in the prints. Defaults to 0.
         """
 
         # Class arguments setup
         self.polynomial_order = polynomial_order
         self.number_of_points = int(number_of_points)
         self.create_plot = plot        
+        self.verbose = verbose
         
         # Paths setup
         self.paths = self.path_setup()
@@ -114,7 +117,7 @@ class Envelope:
             'main': main_path,
             'codes': code_path,
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
-            'results': os.path.join(main_path, 'Work_done', 'Envelope', 'Extract_envelope')
+            'results': os.path.join(main_path, 'Work_done', 'Envelope', 'Extract_envelope'),
         }
         if self.create_plot: os.makedirs(paths['results'], exist_ok=True)
         return paths
@@ -185,7 +188,7 @@ class Envelope:
             for data in [axis_t_curve] + image_axis_curve:
                 final_data.append(self.polar_positions(
                     arr=data,
-                    max_index=self.borders['image shape'][axis_opos] - 1,  #TODO: by looking at the plot, I need to find out if the -1 is needed.
+                    max_index=self.borders['image shape'][axis_opos] - 1,
                     borders=self.borders[borders],
                 ))
 
@@ -198,7 +201,13 @@ class Envelope:
         ]
 
         # Plotting
-        if self.create_plot: self.plot(saving_name='extract_envelope_final.png')
+        if self.create_plot:
+            self.plot(
+                saving_name='extract_envelope_final.png',
+                extent=(
+                    min(self.borders['polar angle']), max(self.borders['polar angle']),
+                    min(self.borders['radial distance']), max(self.borders['radial distance']),
+                ))
 
     def polar_positions(self, arr: np.ndarray, max_index: int, borders: tuple[int, int]) -> np.ndarray:
         """
@@ -234,7 +243,7 @@ class Envelope:
         mask = np.zeros(image.shape, dtype='uint8')
 
         # Swap the image axes as python reads an image from the top left corner
-        y = -(y - np.max(y))  #TODO: need to check if this is what I need to also do for the contour plotting
+        y = -(y - image.shape[0])  #TODO: need to check if this is what I need to also do for the contour plotting
         mask[y, x] = 1
 
         # Compute cumulative distance
@@ -270,7 +279,7 @@ class Envelope:
         for i in range(self.polynomial_order + 1): result += coeffs[i] * x ** i
         return result
 
-    def plot(self, saving_name: str) -> None:
+    def plot(self, saving_name: str, extent: tuple[float, float, float, float] | None = None) -> None:
         """
         To plot the results of the processing of the envelope and computation of the middle path.
 
@@ -297,15 +306,21 @@ class Envelope:
                 color='red',
                 label='envelope',
             )
+
         plt.imshow(
             self.masks,
             alpha=0.5,
             origin='lower',
+            interpolation='none',
+            aspect='auto',
             label='mask',
+            extent=extent,
         )
         plt.legend()
-        plt.savefig(os.path.join(self.paths['results'], saving_name), dpi=1000)
+        plt.savefig(os.path.join(self.paths['results'], 'aaaa' + saving_name), dpi=1000)
         plt.close()
+
+        if self.verbose > 0: print(f"File {saving_name} saved.")
 
 
 
