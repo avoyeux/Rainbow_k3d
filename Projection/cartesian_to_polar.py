@@ -100,7 +100,7 @@ class CartesianToPolar:
 
         data_info = {
             'image': hdul[index].data,
-            'center': (header['X0_MP'], header['Y0_MP']),
+            'center': (header['Y0_MP'], header['X0_MP']),
             'sun radius': header['RSUN_REF'],
             'dx': (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2,  # CUNIT is 'arcsec'
         }

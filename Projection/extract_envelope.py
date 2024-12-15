@@ -317,7 +317,7 @@ class Envelope:
             extent=extent,
         )
         plt.legend()
-        plt.savefig(os.path.join(self.paths['results'], 'aaaa' + saving_name), dpi=1000)
+        plt.savefig(os.path.join(self.paths['results'], saving_name), dpi=1000)
         plt.close()
 
         if self.verbose > 0: print(f"File {saving_name} saved.")
