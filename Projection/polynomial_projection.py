@@ -627,8 +627,8 @@ class OrthographicalProjection:
 
                         # Plot contours
                         line = lines[0]
-                        plt.plot(line[1], line[0], color='grey', label='SDO mask contours', **plot_kwargs['contour'])
-                        for line in lines[1:]: plt.plot(line[1], line[0], color='grey', **plot_kwargs['contour'])
+                        plt.plot(line[1], line[0], color='green', label='SDO mask contours', **plot_kwargs['contour'])
+                        for line in lines[1:]: plt.plot(line[1], line[0], color='green', **plot_kwargs['contour'])
 
                         # SDO image
                         filepath = sdo_timestamps[date[:-3]]

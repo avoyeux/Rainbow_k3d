@@ -49,7 +49,7 @@ class Setup:
             interpolation: bool = False,
             interpolation_order: int | list[int] = [5],
     ) -> None:
-        """ #TODO: need to update the docstring
+        """ 
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament data.
         Args:
             filename (str, optional): the HDF5 filename containing all the cube data. Defaults to 'order0321.h5'.
@@ -178,6 +178,7 @@ class Setup:
                 if shape is None: shape = self.cubes_integrated_no_duplicate.shape
             # Saving cubes shape
             cubes_shape = shape
+            print(f'the data cube shape is {shape}')
 
             if self.line_of_sight_SDO:
                 paths.append('Filtered/SDO line of sight')
@@ -215,9 +216,9 @@ class Setup:
             
             #TODO: weirdly, the [2,1,0] seems to be right as I am pointing on the right side of the sun. Problem is the cubes themselves
             if self.sdo_pov:
-                self.sdo_pos = (H5PYFile['SDO positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  #TODO: need to add fov for sdo
+                self.sdo_pos = (H5PYFile['SDO positions'][numbers] / dx + self.sun_center).astype('float32')  #TODO: need to add fov for sdo
             elif self.stereo_pov:
-                self.stereo_pos = (H5PYFile['STEREO B positions'][numbers][:, [2, 1, 0]] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
+                self.stereo_pos = (H5PYFile['STEREO B positions'][numbers] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
 
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
@@ -371,7 +372,7 @@ class K3dAnimation(Setup):
         # Add filaments
         if self.all_data: 
             self.plot_alldata = k3d.voxels(
-                voxels=self.cubes_all_data[0].todense(),
+                voxels=self.cubes_all_data[0].todense().transpose(2, 1, 0),
                 opacity=0.7,
                 color_map=[0x0000ff],
                 name='allData',
@@ -381,7 +382,7 @@ class K3dAnimation(Setup):
                
         if self.no_duplicates:
             self.plot_dupli_new = k3d.voxels(
-                voxels=self.cubes_no_duplicates[0].todense(),
+                voxels=self.cubes_no_duplicates[0].todense().transpose(2, 1, 0),
                 color_map=[0x0000ff],
                 opacity=0.3,
                 name='noDuplicates',
@@ -391,7 +392,7 @@ class K3dAnimation(Setup):
 
         if self.time_interval_all_data:
             self.plot_interv_new = k3d.voxels(
-                voxels=self.cubes_integrated_all_data[0].todense(),
+                voxels=self.cubes_integrated_all_data[0].todense().transpose(2, 1, 0),
                 color_map=[0xff6666],
                 opacity=1,
                 name=f'allData {self.time_interval}',
@@ -401,7 +402,7 @@ class K3dAnimation(Setup):
        
         if self.time_interval_no_duplicates:
             self.plot_interv_dupli_new = k3d.voxels(
-                voxels=self.cubes_integrated_no_duplicate[0].todense(),
+                voxels=self.cubes_integrated_no_duplicate[0].todense().transpose(2, 1, 0),
                 color_map=[0x0000ff],
                 opacity=0.35,
                 name=f'noDupli {self.time_interval}',
@@ -411,7 +412,7 @@ class K3dAnimation(Setup):
 
         if self.line_of_sight_SDO:
             self.plot_los_sdo = k3d.voxels(
-                voxels=self.cubes_los_sdo[0].todense(),
+                voxels=self.cubes_los_sdo[0].todense().transpose(2, 1, 0),
                 color_map=[0xff6666],
                 opacity=1,
                 name=f'lineOfSight SDO',
@@ -421,7 +422,7 @@ class K3dAnimation(Setup):
 
         if self.line_of_sight_STEREO:
             self.plot_los_stereo = k3d.voxels(
-                voxels=self.cubes_los_stereo[0].todense(),
+                voxels=self.cubes_los_stereo[0].todense().transpose(2, 1, 0),
                 color_map=[0xff6666],
                 opacity=1,
                 name=f'lineOfSight STEREO',
@@ -443,7 +444,7 @@ class K3dAnimation(Setup):
             self.plot_interpolation = []
             for (data, name) in zip(self.interpolation_data, self.interpolation_names):
                 plot = k3d.voxels(
-                    voxels=data[0].todense(), 
+                    voxels=data[0].todense().transpose(2, 1, 0), 
                     opacity=0.95, 
                     color_map=[next(self.random_hexadecimal_color_generator())],
                     name=name,
@@ -536,7 +537,7 @@ class K3dAnimation(Setup):
         print(f"x, y and z shapes for the sun are {x.shape}, {y.shape}, {z.shape}.")
 
         # Creation of the position of the spherical cloud of points
-        self.sun_points = np.array([z.ravel(), y.ravel(), x.ravel()], dtype='float32').T
+        self.sun_points = np.array([x.ravel(), y.ravel(), z.ravel()], dtype='float32').T
 
     def update_voxel(self, change: dict[str, any]) -> None:
         """
@@ -561,17 +562,17 @@ class K3dAnimation(Setup):
             ]
             time.sleep(0.2)
 
-        if self.all_data: self.plot_alldata.voxels = self.cubes_all_data[change['new']].todense()
+        if self.all_data: self.plot_alldata.voxels = self.cubes_all_data[change['new']].todense().transpose(2, 1, 0)
 
-        if self.no_duplicates: self.plot_dupli_new.voxels = self.cubes_no_duplicates[change['new']].todense()
+        if self.no_duplicates: self.plot_dupli_new.voxels = self.cubes_no_duplicates[change['new']].todense().transpose(2, 1, 0)
  
-        if self.time_interval_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense()
+        if self.time_interval_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense().transpose(2, 1, 0)
                           
-        if self.time_interval_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense()
+        if self.time_interval_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense().transpose(2, 1, 0)
 
-        if self.line_of_sight_SDO: self.plot_los_sdo.voxels = self.cubes_los_sdo[change['new']].todense()
+        if self.line_of_sight_SDO: self.plot_los_sdo.voxels = self.cubes_los_sdo[change['new']].todense().transpose(2, 1, 0)
 
-        if self.line_of_sight_STEREO: self.plot_los_stereo.voxels = self.cubes_los_stereo[change['new']].todense()
+        if self.line_of_sight_STEREO: self.plot_los_stereo.voxels = self.cubes_los_stereo[change['new']].todense().transpose(2, 1, 0)
        
         # if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
         # if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
@@ -579,7 +580,7 @@ class K3dAnimation(Setup):
         if self.interpolation:
             for i, plot in enumerate(self.plot_interpolation):
                 data = self.interpolation_data[i]
-                plot.voxels = data[change['new']].todense()
+                plot.voxels = data[change['new']].todense().transpose(2, 1, 0)
 
     def play(self) -> None:
         """
