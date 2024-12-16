@@ -1,0 +1,23 @@
+if the data has shape (x, y, z) then it seem that the x is the z axis shown in k3d.
+the y seems to be the y axis on k3d.
+the z is the x-axis on k3d.
+
+When adding the Sun positions as (x, y, z) and comparing it in k3d;
+	-the x is the x-axis
+	-the y is the y-axis
+	-the z is the z-axis.
+
+When setting the camera position as (x, y, z) and comparing it with k3d:
+	-the x is the x-axis.
+	-the y is the y-axis.
+	-the z is the z-axis.
+
+When setting the camera reference as (x, y, z) and comparing it with k3d:
+	-the x is the x-axis.
+	-the y is the y-axis.
+	-the z is the z-axis.
+
+When setting the up vector as (x, y, z) and comparing it with k3d:
+	-the x is the x-axis.
+	-the y is the y-axis.
+	-the z is the z-axis.
