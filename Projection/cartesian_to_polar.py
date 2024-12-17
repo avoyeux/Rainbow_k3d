@@ -71,7 +71,7 @@ class CartesianToPolar:
             'dx': max(instance.borders['radial distance']) * 1e6 / instance.output_shape[1],
             'd_theta': 360 / instance.output_shape[0],
         }
-        return image_info
+        return image_info #TODO: will need to make dx and d_theta coincide with sdo resolution
 
     def _initial_checks(self) -> None:
 

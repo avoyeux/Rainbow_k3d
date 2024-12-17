@@ -297,6 +297,42 @@ class OrthographicalProjection:
         return final_results
 
     @staticmethod
+    def matrix_rotation(
+            data: np.ndarray,
+            sdo_pos: np.ndarray,
+        ) -> np.ndarray:
+
+        x, y, z = np.nonzero(data)
+        x -= sdo_pos[0]
+        y -= sdo_pos[1]
+        z -= sdo_pos[2]
+        #TODO: change x, y, z to heliocentric positions
+
+        # Check markdown file
+        a, b, c = - sdo_pos
+        sign = 1 
+        #TODO: need to pay attention to x, y and z definition before here
+        new_x = sign / np.sqrt(1 + b**2 / a**2 + (a**2 + b**2 / (a * c))**2) \
+            * (x + (b / a) * y + (a**2 + b**2) / (a * c) * z)
+        
+        new_y = - sign * b / np.sqrt(a**2 + b**2) * x \
+            + sign * a / np.sqrt(a**2 + b**2) * y
+        
+        new_z = 1 / np.sqrt(a**2 + b**2 + c**2) * (a * x + b * y + c * z)
+
+        rho_image = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
+        theta_image = np.rad2deg(new_y / np.abs(y) * np.arcos(new_x / np.sqrt(new_x**2 + new_y**2)))
+
+
+        # Creating the image
+        
+
+
+        #TODO: Don't forget to add a polar transformation of the values. Not sure if it will work with the old code, need to check.
+
+        #TODO: might also add the perspective as I also have z so I should also be able to take into account the perspective.
+
+    @staticmethod
     def time_loop(
             data: np.ndarray | dict,
             data_index: tuple[int, int],
