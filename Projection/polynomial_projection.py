@@ -337,7 +337,7 @@ class OrthographicalProjection:
 
             # Get data
             data_filter = data[0, :] == identifier
-            x, y, z = data[1:4, data_filter]
+            x, y, z = data[1:4, data_filter].astype('float64')
 
             print(f'min max of x is {np.min(x)}, {np.max(x)}')
             print(f'min max of y is {np.min(y)}, {np.max(y)}')
@@ -345,7 +345,7 @@ class OrthographicalProjection:
 
 
             ####### Explained in markdown file ####### 
-            a, b, c = - single_sdo_pos
+            a, b, c = - single_sdo_pos.astype('float64')
             distance = np.sqrt(a**2 + b**2 + c**2)
             sign = a / abs(a)
 
