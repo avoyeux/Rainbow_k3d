@@ -173,7 +173,7 @@ class OrthographicalProjection:
             'sdo_pos': sdo_pos,
         }
         print(f'dx is {dx}')
-        data['dtheta'] = data['dx'] * 360 / (2 * np.pi * self.solar_r)  #TODO: will need to change that so that it takes the value straight from SDO itself. this should still kind of work though
+        data['dtheta'] = data['dx'] * 360 / (2 * np.pi * self.solar_r)  # this dtheta doesn't really make sense
         print(f"dtheta is {data['dtheta']}")
         data['cubes'] = self.multiprocessing_func(self.cartesian_pos(cubes, data), data)
         data['no_duplicates'] = self.multiprocessing_func(self.cartesian_pos(no_duplicates, data), data)
@@ -346,6 +346,7 @@ class OrthographicalProjection:
 
             ####### Explained in markdown file ####### 
             a, b, c = - single_sdo_pos
+            distance = np.sqrt(a**2 + b**2 + c**2)
             sign = a / abs(a)
 
             new_x = sign / np.sqrt(1 + b**2 / a**2 + (a**2 + b**2 / (a * c))**2) \
@@ -354,17 +355,20 @@ class OrthographicalProjection:
             new_y = - sign * b / np.sqrt(a**2 + b**2) * x \
                 + sign * a / np.sqrt(a**2 + b**2) * y
             
-            new_z = 1 / np.sqrt(a**2 + b**2 + c**2) * (a * x + b * y + c * z)
+            new_z = 1 / distance * (a * x + b * y + c * z)
 
             rho_polar = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
             theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
+            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
+            theta_polar = (new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2))
             ##########################################
 
             # Changing units to km
-            rho_polar = rho_polar / d_theta * dx
+            rho_polar = 2 * distance * np.tan(rho_polar / 2)
+            # rho_polar = rho_polar / d_theta * dx  #TODO: careful d_theta and dx aren't the right ones here.
 
-            print(f'min max of rho polar is {np.min(rho_polar)}, {np.max(rho_polar)}')
-            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}', flush=True)
+            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
+            print(f'min max of rho polar is {np.min(rho_polar)}, {np.max(rho_polar)}', flush=True)
 
             output_queue.put((identifier, rho_polar, theta_polar))
         #TODO: need to add the non multiprocessing option
