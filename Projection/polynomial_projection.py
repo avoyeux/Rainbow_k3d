@@ -262,7 +262,9 @@ class OrthographicalProjection:
             output_queue = manager.Queue()
             
             # Input setup
-            data_len = data.shape[0]
+            data_len = len(data_info['dates'])
+            print(f"data shape is {data.shape}")
+            print(f'data_len is {data_len}', flush=True)
             process_nb = min(self.processes, data_len)
             for i in range(data_len): input_queue.put((i, data_info['sdo_pos'][i]))
             for _ in range(process_nb): input_queue.put(None)
@@ -292,7 +294,9 @@ class OrthographicalProjection:
                 theta_polar[identifier] = theta
 
         # Ordering the final result so that it is a np.ndarray
-        return OrthographicalProjection.converting_to_array(rho_polar, theta_polar)
+        results = OrthographicalProjection.converting_to_array(rho_polar, theta_polar)
+        print(f" results shape is {results.shape}", flush=True)
+        return results
 
     @staticmethod
     def converting_to_array(rho: list[np.ndarray], theta: list[np.ndarray]) -> np.ndarray:
@@ -301,7 +305,7 @@ class OrthographicalProjection:
         total_nb_vals = sum(arr.shape[0] for arr in rho)
         final_results = np.empty((3, total_nb_vals), dtype='float64')
         for t, rho_val in enumerate(rho):
-            nb_columns = result.shape[0]
+            nb_columns = rho_val.shape[0]
             result = np.stack([rho_val, theta[t]], axis=0)
 
             final_results[0, start_index: start_index + nb_columns] = t
@@ -350,6 +354,9 @@ class OrthographicalProjection:
             # Changing units to km
             rho_polar = rho_polar / d_theta * dx
 
+            print(f'min max of rho polar is {np.min(rho_polar)}, {np.max(rho_polar)}')
+            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}', flush=True)
+
             output_queue.put((identifier, rho_polar, theta_polar))
         #TODO: need to add the non multiprocessing option
         shm.close()
@@ -362,8 +369,8 @@ class OrthographicalProjection:
 
         # Initialisation of an image
         image_shape = (
-            int((self.projection_borders['radial distance'][1] - self.projection_borders['radial distance'][0]) * 1e3 / self.projection_borders['dx']),
-            int((self.projection_borders['polar angle'][1] - self.projection_borders['polar angle'][0]) / self.projection_borders['dtheta']),
+            int((self.projection_borders['radial distance'][1] - self.projection_borders['radial distance'][0]) * 1e3 / self.data_info['dx']),
+            int((self.projection_borders['polar angle'][1] - self.projection_borders['polar angle'][0]) / self.data_info['dtheta']),
         )
         empty_image = np.zeros(image_shape)
 
@@ -527,8 +534,8 @@ class OrthographicalProjection:
                 ]
 
             # Voxel positions
-            r_cube, theta_cube, _ = cube
-            r_no_duplicate, theta_no_duplicate, _ = no_duplicate
+            r_cube, theta_cube = cube
+            r_no_duplicate, theta_no_duplicate = no_duplicate
             x_interp, y_interp = [
                 [
                     position[i]
