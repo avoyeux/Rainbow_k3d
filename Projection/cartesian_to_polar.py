@@ -104,6 +104,7 @@ class CartesianToPolar:
             'sun radius': header['RSUN_REF'],
             'dx': (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2,  # CUNIT is 'arcsec'
         }
+        print(f"CDELT1 is {header['CDELT1']}", flush=True)
         data_info['max index'] = max(self.borders['radial distance']) * 1e6 / data_info['dx']
         data_info['min index'] = min(self.borders['radial distance']) * 1e6 / data_info['dx']
         hdul.close()

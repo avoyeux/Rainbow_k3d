@@ -172,7 +172,9 @@ class OrthographicalProjection:
             'zmin': zmin,
             'sdo_pos': sdo_pos,
         }
+        print(f'dx is {dx}')
         data['dtheta'] = data['dx'] * 360 / (2 * np.pi * self.solar_r)  #TODO: will need to change that so that it takes the value straight from SDO itself. this should still kind of work though
+        print(f"dtheta is {data['dtheta']}")
         data['cubes'] = self.multiprocessing_func(self.cartesian_pos(cubes, data), data)
         data['no_duplicates'] = self.multiprocessing_func(self.cartesian_pos(no_duplicates, data), data)
         data['interpolations'] = [
@@ -331,16 +333,23 @@ class OrthographicalProjection:
 
             identifier, single_sdo_pos = args
 
+            print(f'single_sdo_pos is {single_sdo_pos}')
+
             # Get data
             data_filter = data[0, :] == identifier
             x, y, z = data[1:4, data_filter]
+
+            print(f'min max of x is {np.min(x)}, {np.max(x)}')
+            print(f'min max of y is {np.min(y)}, {np.max(y)}')
+            print(f'min max of z is {np.min(z)}, {np.max(z)}')
+
 
             ####### Explained in markdown file ####### 
             a, b, c = - single_sdo_pos
             sign = a / abs(a)
 
             new_x = sign / np.sqrt(1 + b**2 / a**2 + (a**2 + b**2 / (a * c))**2) \
-                * (x + (b / a) * y + (a**2 + b**2) / (a * c) * z)
+                * (x + (b / a) * y - (a**2 + b**2) / (a * c) * z)
             
             new_y = - sign * b / np.sqrt(a**2 + b**2) * x \
                 + sign * a / np.sqrt(a**2 + b**2) * y
@@ -348,7 +357,7 @@ class OrthographicalProjection:
             new_z = 1 / np.sqrt(a**2 + b**2 + c**2) * (a * x + b * y + c * z)
 
             rho_polar = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
-            theta_polar = np.rad2deg(np.atan2(y, x))  # its phi in spherical coordinates
+            theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
             ##########################################
 
             # Changing units to km
@@ -693,12 +702,12 @@ class OrthographicalProjection:
         polar_indexes = np.unique(polar, axis=1).astype('int64')
 
         # Keeping indexes inside the image
-        rho_filter = (polar_indexes[0] > 0) | (polar_indexes[0] < empty_image.shape[0])
-        theta_filter = (polar_indexes[1] > 0) | (polar_indexes[1] < empty_image.shape[1])
+        rho_filter = (polar_indexes[0] > 0) & (polar_indexes[0] < empty_image.shape[0])
+        theta_filter = (polar_indexes[1] > 0) & (polar_indexes[1] < empty_image.shape[1])
 
         # Getting final image indexes
-        rho = polar_indexes[0][rho_filter | theta_filter]
-        theta = polar_indexes[1][rho_filter | theta_filter]
+        rho = polar_indexes[0][rho_filter & theta_filter]
+        theta = polar_indexes[1][rho_filter & theta_filter]
 
         if len(rho) == 0: return None, None
 
