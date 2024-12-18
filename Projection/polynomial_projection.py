@@ -360,7 +360,7 @@ class OrthographicalProjection:
             rho_polar = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
             theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
             print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
-            theta_polar = (new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2))
+            theta_polar = np.rad2deg((new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2)))
             ##########################################
 
             # Changing units to km
