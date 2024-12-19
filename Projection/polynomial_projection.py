@@ -346,16 +346,21 @@ class OrthographicalProjection:
 
             ####### Explained in markdown file ####### 
             a, b, c = - single_sdo_pos.astype('float64')
-            distance = np.sqrt(a**2 + b**2 + c**2)
             sign = a / abs(a)
 
-            new_x = sign / np.sqrt(1 + b**2 / a**2 + (a**2 + b**2 / (a * c))**2) \
-                * (x + (b / a) * y - (a**2 + b**2) / (a * c) * z)
-            
-            new_y = - sign * b / np.sqrt(a**2 + b**2) * x \
-                + sign * a / np.sqrt(a**2 + b**2) * y
-            
-            new_z = 1 / distance * (a * x + b * y + c * z)
+            # Normalisation constants
+            new_N_x = 1 / np.sqrt(1 + b**2 / a**2 + ((a**2 + b**2) / a * c)**2)
+            new_N_y = a * c / np.sqrt(a**2 + b**2)
+            new_N_z = 1 /  np.sqrt(a**2 + b**2 + c**2)
+
+            # Get new coordinates
+            new_x = 1 / new_N_x + sign * new_N_x * (x + y * b / a - z * (a**2 + b**2) / a * c)
+            new_y = 1 / new_N_y + sign * new_N_y * (-x * b / a * c + y / c)
+            new_z = 1 / new_N_z + sign * new_N_z * (x * a + y * b + z * c)
+
+            print(f'min max of new_x is {np.min(new_x)}, {np.max(new_x)}') # the values for x don't make any sense
+            print(f'min max of new_y is {np.min(new_y)}, {np.max(new_y)}') # values could make sense
+            print(f'min max of new_z is {np.min(new_z)}, {np.max(new_z)}')  # values way too low
 
             rho_polar = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
             theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
@@ -364,7 +369,7 @@ class OrthographicalProjection:
             ##########################################
 
             # Changing units to km
-            rho_polar = 2 * distance * np.tan(rho_polar / 2)
+            rho_polar = 2 * np.tan(rho_polar / 2) / new_N_z
             # rho_polar = rho_polar / d_theta * dx  #TODO: careful d_theta and dx aren't the right ones here.
 
             print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
