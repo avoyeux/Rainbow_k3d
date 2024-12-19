@@ -326,7 +326,7 @@ class OrthographicalProjection:
     def matrix_rotation(
             input_queue: mp.queues.Queue,
             output_queue: mp.queues.Queue,
-            data: np.ndarray,
+            data: dict[str, any],
         ) -> np.ndarray:
 
         shm = mp.shared_memory.SharedMemory(name=data['name'])
@@ -337,8 +337,6 @@ class OrthographicalProjection:
             if args is None: break
 
             identifier, single_sdo_pos = args
-
-            print(f'single_sdo_pos is {single_sdo_pos}')
 
             # Get data
             data_filter = data[0, :] == identifier
@@ -358,22 +356,13 @@ class OrthographicalProjection:
             new_y = 1 / new_N_y + sign * new_N_y * (-x * b / (a * c) + y / c)
             new_z = 1 / new_N_z + sign * new_N_z * (x * a + y * b + z * c)
 
-            print(f'min max of new_x is {np.min(new_x)}, {np.max(new_x)}') 
-            print(f'min max of new_y is {np.min(new_y)}, {np.max(new_y)}') 
-            print(f'min max of new_z is {np.min(new_z)}, {np.max(new_z)}')  
-
             rho_polar = np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2))
-            # theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
-            # print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
             theta_polar = (new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2))
             theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
             ##########################################
 
             # Changing units to km
             rho_polar = np.tan(rho_polar) / new_N_z
-
-            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
-            print(f'min max of rho polar is {np.min(rho_polar)}, {np.max(rho_polar)}', flush=True)
 
             output_queue.put((identifier, rho_polar, theta_polar))
         #TODO: need to add the non multiprocessing option
@@ -606,7 +595,7 @@ class OrthographicalProjection:
                 OrthographicalProjection.plot_contours(
                     rho=r_cube,
                     theta=theta_cube,
-                    empty_image=empty_image,
+                    empty_image=np.zeros(empty_image.shape),
                     d_theta=d_theta,
                     dx=dx,
                     image_borders=projection_borders,
@@ -618,7 +607,7 @@ class OrthographicalProjection:
                 OrthographicalProjection.plot_contours(
                     rho=r_no_duplicate,
                     theta=theta_no_duplicate,
-                    empty_image=empty_image,
+                    empty_image=np.zeros(empty_image.shape),
                     d_theta=d_theta,
                     dx=dx,
                     image_borders=projection_borders,
@@ -737,10 +726,11 @@ class OrthographicalProjection:
         # Keeping indexes inside the image
         rho_filter = (polar_indexes[0] > 0) & (polar_indexes[0] < empty_image.shape[0])
         theta_filter = (polar_indexes[1] > 0) & (polar_indexes[1] < empty_image.shape[1])
+        full_filter = rho_filter & theta_filter
 
         # Getting final image indexes
-        rho = polar_indexes[0][rho_filter & theta_filter]
-        theta = polar_indexes[1][rho_filter & theta_filter]
+        rho = polar_indexes[0][full_filter]
+        theta = polar_indexes[1][full_filter]
 
         if len(rho) == 0: return None, None
 
