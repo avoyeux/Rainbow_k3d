@@ -602,35 +602,30 @@ class OrthographicalProjection:
                 plt.imshow(OrthographicalProjection.sdo_image_treatment(sdo_image_info['image']), **plot_kwargs['image'])
 
             if plot_choices['cube']: 
-
-                # Get image and contours
-                _, lines = OrthographicalProjection.cube_contour(
+                
+                OrthographicalProjection.plot_contours(
                     rho=r_cube,
                     theta=theta_cube,
                     empty_image=empty_image,
                     d_theta=d_theta,
                     dx=dx,
                     image_borders=projection_borders,
+                    color='red',
+                    label='time integrated contours',
+                    plot_kwargs=plot_kwargs['contour'],
                 )
 
-                # Plot
-                line = lines[0]
-                plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
-                for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
-
-                _, lines = OrthographicalProjection.cube_contour(
+                OrthographicalProjection.plot_contours(
                     rho=r_no_duplicate,
                     theta=theta_no_duplicate,
                     empty_image=empty_image,
                     d_theta=d_theta,
                     dx=dx,
                     image_borders=projection_borders,
+                    color='orange',
+                    label='no duplicate contours',
+                    plot_kwargs=plot_kwargs['contour'],
                 )
-
-                if lines is not None:
-                    line = lines[0]
-                    plt.plot(line[1], line[0], color='orange', label='no duplicate contours', **plot_kwargs['contour'])
-                    for line in lines: plt.plot(line[1], line[0], color='orange', **plot_kwargs['contour'])
                 
                 # plt.scatter(theta_cube, r_cube / 10**3, **plot_kwargs[0])
             if plot_choices['interpolations']: 
@@ -664,6 +659,35 @@ class OrthographicalProjection:
             print(f'SAVED - filename:{plot_name}', flush=flush)
         # Closing shared memories
         if multiprocessing: shm_cubes.close(); shm_no_duplicates.close(); shm_interpolations.close()
+
+
+    @staticmethod
+    def plot_contours(
+            rho: np.ndarray,
+            theta: np.ndarray,
+            empty_image: np.ndarray,
+            d_theta: float, 
+            dx: float,
+            image_borders: dict[str, tuple[int, int]],
+            color: str,
+            label: str,
+            plot_kwargs: dict[str, str | int | float],
+        ) -> None:
+
+        _, lines = OrthographicalProjection.cube_contour(
+            rho=rho,
+            theta=theta,
+            empty_image=empty_image,
+            d_theta=d_theta,
+            dx=dx,
+            image_borders=image_borders,
+        )
+
+        # Plot
+        if lines is not None:
+            line = lines[0]
+            plt.plot(line[1], line[0], color=color, label=label, **plot_kwargs)
+            for line in lines: plt.plot(line[1], line[0], color=color, **plot_kwargs)
 
     @staticmethod
     def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
