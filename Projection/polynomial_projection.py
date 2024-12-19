@@ -265,8 +265,6 @@ class OrthographicalProjection:
             
             # Input setup
             data_len = len(data_info['dates'])
-            print(f"data shape is {data.shape}")
-            print(f'data_len is {data_len}', flush=True)
             process_nb = min(self.processes, data_len)
             for i in range(data_len): input_queue.put((i, data_info['sdo_pos'][i]))
             for _ in range(process_nb): input_queue.put(None)
@@ -279,8 +277,6 @@ class OrthographicalProjection:
                     'input_queue': input_queue,
                     'output_queue': output_queue,
                     'data': data,
-                    'd_theta': data_info['dtheta'], #TODO: need to add the value to data_info
-                    'dx': data_info['dx'],
                 })
                 p.start()
                 processes[i] = p
@@ -302,6 +298,17 @@ class OrthographicalProjection:
 
     @staticmethod
     def converting_to_array(rho: list[np.ndarray], theta: list[np.ndarray]) -> np.ndarray:
+        """
+        Converting two lists of ndarrays to an ndarray of shape (3, N) with N the total number of points, and 3 representing t, rho, theta.
+
+        Args:
+            rho (list[np.ndarray]): the rho polar coordinates of the voxels.
+            theta (list[np.ndarray]): the theta solar coordinates of the voxels.
+
+        Returns:
+            np.ndarray: the corresponding array of shape (3, N).
+        """
+
         # Ordering the final result so that it is a np.ndarray
         start_index = 0
         total_nb_vals = sum(arr.shape[0] for arr in rho)
@@ -320,8 +327,6 @@ class OrthographicalProjection:
             input_queue: mp.queues.Queue,
             output_queue: mp.queues.Queue,
             data: np.ndarray,
-            d_theta: float,
-            dx: float,
         ) -> np.ndarray:
 
         shm = mp.shared_memory.SharedMemory(name=data['name'])
@@ -339,38 +344,33 @@ class OrthographicalProjection:
             data_filter = data[0, :] == identifier
             x, y, z = data[1:4, data_filter].astype('float64')
 
-            print(f'min max of x is {np.min(x)}, {np.max(x)}')
-            print(f'min max of y is {np.min(y)}, {np.max(y)}')
-            print(f'min max of z is {np.min(z)}, {np.max(z)}')
-
-
             ####### Explained in markdown file ####### 
             a, b, c = - single_sdo_pos.astype('float64')
             sign = a / abs(a)
 
             # Normalisation constants
-            new_N_x = 1 / np.sqrt(1 + b**2 / a**2 + ((a**2 + b**2) / a * c)**2)
+            new_N_x = 1 / np.sqrt(1 + b**2 / a**2 + ((a**2 + b**2) / (a * c))**2)
             new_N_y = a * c / np.sqrt(a**2 + b**2)
             new_N_z = 1 /  np.sqrt(a**2 + b**2 + c**2)
 
             # Get new coordinates
-            new_x = 1 / new_N_x + sign * new_N_x * (x + y * b / a - z * (a**2 + b**2) / a * c)
-            new_y = 1 / new_N_y + sign * new_N_y * (-x * b / a * c + y / c)
+            new_x = 1 / new_N_x + sign * new_N_x * (x + y * b / a - z * (a**2 + b**2) / (a * c))
+            new_y = 1 / new_N_y + sign * new_N_y * (-x * b / (a * c) + y / c)
             new_z = 1 / new_N_z + sign * new_N_z * (x * a + y * b + z * c)
 
-            print(f'min max of new_x is {np.min(new_x)}, {np.max(new_x)}') # the values for x don't make any sense
-            print(f'min max of new_y is {np.min(new_y)}, {np.max(new_y)}') # values could make sense
-            print(f'min max of new_z is {np.min(new_z)}, {np.max(new_z)}')  # values way too low
+            print(f'min max of new_x is {np.min(new_x)}, {np.max(new_x)}') 
+            print(f'min max of new_y is {np.min(new_y)}, {np.max(new_y)}') 
+            print(f'min max of new_z is {np.min(new_z)}, {np.max(new_z)}')  
 
-            rho_polar = np.rad2deg(np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2)))
-            theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
-            print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
-            theta_polar = np.rad2deg((new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2)))
+            rho_polar = np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2))
+            # theta_polar = np.rad2deg(np.atan2(new_y, new_x))  # its phi in spherical coordinates
+            # print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
+            theta_polar = (new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2))
+            theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
             ##########################################
 
             # Changing units to km
-            rho_polar = 2 * np.tan(rho_polar / 2) / new_N_z
-            # rho_polar = rho_polar / d_theta * dx  #TODO: careful d_theta and dx aren't the right ones here.
+            rho_polar = np.tan(rho_polar) / new_N_z
 
             print(f'min max of theta_polar is {np.min(theta_polar)}, {np.max(theta_polar)}')
             print(f'min max of rho polar is {np.min(rho_polar)}, {np.max(rho_polar)}', flush=True)
@@ -604,7 +604,7 @@ class OrthographicalProjection:
             if plot_choices['cube']: 
 
                 # Get image and contours
-                lines, _ = OrthographicalProjection.cube_contour(
+                _, lines = OrthographicalProjection.cube_contour(
                     rho=r_cube,
                     theta=theta_cube,
                     empty_image=empty_image,
@@ -618,7 +618,7 @@ class OrthographicalProjection:
                 plt.plot(line[1], line[0], color='red', label='time integrated contours', **plot_kwargs['contour'])
                 for line in lines[1:]: plt.plot(line[1], line[0], color='red', **plot_kwargs['contour'])
 
-                lines, _ = OrthographicalProjection.cube_contour(
+                _, lines = OrthographicalProjection.cube_contour(
                     rho=r_no_duplicate,
                     theta=theta_no_duplicate,
                     empty_image=empty_image,
