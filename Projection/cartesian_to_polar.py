@@ -46,7 +46,6 @@ class CartesianToPolar:
     def get_polar_image(
             cls,
             filepath: str,
-            output_shape: tuple[int, int],
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
@@ -56,7 +55,6 @@ class CartesianToPolar:
 
         instance = cls(
             filepath=filepath,
-            output_shape=output_shape,
             borders=borders,
             direction=direction,
             theta_offset=theta_offset,
@@ -94,7 +92,7 @@ class CartesianToPolar:
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
             'sun radius': header['RSUN_REF'],
-            'd_theta': header['CDELT1'],
+            'd_theta': np.deg2rad(header['CDELT1'] / 3600),
             'dx': ((np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2) / 1e3,  # in km
         }
         data_info['max index'] = max(self.borders['radial distance']) * 1e3 / data_info['dx']
@@ -126,6 +124,8 @@ class CartesianToPolar:
         theta_nb_pixels = round(360 / self.data_info['d_theta'])
         radial_nb_pixels = round(max(self.borders['radial distance']) * 1e3 / self.data_info['dx'])
 
+        print(f"nb of pixels in theta is {theta_nb_pixels} and radial is {radial_nb_pixels}")
+
         # Re-calculating dx and dtheta as round() needed to be used.
         new_d_theta = 360 / theta_nb_pixels
         new_dx = max(self.borders['radial distance']) / radial_nb_pixels
@@ -139,11 +139,11 @@ class CartesianToPolar:
         )
 
         # Corrections
-        if self.theta_offset != 0: image = self._rotate_polar(image)
+        if self.theta_offset != 0: image = self._rotate_polar(image, new_d_theta)
         if self.direction == 'clockwise': image = np.flip(image, axis=0)
         info = {
             'image': {
-                'data': self._slice_image(image).T,
+                'data': self._slice_image(image, new_dx, new_d_theta).T,
                 'dx': new_dx,
                 'd_theta': new_d_theta,
             },

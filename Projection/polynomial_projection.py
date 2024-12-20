@@ -728,6 +728,8 @@ class OrthographicalProjection:
             list[tuple[list[float], list[float]]]: the lines representing the mask contours.
         """
 
+        print(f'image contour dx is {dx} and d_theta {d_theta}', flush=True)
+
         # Get contours
         lines = Plot.contours(image)
 
