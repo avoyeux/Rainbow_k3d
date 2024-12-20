@@ -92,7 +92,7 @@ class CartesianToPolar:
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
             'sun radius': header['RSUN_REF'],
-            'd_theta': np.deg2rad(header['CDELT1'] / 3600),
+            'd_theta': header['CDELT1'] / 3600,
             'dx': ((np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2) / 1e3,  # in km
         }
         data_info['max index'] = max(self.borders['radial distance']) * 1e3 / data_info['dx']

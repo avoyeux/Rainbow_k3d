@@ -22,7 +22,7 @@ from extract_envelope import Envelope
 from cartesian_to_polar import CartesianToPolar
 from common import MultiProcessing, Decorators, Plot
 
-#TODO: IMPORTANT: there is clearly a problem in the reprojection of the curve made by Dr. Auchere for the Rainbow paper. Need to check this first (print the initial mask with the interpolation and stuff.)
+#TODO: need to check the memory consumption of my code. seems to be huge af. probably need the np.unique earlier and keep the multiprocessing in one step for each image. 
 #TODO: MINOR: need to update the code for when there is only one process used (i.e. no multiprocessing)
 
 class OrthographicalProjection:
@@ -84,12 +84,11 @@ class OrthographicalProjection:
 
         # Paths setup
         self.paths = self.path_setup()
+        # Get sdo image paths
+        self.sdo_timestamps = self.SDO_image_finder()
 
         # Get interpolations data
         self.data_info = self.data_setup()
-
-        # Get sdo image paths
-        self.sdo_timestamps = self.SDO_image_finder()
 
         # Plotting
         self.plotting()
