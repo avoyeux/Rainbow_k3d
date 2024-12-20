@@ -236,7 +236,7 @@ class OrthographicalProjection:
             np.ndarray: the corresponding heliographic cartesian positions.
         """
 
-        cubes_sparse_coords = data.astype('float32')
+        cubes_sparse_coords = data.astype('float64')
 
         # Initialisation
         cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * data_info['dx'] + data_info['xmin']) 
@@ -246,7 +246,7 @@ class OrthographicalProjection:
 
     @Decorators.running_time
     def multiprocessing_func(self, data: np.ndarray, data_info: dict[str, np.ndarray]) -> np.ndarray:
-        """#TODO: docstring
+        """
         To rotate the matrix so that it aligns with the satellite pov.
 
         Args:
@@ -270,7 +270,7 @@ class OrthographicalProjection:
             for _ in range(process_nb): input_queue.put(None)
 
             # Run
-            shm, data = MultiProcessing.create_shared_memory(data.astype('float32'))
+            shm, data = MultiProcessing.create_shared_memory(data.astype('float64'))
             processes = [None] * process_nb
             for i in range(process_nb):
                 p = mp.Process(target=self.matrix_rotation, kwargs={
@@ -374,14 +374,6 @@ class OrthographicalProjection:
         To plot the re-projection of the 3D volumes.
         """
 
-        # Initialisation of an image
-        image_shape = (
-            int((self.projection_borders['radial distance'][1] - self.projection_borders['radial distance'][0]) * 1e3 / self.data_info['dx']),
-            int((self.projection_borders['polar angle'][1] - self.projection_borders['polar angle'][0]) / self.data_info['dtheta']),
-        )
-        empty_image = np.zeros(image_shape)
-
-
         # Ordering plot kwargs
         plot_kwargs = {
             'interpolation': {
@@ -434,12 +426,9 @@ class OrthographicalProjection:
             'paths': self.paths,
             'plot_choices': self.plot_choices,
             'colours': [next(colour_generator) for _ in self.polynomial_order],
-            'dx': self.data_info['dx'],
-            'd_theta': self.data_info['dtheta'],
             'envelope_data': envelope_data,
             'projection_borders': self.projection_borders,
             'sdo_timestamps': self.sdo_timestamps,
-            'empty_image': empty_image,
             'plot_kwargs': plot_kwargs,
             'verbose': self.verbose,
             'flush': self.flush,
@@ -504,12 +493,9 @@ class OrthographicalProjection:
             data_index: tuple[int, int],
             colours: list[int],
             envelope_data: None | tuple[tuple[np.ndarray, np.ndarray], list[tuple[np.ndarray, np.ndarray]]],
-            dx: float,
-            d_theta: float,
             projection_borders: dict[str, tuple[int, int]],
             sdo_timestamps: dict[str, str],
             plot_kwargs: dict[str, dict[str, str | int | float]],
-            empty_image: np.ndarray,
             verbose: int,
             flush: bool,
         ) -> None:
@@ -568,15 +554,15 @@ class OrthographicalProjection:
                 # SDO mask
                 filepath = os.path.join(paths['sdo'], f"AIA_fullhead_{time_indexes[time]:03d}.fits.gz")
                 polar_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
-                image = np.zeros(polar_image_info['image'].shape)
-                image[polar_image_info['image'] > 0] = 1
+                image = np.zeros(polar_image_info['image']['data'].shape)
+                image[polar_image_info['image']['data'] > 0] = 1
 
                 # Get contours
                 lines = OrthographicalProjection.image_contour(
                     image=image,
                     projection_borders=projection_borders,
-                    dx=polar_image_info['dx'] / 1e3,
-                    d_theta=polar_image_info['d_theta'],
+                    dx=polar_image_info['image']['dx'],
+                    d_theta=polar_image_info['image']['d_theta'],
                 )
 
                 # Plot contours
@@ -588,16 +574,15 @@ class OrthographicalProjection:
                 filepath = sdo_timestamps[date[:-3]]
                 sdo_image_info = OrthographicalProjection.sdo_image(filepath, projection_borders=projection_borders)
 
-                plt.imshow(OrthographicalProjection.sdo_image_treatment(sdo_image_info['image']), **plot_kwargs['image'])
+                plt.imshow(OrthographicalProjection.sdo_image_treatment(sdo_image_info['image']['data']), **plot_kwargs['image'])
 
             if plot_choices['cube']: 
                 
                 OrthographicalProjection.plot_contours(
                     rho=r_cube,
                     theta=theta_cube,
-                    empty_image=np.zeros(empty_image.shape),
-                    d_theta=d_theta,
-                    dx=dx,
+                    d_theta=sdo_image_info['d_theta'],
+                    dx=sdo_image_info['dx'],
                     image_borders=projection_borders,
                     color='red',
                     label='time integrated contours',
@@ -607,9 +592,8 @@ class OrthographicalProjection:
                 OrthographicalProjection.plot_contours(
                     rho=r_no_duplicate,
                     theta=theta_no_duplicate,
-                    empty_image=np.zeros(empty_image.shape),
-                    d_theta=d_theta,
-                    dx=dx,
+                    d_theta=sdo_image_info['d_theta'],
+                    dx=sdo_image_info['dx'],
                     image_borders=projection_borders,
                     color='orange',
                     label='no duplicate contours',
@@ -654,7 +638,6 @@ class OrthographicalProjection:
     def plot_contours(
             rho: np.ndarray,
             theta: np.ndarray,
-            empty_image: np.ndarray,
             d_theta: float, 
             dx: float,
             image_borders: dict[str, tuple[int, int]],
@@ -663,10 +646,18 @@ class OrthographicalProjection:
             plot_kwargs: dict[str, str | int | float],
         ) -> None:
 
+
+        # Initialisation of an image
+        image_shape = (
+            int((image_borders['radial distance'][1] - image_borders['radial distance'][0]) * 1e3 / dx),
+            int((image_borders['polar angle'][1] - image_borders['polar angle'][0]) / d_theta),
+        )
+        image = np.zeros(image_shape, dtype='uint8')
+
         _, lines = OrthographicalProjection.cube_contour(
             rho=rho,
             theta=theta,
-            empty_image=empty_image,
+            empty_image=image,
             d_theta=d_theta,
             dx=dx,
             image_borders=image_borders,
@@ -677,27 +668,6 @@ class OrthographicalProjection:
             line = lines[0]
             plt.plot(line[1], line[0], color=color, label=label, **plot_kwargs)
             for line in lines: plt.plot(line[1], line[0], color=color, **plot_kwargs)
-
-    @staticmethod
-    def to_polar(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Changes cartesian coordinates to polar.
-
-        Args:
-            x (np.ndarray): the x-axis cartesian coordinates.
-            y (np.ndarray): the y-axis cartesian coordinates.
-
-        Returns:
-            tuple[np.ndarray, np.ndarray]: the r and theta polar coordinate values.
-        """
-         
-        r = np.sqrt(x**2 + y**2)
-        theta = np.arctan2(y, x) - np.pi / 2
-        theta = np.where(theta < 0, theta + 2 * np.pi, theta)
-        theta = 2 * np.pi - theta  # clockwise
-        theta = np.where(theta >= 2 * np.pi, theta - 2 * np.pi, theta)  # modulo 2pi
-        theta = np.degrees(theta) 
-        return r, theta
 
     @staticmethod
     def cube_contour(
@@ -774,8 +744,8 @@ class OrthographicalProjection:
     def sdo_image(
             filepath: str,
             projection_borders: dict[str, tuple[int, int]],  
-        ) -> dict[str, float | np.ndarray]:
-        """
+        ) -> dict[str | dict[str, float | np.ndarray], float]:
+        """ #TODO: update docstring
         To get the sdo image in polar coordinates and delimited by the final plot borders. Furthermore, needed information are also saved in the 
         output, e.g. dx and d_theta for the created sdo image in polar coordinates.
 
@@ -789,7 +759,6 @@ class OrthographicalProjection:
 
         polar_image_info = CartesianToPolar.get_polar_image(
             filepath=filepath,
-            output_shape=(10_000, 10_000),
             borders=projection_borders,
             direction='clockwise',
             theta_offset=90,

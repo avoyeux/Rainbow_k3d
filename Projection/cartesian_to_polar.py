@@ -21,7 +21,6 @@ class CartesianToPolar:
     def __init__(
             self,
             filepath: str,
-            output_shape: tuple[int, int],
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
@@ -31,7 +30,6 @@ class CartesianToPolar:
 
         # Attributes
         self.filepath = filepath
-        self.output_shape = output_shape
         self.borders = borders
         self.direction = direction
         self.theta_offset = theta_offset
@@ -42,7 +40,7 @@ class CartesianToPolar:
         # Setup
         self._initial_checks()
         self.paths = self._paths_setup()
-        self.data = self._open_data()
+        self.data_info = self._open_data()
 
     @classmethod
     def get_polar_image(
@@ -54,7 +52,7 @@ class CartesianToPolar:
             theta_offset: int | float = 0,
             channel_axis: None | int = None,
             **kwargs,
-        ) -> dict[str, float | np.ndarray]:
+        ) -> dict[str | dict[str, float | np.ndarray], float]:
 
         instance = cls(
             filepath=filepath,
@@ -65,13 +63,7 @@ class CartesianToPolar:
             channel_axis=channel_axis,
             **kwargs,
         )
-        image = instance._coordinates_cartesian_to_polar()
-        image_info = {
-            'image': image.T,
-            'dx': max(instance.borders['radial distance']) * 1e6 / instance.output_shape[1],
-            'd_theta': 360 / instance.output_shape[0],
-        }
-        return image_info #TODO: will need to make dx and d_theta coincide with sdo resolution
+        return instance._coordinates_cartesian_to_polar()
 
     def _initial_checks(self) -> None:
 
@@ -102,58 +94,79 @@ class CartesianToPolar:
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
             'sun radius': header['RSUN_REF'],
-            'dx': (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2,  # CUNIT is 'arcsec'
+            'd_theta': header['CDELT1'],
+            'dx': ((np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2) / 1e3,  # in km
         }
-        print(f"CDELT1 is {header['CDELT1']}", flush=True)
-        data_info['max index'] = max(self.borders['radial distance']) * 1e6 / data_info['dx']
-        data_info['min index'] = min(self.borders['radial distance']) * 1e6 / data_info['dx']
+        data_info['max index'] = max(self.borders['radial distance']) * 1e3 / data_info['dx']
         hdul.close()
         return data_info
 
-    def _slice_image(self, image: np.ndarray) -> np.ndarray:
+    def _slice_image(
+            self,
+            image: np.ndarray,
+            dx: float,
+            d_theta: float,
+        ) -> np.ndarray:
         """To cut the image so that the bounds are the same than for the inputted borders"""
 
         # Radial distance section
-        new_dx = max(self.borders['radial distance']) * 1e6 / image.shape[1]
-        min_radial_index = round(min(self.borders['radial distance']) * 1e6 / new_dx)
+        min_radial_index = round(min(self.borders['radial distance']) * 1e3 / dx)
 
         # Polar angle section
-        d_theta = 360 / image.shape[0]
         max_polar_index = round(max(self.borders['polar angle']) / d_theta)
         min_polar_index = round(min(self.borders['polar angle']) / d_theta)
         return image[min_polar_index:max_polar_index + 1, min_radial_index:]
 
-    def _coordinates_cartesian_to_polar(self) -> np.ndarray:
+    def _coordinates_cartesian_to_polar(self) -> dict[str | dict[str, float | np.ndarray], float]:
         """
         To change the cartesian coordinates to the polar ones.
         """
 
+        # Setup image shape depending on dx and dtheta
+        theta_nb_pixels = round(360 / self.data_info['d_theta'])
+        radial_nb_pixels = round(max(self.borders['radial distance']) * 1e3 / self.data_info['dx'])
+
+        # Re-calculating dx and dtheta as round() needed to be used.
+        new_d_theta = 360 / theta_nb_pixels
+        new_dx = max(self.borders['radial distance']) / radial_nb_pixels
+
         image = skimage.transform.warp_polar(
-            image=self.data['image'],
-            center=self.data['center'],
-            output_shape=self.output_shape,
+            image=self.data_info['image'],
+            center=self.data_info['center'],
+            output_shape=(theta_nb_pixels, radial_nb_pixels),
             channel_axis=self.channel_axis,
-            radius=self.data['max index'],
+            radius=self.data_info['max index'],
         )
 
         # Corrections
         if self.theta_offset != 0: image = self._rotate_polar(image)
         if self.direction == 'clockwise': image = np.flip(image, axis=0)
-        return self._slice_image(image)
+        info = {
+            'image': {
+                'data': self._slice_image(image).T,
+                'dx': new_dx,
+                'd_theta': new_d_theta,
+            },
+            'dx': self.data_info['dx'],
+            'd_theta': self.data_info['d_theta'],
+        }
+        return info
     
-    def _rotate_polar(self, polar_image: np.ndarray) -> np.ndarray:
+    def _rotate_polar(
+            self,
+            polar_image: np.ndarray,
+            d_theta: float,
+        ) -> np.ndarray:
         
-        d_theta = 360 / polar_image.shape[0]  #TODO: need to check if it is the right ax
         shift = round(self.theta_offset / d_theta)
         return np.roll(polar_image, shift=-shift, axis=0)
-    
+
 
 
 if __name__ == '__main__':
 
     CartesianToPolar(
         image_nb=1,
-        output_shape=(1_000, 1_000),
         borders= {
             'radial distance': (690, 870),
             'polar angle': (245, 295),
