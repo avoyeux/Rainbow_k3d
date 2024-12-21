@@ -88,13 +88,15 @@ class CartesianToPolar:
         hdul = astropy.io.fits.open(self.filepath)
         header = hdul[index].header
 
+        # ORGANISE data
         data_info = {
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
-            'sun radius': header['RSUN_REF'],
-            'd_theta': header['CDELT1'] / 3600,
             'dx': ((np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2) / 1e3,  # in km
         }
+        sun_radius = header['RSUN_REF']
+        sun_perimeter = 2 * np.pi * sun_radius
+        data_info['d_theta'] = 360 / (sun_perimeter / (data_info['dx'] * 1e3))
         data_info['max index'] = max(self.borders['radial distance']) * 1e3 / data_info['dx']
         hdul.close()
         return data_info
@@ -121,14 +123,14 @@ class CartesianToPolar:
         """
 
         # Setup image shape depending on dx and dtheta
-        theta_nb_pixels = round(360 / self.data_info['d_theta'])
+        theta_nb_pixels = round(360 / self.data_info['d_theta'])  #TODO: je fais la meme erreur que la derniere fois avec dtetha qui depend du rayon du soleil et pas du theta du FITS.
         radial_nb_pixels = round(max(self.borders['radial distance']) * 1e3 / self.data_info['dx'])
 
-        print(f"nb of pixels in theta is {theta_nb_pixels} and radial is {radial_nb_pixels}")
+        # print(f"nb of pixels in theta is {theta_nb_pixels} and radial is {radial_nb_pixels}", flush=True)
 
         # Re-calculating dx and dtheta as round() needed to be used.
-        new_d_theta = 360 / theta_nb_pixels
-        new_dx = max(self.borders['radial distance']) / radial_nb_pixels
+        new_d_theta = 360 / theta_nb_pixels  
+        new_dx = max(self.borders['radial distance']) * 1e3 / radial_nb_pixels
 
         image = skimage.transform.warp_polar(
             image=self.data_info['image'],
@@ -150,6 +152,8 @@ class CartesianToPolar:
             'dx': self.data_info['dx'],
             'd_theta': self.data_info['d_theta'],
         }
+        print(f"dx is {info['dx']}")
+        print(f"d_theta is {info['d_theta']}", flush=True)
         return info
     
     def _rotate_polar(
