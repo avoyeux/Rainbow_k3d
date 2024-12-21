@@ -417,8 +417,8 @@ class OrthographicalProjection:
             plt.plot(middle_t_curve[0], middle_t_curve[1], color='black', label='Middle path', **self.global_data['plot']['envelope'])
             
             envelope = envelope_y_x_curve[0]
-            plt.plot(envelope[0], envelope[1], color='grey', label='Envelope', **self.global_data['plot']['envelope'])
-            for envelope in envelope_y_x_curve[1:]: plt.plot(envelope[0], envelope[1], color='grey', **self.global_data['plot']['envelope'])
+            plt.plot(envelope[0], envelope[1], color='black', label='Envelope', **self.global_data['plot']['envelope'])
+            for envelope in envelope_y_x_curve[1:]: plt.plot(envelope[0], envelope[1], color='black', **self.global_data['plot']['envelope'])
 
         if self.plot_choices['sdo image']: 
             # SDO mask
