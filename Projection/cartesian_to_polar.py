@@ -68,14 +68,18 @@ class CartesianToPolar:
         # Direction keyword argument check
         direction_options = ['clockwise', 'anticlockwise']
         if self.direction not in direction_options:
-            raise ValueError(f"'{self.direction} not in permitted options. You need to choose between {', '.join(direction_options)}.")
+            raise ValueError(
+                f"'{self.direction} not in permitted options. "
+                f"You need to choose between {', '.join(direction_options)}."
+            )
 
     def _paths_setup(self) -> dict[str, str]:
 
         # Check main path
         main_path = '/home/avoyeux/Documents/avoyeux/'
         if not os.path.exists(main_path): main_path = '/home/avoyeux/old_project/avoyeux/'
-        if not os.path.exists(main_path): raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
+        if not os.path.exists(main_path):
+            raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
 
         paths = {
             'sdo': os.path.join(main_path, 'sdo'),
@@ -92,7 +96,9 @@ class CartesianToPolar:
         data_info = {
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
-            'dx': ((np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2) / 1e3,  # in km
+            'dx': ((
+                (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2
+            ) / 1e3),  # in km
         }
         sun_radius = header['RSUN_REF']
         sun_perimeter = 2 * np.pi * sun_radius
@@ -101,12 +107,7 @@ class CartesianToPolar:
         hdul.close()
         return data_info
 
-    def _slice_image(
-            self,
-            image: np.ndarray,
-            dx: float,
-            d_theta: float,
-        ) -> np.ndarray:
+    def _slice_image(self, image: np.ndarray, dx: float, d_theta: float) -> np.ndarray:
         """To cut the image so that the bounds are the same than for the inputted borders"""
 
         # Radial distance section
@@ -152,15 +153,11 @@ class CartesianToPolar:
             'dx': self.data_info['dx'],
             'd_theta': self.data_info['d_theta'],
         }
-        print(f"dx is {info['dx']}")
-        print(f"d_theta is {info['d_theta']}", flush=True)
+        # print(f"dx is {info['dx']}")
+        # print(f"d_theta is {info['d_theta']}", flush=True)
         return info
     
-    def _rotate_polar(
-            self,
-            polar_image: np.ndarray,
-            d_theta: float,
-        ) -> np.ndarray:
+    def _rotate_polar(self, polar_image: np.ndarray, d_theta: float) -> np.ndarray:
         
         shift = round(self.theta_offset / d_theta)
         return np.roll(polar_image, shift=-shift, axis=0)

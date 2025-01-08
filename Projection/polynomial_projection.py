@@ -1,30 +1,31 @@
 """
 To get the projection of the polynomial interpolation inside the envelope. 
-This is done to get the angle between the projection seen by SDO and the 3D polynomial representation of the data.
+This is done to get the angle between the projection seen by SDO and the 3D polynomial
+representation of the data.
 """
 
-# testing branch creation
-
-# Imports
+# IMPORTS
 import os
 import h5py
 import typeguard
 
-# Aliases
+# IMPORTS alias
 import numpy as np
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
-# Sub imports
+# IMPORTS sub
 import multiprocessing.queues
 
-# Personal imports 
+# IMPORTS personal
+from common import Decorators, Plot
 from extract_envelope import Envelope
 from cartesian_to_polar import CartesianToPolar
-from common import Decorators, Plot, SSHMirroredFilesystem
 
-#TODO: need to check the memory consumption of my code. seems to be huge af. probably need the np.unique earlier and keep the multiprocessing in one step for each image. 
-#TODO: MINOR: need to update the code for when there is only one process used (i.e. no multiprocessing)
+#TODO: need to check the memory consumption of my code. seems to be huge af. probably need the
+#np.unique earlier and keep the multiprocessing in one step for each image. 
+#TODO: MINOR: need to update the code for when there is only one process used
+#(i.e. no multiprocessing)
 
 class OrthographicalProjection:
     """
@@ -42,41 +43,58 @@ class OrthographicalProjection:
             data_type : str = 'No duplicates new',
             with_feet: bool = True,
             polynomial_order: int | list[int] = [4, 5, 6],
-            plot_choices: str | list[str] = ['polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial'], 
+            plot_choices: str | list[str] = [
+                'polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial',
+            ], 
             verbose: int = 1,
             flush: bool = False
         ) -> None:
         """
-        Re-projection of the computed 3D volume to recreate a 2D image of what is seen from SDO's POV.
+        Re-projection of the computed 3D volume to recreate a 2D image of what is seen from SDO's
+        POV.
         This is done to recreate the analysis of Dr. Auchere's paper; 'The coronal Monsoon'.
 
         Args:
-            processes (int, optional): the number of parallel processes used in the multiprocessing. Defaults to 0.
-            integration_time_hours (int, optional): the integration time used for the data to be reprojected. Defaults to 24.
-            filename (str, optional): the filename of the HDF5 containing all the relevant 3D data. Defaults to 'sig1e20_leg20_lim0_03_thisone.h5'.
-            data_type (str, optional): the data type of the 3D object to be reprojected (e.g. All data). Defaults to 'No duplicates new'.
-            with_feet (bool, optional): deciding to use the data with or without added feet. Defaults to True.
-            polynomial_order (int | list[int], optional): the order(s) of the polynomial function(s) that represent the fitting of the integrated 3D volume. Defaults to [4, 5, 6].
-            plot_choices (str | list[str], optional): the main choices that the user wants to be in the reprojection. The possible choices are:
-                ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations']. Defaults to ['polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial'].
-            verbose (int, optional): gives the verbosity in the outputted prints. The higher the value, the more prints. Starts at 0 for no prints. Defaults to 1.
-            flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to force the print buffer to be emptied (i.e. forces the prints). Defaults to False.
+            processes (int, optional): the number of parallel processes used in the
+                multiprocessing. Defaults to 0.
+            integration_time_hours (int, optional): the integration time used for the data to be
+                reprojected. Defaults to 24.
+            filename (str, optional): the filename of the HDF5 containing all the relevant 3D data.
+                Defaults to 'sig1e20_leg20_lim0_03_thisone.h5'.
+            data_type (str, optional): the data type of the 3D object to be reprojected
+                (e.g. All data). Defaults to 'No duplicates new'.
+            with_feet (bool, optional): deciding to use the data with or without added feet.
+                Defaults to True.
+            polynomial_order (int | list[int], optional): the order(s) of the polynomial
+                function(s) that represent the fitting of the integrated 3D volume.
+                Defaults to [4, 5, 6].
+            plot_choices (str | list[str], optional): the main choices that the user wants to be in
+                the reprojection. The possible choices are:
+                ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations'].
+                Defaults to ['polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial'].
+            verbose (int, optional): gives the verbosity in the outputted prints. The higher the
+                value, the more prints. Starts at 0 for no prints. Defaults to 1.
+            flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to
+                force the print buffer to be emptied (i.e. forces the prints). Defaults to False.
         """
 
-        # Arguments
+        # ATTRIBUTES
         feet = ' with feet' if with_feet else ''
         self.integration_time = integration_time_hours
         self.processes = processes if processes > 1 else 1
         self.filename = filename
         self.data_type = data_type + feet
         self.foldername = filename.split('.')[0] + ''.join(feet.split(' ')) + 'testing'
-        self.polynomial_order = sorted(polynomial_order) if isinstance(polynomial_order, list) else [polynomial_order]
-        self.plot_choices = self.plot_choices_creation(plot_choices if isinstance(plot_choices, list) else [plot_choices])
+        if isinstance(polynomial_order, list):
+            self.polynomial_order = sorted(polynomial_order)
+        else:
+            self.polynomial_order = [polynomial_order]
+        self.plot_choices = self.plot_choices_creation(plot_choices)
         self.in_local = True
         self.verbose = verbose
         self.flush = flush
 
-        # Important constants
+        # CONSTANTS
         self.solar_r = 6.96e5  # in km
         self.projection_borders = {
             'radial distance': (690, 870),  # in Mm
@@ -86,11 +104,14 @@ class OrthographicalProjection:
 
         # SETUP paths
         self.paths = self.path_setup()
+        # SERVER connection
+        if self.in_local:
+            from common.server_connection import SSHMirroredFilesystem
+            self.SSHMirroredFilesystem = SSHMirroredFilesystem
         # GLOBAL data
         self.global_data = self.global_information()
-        # Get sdo image paths
-        self.sdo_timestamps = self.SDO_image_finder()
-
+        # PATHS sdo image
+        self.sdo_timestamps = self.sdo_image_finder()
         # RUN code
         self.multiprocessing_all()
 
@@ -105,15 +126,16 @@ class OrthographicalProjection:
             dict[str, str]: the needed paths.
         """
 
-        # Check main path
+        # PATH check
         main_path = '/home/avoyeux/Documents/avoyeux/'
         if not os.path.exists(main_path): 
             main_path = '/home/avoyeux/old_project/avoyeux/'
             self.in_local = False
-        if not os.path.exists(main_path): raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
+        if not os.path.exists(main_path):
+            raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
         code_path = os.path.join(main_path, 'python_codes')
 
-        # Save paths
+        # PATHs save
         paths = {
             'main': main_path,
             'codes': code_path,
@@ -125,12 +147,12 @@ class OrthographicalProjection:
         os.makedirs(paths['save'], exist_ok=True)
         return paths
 
-    def plot_choices_creation(self, plot_choices: list[str]) -> dict[str, bool]:
+    def plot_choices_creation(self, plot_choices: str | list[str]) -> dict[str, bool]:
         """
         Creating a dictionary that chooses what to plot.
 
         Args:
-            plot_choices (list[str]): the list of the choices made in the plotting.
+            plot_choices (str | list[str]): choices made for the plotting.
 
         Raises:
             ValueError: if the plotting choice string is not recognised.
@@ -139,7 +161,9 @@ class OrthographicalProjection:
             dict[str, bool]: decides what will be plotted later on.
         """
 
-        # Initialisation of the possible choices
+        plot_choices = plot_choices if isinstance(plot_choices, list) else [plot_choices]
+
+        # CHOICES
         possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations']
         plot_choices_kwargs = {
             key: False 
@@ -155,7 +179,9 @@ class OrthographicalProjection:
         if 'envelope' in plot_choices: plot_choices_kwargs['polar'] = True
         return plot_choices_kwargs
 
-    def global_information(self) -> dict[str, tuple[list, list] | dict[str, list[str] | dict[str, int | float | str]]]:
+    def global_information(
+            self,
+        ) -> dict[str, tuple[list, list] | dict[str, list[str] | dict[str, int | float | str]]]:
 
         # GET envelope
         if self.plot_choices['envelope']:
@@ -219,7 +245,8 @@ class OrthographicalProjection:
         """
 
         # STATS data
-        with h5py.File(self.paths['data'], 'r') as H5PYFile: indexes = H5PYFile['Time indexes'][...]
+        with h5py.File(self.paths['data'], 'r') as H5PYFile:
+            indexes = H5PYFile['Time indexes'][...]
 
         # INFO multiprocessing
         data_len = len(indexes)
@@ -242,19 +269,16 @@ class OrthographicalProjection:
             processes[i] = p
         for p in processes: p.join()
 
-        if self.in_local: SSHMirroredFilesystem.cleanup()
+        if self.in_local: self.SSHMirroredFilesystem.cleanup()
 
-    def data_setup(
-            self,
-            input_queue: mp.queues.Queue,
-        ) -> None:
+    def data_setup(self, input_queue: mp.queues.Queue) -> None:
         """
         """
 
         # CONNECTION to server
-        if self.in_local: self.connection = SSHMirroredFilesystem(verbose=2)
+        if self.in_local: self.connection = self.SSHMirroredFilesystem(verbose=2)
         
-        # Open file
+        # DATA open
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
             # DATA paths
@@ -265,12 +289,13 @@ class OrthographicalProjection:
             )
 
             # GLOBAL data
-            dx = H5PYFile['dx'][0]
+            dx = H5PYFile['dx'][0].astype('float64')
+
             # BORDERS
             border_path = 'Filtered/' + self.data_type
-            xmin = H5PYFile[border_path + '/xmin'][...]
-            ymin = H5PYFile[border_path + '/ymin'][...]
-            zmin = H5PYFile[border_path + '/zmin'][...]
+            xmin = H5PYFile[border_path + '/xmin'][...].astype('float64')
+            ymin = H5PYFile[border_path + '/ymin'][...].astype('float64')
+            zmin = H5PYFile[border_path + '/zmin'][...].astype('float64')
 
             # POINTERS
             indexes = H5PYFile['Time indexes']
@@ -279,7 +304,9 @@ class OrthographicalProjection:
             no_duplicates = H5PYFile['Filtered/' + self.data_type + '/coords'] 
             cubes = H5PYFile[time_integrated_path + '/coords']
             interpolations = [
-                H5PYFile[time_integrated_path + f'/{polynomial_order}th order interpolation/raw_coords']
+                H5PYFile[
+                    time_integrated_path + f'/{polynomial_order}th order interpolation/raw_coords'
+                ]
                 for polynomial_order in self.polynomial_order
             ]
             
@@ -291,11 +318,11 @@ class OrthographicalProjection:
                 # DATA
                 index = indexes[process]
                 date = dates[index].decode('utf8')
-                sdo_pos = sdo_pos_list[index]
+                sdo_pos = sdo_pos_list[index].astype('float64')
                 no_duplicate = self.filter_data(no_duplicates, process)
                 cube = self.filter_data(cubes, process)
                 interpolation = [
-                    self.filter_data(interp, process)
+                    self.filter_data(interp, process)[::10]
                     for interp in interpolations
                 ]
 
@@ -312,26 +339,30 @@ class OrthographicalProjection:
 
                 sun_perimeter = 2 * np.pi * self.solar_r
                 data['d_theta'] = 360 / (sun_perimeter / data['dx'])
-                data['cube'] = self.matrix_rotation(self.cartesian_pos(cube, data), data['sdo_pos'])
-                data['no_duplicate'] = self.matrix_rotation(self.cartesian_pos(no_duplicate, data), data['sdo_pos'])
+                data['cube'] = self.get_polar_image(self.matrix_rotation(
+                    data=self.cartesian_pos(cube, data),
+                    sdo_pos=data['sdo_pos'],
+                ))
+                data['no_duplicate'] = self.get_polar_image(self.matrix_rotation(
+                    data=self.cartesian_pos(no_duplicate, data),
+                    sdo_pos=data['sdo_pos'],
+                ))
                 data['interpolation'] = [
-                    self.matrix_rotation(self.cartesian_pos(interp, data), data['sdo_pos'])
+                    self.get_polar_image_angles(self.matrix_rotation(
+                        data=self.cartesian_pos(interp, data),
+                        sdo_pos=data['sdo_pos'],
+                    ))
                     for interp in interpolation
                 ]
-
                 print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
                 self.plotting(data)
         
         if self.in_local: self.connection.close()
 
-    def filter_data(
-            self,
-            data: np.ndarray,
-            process: int,
-        ) -> np.ndarray:
+    def filter_data(self, data: np.ndarray, process: int) -> np.ndarray:
         
         data_filter = (data[0, :] == process)
-        return data[1:4, data_filter]
+        return data[1:4, data_filter].astype('float64')
 
     def cartesian_pos(
             self,
@@ -349,80 +380,137 @@ class OrthographicalProjection:
             np.ndarray: the corresponding heliographic cartesian positions.
         """
 
-        cubes_sparse_coords = data.astype('float64')
-
         # Initialisation
-        cubes_sparse_coords[0, :] = (cubes_sparse_coords[0, :] * data_info['dx'] + data_info['xmin']) 
-        cubes_sparse_coords[1, :] = (cubes_sparse_coords[1, :] * data_info['dx'] + data_info['ymin']) 
-        cubes_sparse_coords[2, :] = (cubes_sparse_coords[2, :] * data_info['dx'] + data_info['zmin'])
-        return cubes_sparse_coords
+        data[0, :] = data[0, :] * data_info['dx'] + data_info['xmin']
+        data[1, :] = data[1, :] * data_info['dx'] + data_info['ymin']
+        data[2, :] = data[2, :] * data_info['dx'] + data_info['zmin']
+        return data
 
-    def matrix_rotation(
-            self,
-            data: np.ndarray,
-            sdo_pos: np.ndarray,
-        ) -> np.ndarray:
+    def get_polar_image(self, data: tuple[np.ndarray, float]) -> np.ndarray:
+        
+        # DATA open
+        coords, z_norm = data
+        x, y, z = coords
 
-        # Get data
+        # IMAGE polar coordinates
+        rho_polar = np.arccos(z / np.sqrt(x**2 + y**2 + z**2))
+        theta_polar = (y / np.abs(y)) * np.arccos(x / np.sqrt(x**2 + y**2))
+        theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
+
+        # Changing units to km
+        rho_polar = np.tan(rho_polar) / z_norm
+        return np.stack([rho_polar, theta_polar], axis=0)
+    
+    def get_polar_image_angles(self, data: tuple[np.ndarray, float]) -> np.ndarray:
+        #TODO: add an explanation in the equation .md file.
+
+        # DATA open
+        coords, z_norm = data
+        x, y, z = coords
+
+        # COORDS spherical
+        rho_spherical = np.sqrt(x**2 + y**2 + z**2)
+        theta_spherical = np.arccos(z / rho_spherical)
+        phi_spherical = (y / np.abs(y)) * np.arccos(x / np.sqrt(x**2 + y**2))
+
+        # DIRECTIONS a_n = b_{n+1} - b{n}
+        rho_direction = rho_spherical[1:] - rho_spherical[:-1]
+        theta_direction = theta_spherical[1:] - theta_spherical[:-1]
+        phi_direction = phi_spherical[1:] - phi_spherical[:-1]
+
+        # ANGLE direction-rho_spherical
+        angle = np.arccos(
+            rho_direction / np.sqrt(rho_direction**2 + theta_direction**2 + phi_direction**2)
+        ) 
+
+        # ANGLE 0 to np.pi / 2
+        angle %= np.pi / 2
+
+        # ANGLE to image plane
+        angle = np.pi / 2 - angle
+
+        # ANGLE 0 to 1
+        angle /= np.max(angle)
+
+        # IMAGE polar
+        theta_polar = np.rad2deg((phi_spherical + 2 * np.pi) % (2 * np.pi))[:-1]
+        rho_polar = np.tan(theta_spherical)[:-1] / z_norm
+        return np.stack([rho_polar, theta_polar, angle], axis=0)
+
+    def matrix_rotation(self, data: np.ndarray, sdo_pos: np.ndarray) -> tuple[np.ndarray, float]:
+
+        # DATA open
         x, y, z = data
-
-        ####### Explained in markdown file ####### 
         a, b, c = - sdo_pos.astype('float64')
         sign = a / abs(a)
 
-        # Normalisation constants
+        # CONSTANTs normalisation
         new_N_x = 1 / np.sqrt(1 + b**2 / a**2 + ((a**2 + b**2) / (a * c))**2)
         new_N_y = a * c / np.sqrt(a**2 + b**2)
         new_N_z = 1 /  np.sqrt(a**2 + b**2 + c**2)
 
-        # Get new coordinates
+        # COORDS new
         new_x = 1 / new_N_x + sign * new_N_x * (x + y * b / a - z * (a**2 + b**2) / (a * c))
         new_y = 1 / new_N_y + sign * new_N_y * (-x * b / (a * c) + y / c)
         new_z = 1 / new_N_z + sign * new_N_z * (x * a + y * b + z * c)
-
-        rho_polar = np.arccos(new_z / np.sqrt(new_x**2 + new_y**2 + new_z**2))
-        theta_polar = (new_y / np.abs(new_y)) * np.arccos(new_x / np.sqrt(new_x**2 + new_y**2))
-        theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
-        ##########################################
-
-        # Changing units to km
-        rho_polar = np.tan(rho_polar) / new_N_z
-        return np.stack([rho_polar, theta_polar], axis=0)
+        
+        # DATA return
+        coords = np.stack([new_x, new_y, new_z], axis=0)
+        return coords, new_N_z
 
     @Decorators.running_time
-    def plotting(
-            self,
-            data_info: dict[str, int | float | list | np.ndarray]
-        ) -> None:
+    def plotting(self, data_info: dict[str, int | float | list | np.ndarray]) -> None:
         """
         """
 
-        if self.global_data['envelope'] is not None: middle_t_curve, envelope_y_x_curve = self.global_data['envelope']
+        if self.global_data['envelope'] is not None:
+            middle_t_curve, envelope_y_x_curve = self.global_data['envelope']
 
-        # Voxel positions
+        # VOXEL pos
         r_cube, theta_cube = data_info['cube']
         r_no_duplicate, theta_no_duplicate = data_info['no_duplicate']
-        x_interp, y_interp = [
+        x_interp, y_interp, ang_interp = [
             [
                 interp[i]
                 for interp in data_info['interpolation']
             ]
-            for i in range(2)
+            for i in range(3)
         ]
 
         # SDO polar projection plotting
         plt.figure(figsize=(14, 5))
         if self.plot_choices['envelope']: 
 
-            plt.plot(middle_t_curve[0], middle_t_curve[1], color='black', label='Middle path', **self.global_data['plot']['envelope'])
+            plt.plot(
+                middle_t_curve[0],
+                middle_t_curve[1],
+                color='black',
+                label='Middle path',
+                **self.global_data['plot']['envelope'],
+            )
             
             envelope = envelope_y_x_curve[0]
-            plt.plot(envelope[0], envelope[1], color='black', label='Envelope', **self.global_data['plot']['envelope'])
-            for envelope in envelope_y_x_curve[1:]: plt.plot(envelope[0], envelope[1], color='black', **self.global_data['plot']['envelope'])
+            plt.plot(
+                envelope[0],
+                envelope[1],
+                color='black',
+                label='Envelope',
+                **self.global_data['plot']['envelope'],
+            )
+            for envelope in envelope_y_x_curve[1:]:
+                plt.plot(
+                    envelope[0],
+                    envelope[1],
+                    color='black',
+                    **self.global_data['plot']['envelope'],
+                )
 
         if self.plot_choices['sdo image']: 
             # SDO mask
-            filepath = os.path.join(self.paths['sdo'], f"AIA_fullhead_{data_info['time index']:03d}.fits.gz")
+            filepath = os.path.join(
+                self.paths['sdo'],
+                f"AIA_fullhead_{data_info['time index']:03d}.fits.gz",
+            )
             polar_image_info = self.sdo_image(filepath)
             image = np.zeros(polar_image_info['image']['data'].shape)
             image[polar_image_info['image']['data'] > 0] = 1
@@ -436,20 +524,46 @@ class OrthographicalProjection:
 
             # Plot contours
             line = lines[0]
-            plt.plot(line[1], line[0], color='green', label='SDO mask contours', **self.global_data['plot']['contour'])
-            for line in lines[1:]: plt.plot(line[1], line[0], color='green', **self.global_data['plot']['contour'])
+            plt.plot(
+                line[1],
+                line[0],
+                color='green',
+                label='SDO mask contours',
+                **self.global_data['plot']['contour'],
+            )
+            for line in lines[1:]:
+                plt.plot(
+                    line[1],
+                    line[0],
+                    color='green',
+                    **self.global_data['plot']['contour'],
+                )
 
             # SDO image
             filepath = self.sdo_timestamps[data_info['date'][:-3]]
-            if not os.path.exists(filepath): filepath = self.connection.mirror(filepath, strip_level=1)
+            if not os.path.exists(filepath):
+                filepath = self.connection.mirror(filepath, strip_level=1)
             sdo_image_info = self.sdo_image(filepath)
 
-            plt.imshow(self.sdo_image_treatment(sdo_image_info['image']['data']), **self.global_data['plot']['image'])
+            plt.imshow(
+                self.sdo_image_treatment(sdo_image_info['image']['data']),
+                **self.global_data['plot']['image'],
+            )
 
             if self.plot_choices['cube']: 
                 image_shape = (
-                    int((self.projection_borders['radial distance'][1] - self.projection_borders['radial distance'][0]) * 1e3 / sdo_image_info['dx']),
-                    int((self.projection_borders['polar angle'][1] - self.projection_borders['polar angle'][0]) / sdo_image_info['d_theta']),
+                    int(
+                        (
+                            self.projection_borders['radial distance'][1] - 
+                            self.projection_borders['radial distance'][0]
+                        ) * 1e3 / sdo_image_info['dx']
+                    ),
+                    int(
+                        (
+                            self.projection_borders['polar angle'][1] -
+                            self.projection_borders['polar angle'][0]
+                        ) / sdo_image_info['d_theta']
+                    ),
                 )
 
                 # CONTOURS plot
@@ -475,19 +589,25 @@ class OrthographicalProjection:
         if self.plot_choices['interpolations']: 
             for i in range(len(data_info['interpolation'])):
                 # Get polar positions
-                r_interp, theta_interp = x_interp[i], y_interp[i]
+                r_interp, theta_interp, val_interp = x_interp[i], y_interp[i], ang_interp[i]
 
                 # Plot
                 plt.scatter(
                     theta_interp,
                     r_interp / 10**3,
                     label=f'{self.polynomial_order[i]}th order polynomial',
-                    color=self.global_data['plot']['colours'][i],
+                    c=val_interp,
                     **self.global_data['plot']['interpolation'],
                 )
 
-        plt.xlim(self.projection_borders['polar angle'][0], self.projection_borders['polar angle'][1])
-        plt.ylim(self.projection_borders['radial distance'][0], self.projection_borders['radial distance'][1])
+        plt.xlim(
+            self.projection_borders['polar angle'][0],
+            self.projection_borders['polar angle'][1],
+        )
+        plt.ylim(
+            self.projection_borders['radial distance'][0],
+            self.projection_borders['radial distance'][1],
+        )
         ax = plt.gca()
         ax.minorticks_on()
         ax.set_aspect('auto')
@@ -500,7 +620,7 @@ class OrthographicalProjection:
         plt.close()
 
         if self.verbose > 1: 
-            print(f"the image nb is {data_info['time index']}")
+            print(f"IMAGE nb {data_info['time index']}")
             print(f'SAVED - filename: {plot_name}', flush=self.flush)
 
     def plot_contours(
@@ -528,8 +648,15 @@ class OrthographicalProjection:
         # Plot
         if lines is not None:
             line = lines[0]
-            plt.plot(line[1], line[0], color=color, label=label, **self.global_data['plot']['contour'])
-            for line in lines: plt.plot(line[1], line[0], color=color, **self.global_data['plot']['contour'])
+            plt.plot(
+                line[1],
+                line[0],
+                color=color,
+                label=label,
+                **self.global_data['plot']['contour'],
+            )
+            for line in lines:
+                plt.plot(line[1], line[0], color=color, **self.global_data['plot']['contour'])
 
     def cube_contour(
             self,
@@ -572,9 +699,10 @@ class OrthographicalProjection:
             image: np.ndarray,
             dx: float,
             d_theta: float,
-    ) -> list[tuple[list[float], list[float]]]:
+        ) -> list[tuple[list[float], list[float]]]:
         """ #TODO: docstring
-        To get the contours in the final plot coordinates of a mask given the corresponding information.
+        To get the contours in the final plot coordinates of a mask given the corresponding
+        information.
 
         Args:
             image (np.ndarray): the mask.
@@ -595,25 +723,30 @@ class OrthographicalProjection:
         nw_lines = [None] * len(lines)
         for i, line in enumerate(lines):
             nw_lines[i] = ((
-                [self.projection_borders['radial distance'][0] + (value * dx) / 1e3 for value in line[0]],
-                [self.projection_borders['polar angle'][0] + (value * d_theta) for value in line[1]],
+                [
+                    self.projection_borders['radial distance'][0] + (value * dx) / 1e3
+                    for value in line[0]
+                ],
+                [
+                    self.projection_borders['polar angle'][0] + (value * d_theta)
+                    for value in line[1]
+                ],
             ))
         return nw_lines
 
-    def sdo_image(
-            self,
-            filepath: str,
-        ) -> dict[str | dict[str, float | np.ndarray], float]:
+    def sdo_image(self, filepath: str) -> dict[str | dict[str, float | np.ndarray], float]:
         """ #TODO: update docstring
-        To get the sdo image in polar coordinates and delimited by the final plot borders. Furthermore, needed information are also saved in the 
-        output, e.g. dx and d_theta for the created sdo image in polar coordinates.
+        To get the sdo image in polar coordinates and delimited by the final plot borders.
+        Furthermore, needed information are also saved in the output, e.g. dx and d_theta for the
+        created sdo image in polar coordinates.
 
         Args:
             filepath (str): the filepath to the corresponding sdo FITS file.
             projection_borders (dict[str, tuple[int, int]]): the plot borders.
 
         Returns:
-            dict[str, float | np.ndarray]: the polar sdo image with the necessary image information, e.g. dx and d_theta.
+            dict[str, float | np.ndarray]: the polar sdo image with the necessary image
+                information, e.g. dx and d_theta.
         """
 
         polar_image_info = CartesianToPolar.get_polar_image(
@@ -625,10 +758,7 @@ class OrthographicalProjection:
         )
         return polar_image_info
     
-    def sdo_image_treatment(
-            self,
-            image: np.ndarray,
-        ) -> np.ndarray:
+    def sdo_image_treatment(self, image: np.ndarray) -> np.ndarray:
         """ #TODO: dccstring
         Pre-treatment for the sdo image for better visualisation of the regions of interest.
 
@@ -650,9 +780,10 @@ class OrthographicalProjection:
         # Changing to log
         return np.log(image)
     
-    def SDO_image_finder(self) -> dict[str, str]:
+    def sdo_image_finder(self) -> dict[str, str]:
         """
-        To find the SDO image given its header timestamp and a list of corresponding paths to the corresponding fits file.
+        To find the SDO image given its header timestamp and a list of corresponding paths to the
+        corresponding fits file.
 
         Returns:
             dict[str, str]: the timestamps as keys with the item being the SDO image filepath.
@@ -683,13 +814,8 @@ if __name__ == '__main__':
         filename='sig1e20_leg20_lim0_03.h5',
         with_feet=True,
         verbose=2,
-        processes=2,
+        processes=50,
         polynomial_order=[4],
         plot_choices=['polar', 'cube', 'interpolations', 'envelope', 'sdo image'],
         flush=True,
     )
-
-
-
-
-
