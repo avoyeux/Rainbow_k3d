@@ -2,7 +2,7 @@
 To 3D visualise the rainbow filament data and the corresponding polynomial fitting.
 """
 
-# Imports
+# IMPORTs
 import os
 import re
 import k3d
@@ -15,9 +15,10 @@ import threading
 import typeguard
 import ipywidgets
 
+# IMPORTs alias
 import numpy as np
 
-# Personal imports
+# IMPORTs personal
 from common import Decorators
 
 

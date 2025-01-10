@@ -19,8 +19,9 @@ import multiprocessing.queues
 
 # IMPORTS personal
 from common import Decorators, Plot
-from extract_envelope import Envelope
-from cartesian_to_polar import CartesianToPolar
+from Projection.extract_envelope import Envelope
+from Projection.cartesian_to_polar import CartesianToPolar
+from Data.get_interpolation import GetCartesianProcessedInterpolation
 
 #TODO: need to check the memory consumption of my code. seems to be huge af. probably need the
 #np.unique earlier and keep the multiprocessing in one step for each image. 
@@ -69,8 +70,8 @@ class OrthographicalProjection:
                 function(s) that represent the fitting of the integrated 3D volume.
                 Defaults to [4, 5, 6].
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
-                the reprojection. The possible choices are:
-                ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations'].
+                the reprojection. The possible choices are:  #TODO: update docstring
+                ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolation'].
                 Defaults to ['polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial'].
             verbose (int, optional): gives the verbosity in the outputted prints. The higher the
                 value, the more prints. Starts at 0 for no prints. Defaults to 1.
@@ -164,7 +165,10 @@ class OrthographicalProjection:
         plot_choices = plot_choices if isinstance(plot_choices, list) else [plot_choices]
 
         # CHOICES
-        possibilities = ['polar', 'cartesian', 'cube', 'sdo image', 'envelope', 'interpolations']
+        possibilities = [
+            'polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
+            'envelope', 'interpolation',
+        ]
         plot_choices_kwargs = {
             key: False 
             for key in possibilities
@@ -200,11 +204,12 @@ class OrthographicalProjection:
             for _ in self.polynomial_order
         ]
 
-        # SETUP kwargs for final plots
+        # SETUP plots kwargs
         plot_kwargs = {
             'interpolation': {
+                'cmap': 'seismic',
                 's': 2,
-                'zorder': 2,
+                'zorder': 9,
             },
             'envelope': {
                 'linestyle': '--',
@@ -246,7 +251,7 @@ class OrthographicalProjection:
 
         # STATS data
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
-            indexes = H5PYFile['Time indexes'][...]
+            indexes: np.ndarray = H5PYFile['Time indexes'][...]
 
         # INFO multiprocessing
         data_len = len(indexes)
@@ -269,14 +274,14 @@ class OrthographicalProjection:
             processes[i] = p
         for p in processes: p.join()
 
-        if self.in_local: self.SSHMirroredFilesystem.cleanup()
+        if self.in_local: self.SSHMirroredFilesystem.cleanup(verbose=self.verbose)
 
     def data_setup(self, input_queue: mp.queues.Queue) -> None:
         """
         """
 
         # CONNECTION to server
-        if self.in_local: self.connection = self.SSHMirroredFilesystem(verbose=2)
+        if self.in_local: self.connection = self.SSHMirroredFilesystem(verbose=self.verbose)
         
         # DATA open
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
@@ -289,13 +294,13 @@ class OrthographicalProjection:
             )
 
             # GLOBAL data
-            dx = H5PYFile['dx'][0].astype('float64')
+            dx: float = H5PYFile['dx'][0].astype('float64')
 
             # BORDERS
             border_path = 'Filtered/' + self.data_type
-            xmin = H5PYFile[border_path + '/xmin'][...].astype('float64')
-            ymin = H5PYFile[border_path + '/ymin'][...].astype('float64')
-            zmin = H5PYFile[border_path + '/zmin'][...].astype('float64')
+            xmin: float = H5PYFile[border_path + '/xmin'][...].astype('float64')
+            ymin: float = H5PYFile[border_path + '/ymin'][...].astype('float64')
+            zmin: float = H5PYFile[border_path + '/zmin'][...].astype('float64')
 
             # POINTERS
             indexes = H5PYFile['Time indexes']
@@ -303,30 +308,41 @@ class OrthographicalProjection:
             sdo_pos_list = H5PYFile['SDO positions']
             no_duplicates = H5PYFile['Filtered/' + self.data_type + '/coords'] 
             cubes = H5PYFile[time_integrated_path + '/coords']
+
+            # INTERPOLATION reference
             interpolations = [
-                H5PYFile[
-                    time_integrated_path + f'/{polynomial_order}th order interpolation/raw_coords'
-                ]
+                GetCartesianProcessedInterpolation(
+                    interpolation_order=polynomial_order,
+                    integration_time=self.integration_time,
+                    number_of_points=200,
+                    borders={
+                        'dx': dx,
+                        'xmin': xmin,
+                        'ymin': ymin,
+                        'zmin': zmin,
+                    },
+                    data_type=self.data_type,
+                )
                 for polynomial_order in self.polynomial_order
             ]
             
             while True:
                 # INFO process 
-                process = input_queue.get()
+                process: int = input_queue.get()
                 if process is None: break
 
                 # DATA
-                index = indexes[process]
-                date = dates[index].decode('utf8')
-                sdo_pos = sdo_pos_list[index].astype('float64')
+                index: int = indexes[process]
+                date: str = dates[index].decode('utf8')
+                sdo_pos: np.ndarray = sdo_pos_list[index].astype('float64')
                 no_duplicate = self.filter_data(no_duplicates, process)
                 cube = self.filter_data(cubes, process)
                 interpolation = [
-                    self.filter_data(interp, process)[::10]
+                    interp.reprocessed_interpolation(process)
                     for interp in interpolations
                 ]
 
-                # Formatting data
+                # DATA formatting
                 data = {
                     'dx': dx,
                     'time index': index,
@@ -339,11 +355,11 @@ class OrthographicalProjection:
 
                 sun_perimeter = 2 * np.pi * self.solar_r
                 data['d_theta'] = 360 / (sun_perimeter / data['dx'])
-                data['cube'] = self.get_polar_image(self.matrix_rotation(
+                data['integration'] = self.get_polar_image(self.matrix_rotation(
                     data=self.cartesian_pos(cube, data),
                     sdo_pos=data['sdo_pos'],
                 ))
-                data['no_duplicate'] = self.get_polar_image(self.matrix_rotation(
+                data['no duplicate'] = self.get_polar_image(self.matrix_rotation(
                     data=self.cartesian_pos(no_duplicate, data),
                     sdo_pos=data['sdo_pos'],
                 ))
@@ -354,9 +370,10 @@ class OrthographicalProjection:
                     ))
                     for interp in interpolation
                 ]
-                print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
+                # print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
                 self.plotting(data)
         
+        for interp in interpolations: interp.close()
         if self.in_local: self.connection.close()
 
     def filter_data(self, data: np.ndarray, process: int) -> np.ndarray:
@@ -401,41 +418,34 @@ class OrthographicalProjection:
         rho_polar = np.tan(rho_polar) / z_norm
         return np.stack([rho_polar, theta_polar], axis=0)
     
+    def get_angles(self, coords: np.ndarray) -> np.ndarray:
+        
+        x, y, z = coords
+
+        # DIRECTIONS a_n = b_{n+1} - b{n}
+        x_direction = x[1:] - x[:-1]
+        y_direction = y[1:] - y[:-1]
+        z_direction = z[1:] - z[:-1]
+
+        # ANGLE rho - image plane
+        theta_spherical = np.arccos(
+            z_direction / np.sqrt(x_direction**2 + y_direction**2 + z_direction**2)
+        )
+        theta_spherical -= np.pi / 2
+        return np.rad2deg(theta_spherical)
+    
     def get_polar_image_angles(self, data: tuple[np.ndarray, float]) -> np.ndarray:
         #TODO: add an explanation in the equation .md file.
 
         # DATA open
-        coords, z_norm = data
-        x, y, z = coords
+        coords, _ = data
 
-        # COORDS spherical
-        rho_spherical = np.sqrt(x**2 + y**2 + z**2)
-        theta_spherical = np.arccos(z / rho_spherical)
-        phi_spherical = (y / np.abs(y)) * np.arccos(x / np.sqrt(x**2 + y**2))
+        # ANGLES
+        angles = self.get_angles(coords)
 
-        # DIRECTIONS a_n = b_{n+1} - b{n}
-        rho_direction = rho_spherical[1:] - rho_spherical[:-1]
-        theta_direction = theta_spherical[1:] - theta_spherical[:-1]
-        phi_direction = phi_spherical[1:] - phi_spherical[:-1]
-
-        # ANGLE direction-rho_spherical
-        angle = np.arccos(
-            rho_direction / np.sqrt(rho_direction**2 + theta_direction**2 + phi_direction**2)
-        ) 
-
-        # ANGLE 0 to np.pi / 2
-        angle %= np.pi / 2
-
-        # ANGLE to image plane
-        angle = np.pi / 2 - angle
-
-        # ANGLE 0 to 1
-        angle /= np.max(angle)
-
-        # IMAGE polar
-        theta_polar = np.rad2deg((phi_spherical + 2 * np.pi) % (2 * np.pi))[:-1]
-        rho_polar = np.tan(theta_spherical)[:-1] / z_norm
-        return np.stack([rho_polar, theta_polar, angle], axis=0)
+        # POLAR pos
+        rho_polar, theta_polar = self.get_polar_image(data)
+        return np.stack([rho_polar[:-1], theta_polar[:-1], angles], axis=0)
 
     def matrix_rotation(self, data: np.ndarray, sdo_pos: np.ndarray) -> tuple[np.ndarray, float]:
 
@@ -467,8 +477,8 @@ class OrthographicalProjection:
             middle_t_curve, envelope_y_x_curve = self.global_data['envelope']
 
         # VOXEL pos
-        r_cube, theta_cube = data_info['cube']
-        r_no_duplicate, theta_no_duplicate = data_info['no_duplicate']
+        r_cube, theta_cube = data_info['integration']
+        r_no_duplicate, theta_no_duplicate = data_info['no duplicate']
         x_interp, y_interp, ang_interp = [
             [
                 interp[i]
@@ -476,6 +486,22 @@ class OrthographicalProjection:
             ]
             for i in range(3)
         ]
+
+        # IMAGE shape
+        image_shape = (
+            int(
+                (
+                    self.projection_borders['radial distance'][1] - 
+                    self.projection_borders['radial distance'][0]
+                ) * 1e3 / data_info['dx']
+            ),
+            int(
+                (
+                    self.projection_borders['polar angle'][1] -
+                    self.projection_borders['polar angle'][0]
+                ) / data_info['d_theta']
+            ),
+        )
 
         # SDO polar projection plotting
         plt.figure(figsize=(14, 5))
@@ -505,7 +531,7 @@ class OrthographicalProjection:
                     **self.global_data['plot']['envelope'],
                 )
 
-        if self.plot_choices['sdo image']: 
+        if self.plot_choices['sdo mask']: 
             # SDO mask
             filepath = os.path.join(
                 self.paths['sdo'],
@@ -539,10 +565,10 @@ class OrthographicalProjection:
                     **self.global_data['plot']['contour'],
                 )
 
+        if self.plot_choices['sdo image']:
             # SDO image
             filepath = self.sdo_timestamps[data_info['date'][:-3]]
-            if not os.path.exists(filepath):
-                filepath = self.connection.mirror(filepath, strip_level=1)
+            if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
             sdo_image_info = self.sdo_image(filepath)
 
             plt.imshow(
@@ -550,55 +576,44 @@ class OrthographicalProjection:
                 **self.global_data['plot']['image'],
             )
 
-            if self.plot_choices['cube']: 
-                image_shape = (
-                    int(
-                        (
-                            self.projection_borders['radial distance'][1] - 
-                            self.projection_borders['radial distance'][0]
-                        ) * 1e3 / sdo_image_info['dx']
-                    ),
-                    int(
-                        (
-                            self.projection_borders['polar angle'][1] -
-                            self.projection_borders['polar angle'][0]
-                        ) / sdo_image_info['d_theta']
-                    ),
-                )
-
-                # CONTOURS plot
-                self.plot_contours(
-                    rho=r_cube,
-                    theta=theta_cube,
-                    d_theta=data_info['d_theta'],
-                    dx=data_info['dx'],
-                    image_shape=image_shape,
-                    color='red',
-                    label='time integrated contours',
-                )
-                self.plot_contours(
-                    rho=r_no_duplicate,
-                    theta=theta_no_duplicate,
-                    d_theta=data_info['d_theta'],
-                    dx=data_info['dx'],
-                    image_shape=image_shape,
-                    color='orange',
-                    label='no duplicate contours',
-                )
-                
-        if self.plot_choices['interpolations']: 
+        if self.plot_choices['integration']: 
+            # PLOT contours time integrated
+            self.plot_contours(
+                rho=r_cube,
+                theta=theta_cube,
+                d_theta=data_info['d_theta'],
+                dx=data_info['dx'],
+                image_shape=image_shape,
+                color='red',
+                label='time integrated contours',
+            )
+        
+        if self.plot_choices['no duplicate']:
+            self.plot_contours(
+                rho=r_no_duplicate,
+                theta=theta_no_duplicate,
+                d_theta=data_info['d_theta'],
+                dx=data_info['dx'],
+                image_shape=image_shape,
+                color='orange',
+                label='no duplicate contours',
+            )
+        
+        if self.plot_choices['interpolation']: 
             for i in range(len(data_info['interpolation'])):
                 # Get polar positions
                 r_interp, theta_interp, val_interp = x_interp[i], y_interp[i], ang_interp[i]
 
                 # Plot
-                plt.scatter(
+                sc = plt.scatter(
                     theta_interp,
                     r_interp / 10**3,
                     label=f'{self.polynomial_order[i]}th order polynomial',
                     c=val_interp,
                     **self.global_data['plot']['interpolation'],
                 )
+                cbar = plt.colorbar(sc)
+                cbar.set_label('Angles (degrees)')
 
         plt.xlim(
             self.projection_borders['polar angle'][0],
@@ -814,8 +829,10 @@ if __name__ == '__main__':
         filename='sig1e20_leg20_lim0_03.h5',
         with_feet=True,
         verbose=2,
-        processes=50,
+        processes=4,
         polynomial_order=[4],
-        plot_choices=['polar', 'cube', 'interpolations', 'envelope', 'sdo image'],
+        plot_choices=[
+            'polar', 'no duplicate', 'sdo mask', 'interpolation', 'sdo image',
+        ],
         flush=True,
     )

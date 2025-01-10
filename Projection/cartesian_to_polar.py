@@ -124,10 +124,8 @@ class CartesianToPolar:
         """
 
         # Setup image shape depending on dx and dtheta
-        theta_nb_pixels = round(360 / self.data_info['d_theta'])  #TODO: je fais la meme erreur que la derniere fois avec dtetha qui depend du rayon du soleil et pas du theta du FITS.
+        theta_nb_pixels = round(360 / self.data_info['d_theta'])
         radial_nb_pixels = round(max(self.borders['radial distance']) * 1e3 / self.data_info['dx'])
-
-        # print(f"nb of pixels in theta is {theta_nb_pixels} and radial is {radial_nb_pixels}", flush=True)
 
         # Re-calculating dx and dtheta as round() needed to be used.
         new_d_theta = 360 / theta_nb_pixels  

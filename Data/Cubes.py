@@ -1,6 +1,7 @@
 """
 To create the HDF5 data files with the cubes data and metadata.
-A lot of different data is saved in the file to make any further manipulation or visualisation more easy.
+A lot of different data is saved in the file to make any further manipulation or visualisation more
+easy.
 """
 
 # IMPORTS
@@ -40,7 +41,7 @@ class DataSaver:
         integration_time: int | list[int] = [24],
         interpolation_points: float = 10**6, 
         interpolation_order: int | list[int] = [2, 3, 4],
-        feet_lonlat: tuple[tuple[int, int], ...] = ((-177, 14.5), (-163.5, -16.5)),
+        feet_lonlat: tuple[tuple[int | float, int | float], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: int | float = 1e-4,
         south_leg_sigma: int | float = 5,
         leg_threshold: float = 0.03,
@@ -53,24 +54,34 @@ class DataSaver:
         Args:
             filename (str): the filename of the file to be saved.
             processes (int): the number of processes used in the multiprocessed parts
-            integration_time (int | list[int], optional): the time or times in hours used in the time integration of the data. Defaults to [24].
-            interpolation_points (float, optional): the number of points used when recreating the polynomial gotten from the curve fitting 
-                of the data. Defaults to 10**6.
-            interpolation_order (int | list[int], optional): the order or orders used for the polynomial that fits the data.
-                Defaults to [4, 5, 6].
-            feet_lonlat (tuple[tuple[int, int], ...], optional): the positions of the feet in Heliographic Carrington.
-                Defaults to ((-177, 15), (-163, -16)).
-            feet_sigma (float, optional): the sigma uncertainty in the feet used during the curve fitting of the data points. Defaults to 1e-4.
-            full (bool, optional): deciding to save all the data. In the case when 'full' is True, the raw coordinates of the polynomial curve are also
-                saved, where as only the indexes that can be directly used as coords in a sparse.COO object. Defaults to False.
+            integration_time (int | list[int], optional): the time or times in hours used in the
+                time integration of the data. Defaults to [24].
+            interpolation_points (float, optional): the number of points used when recreating the
+                polynomial gotten from the curve fitting of the data. Defaults to 10**6.
+            interpolation_order (int | list[int], optional): the order or orders used for the
+                polynomial that fits the data. Defaults to [4, 5, 6].
+            feet_lonlat (tuple[tuple[int, int], ...], optional): the positions of the feet in
+                Heliographic Carrington. Defaults to ((-177, 15), (-163, -16)).
+            feet_sigma (float, optional): the sigma uncertainty in the feet used during the curve
+                fitting of the data points. Defaults to 1e-4.
+            full (bool, optional): deciding to save all the data. In the case when 'full' is True,
+                the raw coordinates of the polynomial curve are also saved, where as only the
+                indexes that can be directly used as coords in a sparse.COO object.
+                Defaults to False.
         """
 
         # Initial attributes
         self.filename = filename
         self.processes = processes
-        self.integration_time = [integration_time * 3600] if isinstance(integration_time, int) else [time * 3600 for time in integration_time]
+        if isinstance(integration_time, int):
+            self.integration_time = [integration_time * 3600]
+        else:
+            self.integration_time = [time * 3600 for time in integration_time]
+        if isinstance(interpolation_order, list):
+            self.interpolation_order = interpolation_order
+        else:
+            self.interpolation_order = [interpolation_order]
         self.interpolation_points = interpolation_points
-        self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
         self.feet_sigma = feet_sigma
         self.south_leg_sigma = south_leg_sigma
         self.leg_threshold = leg_threshold
@@ -123,17 +134,21 @@ class DataSaver:
         The regular expression patterns used.
 
         Returns:
-            tuple[re.Pattern[str], re.Pattern[str]]: the regular expression patterns for the .save cubes and the intensities STEREO B 30.4nm.
+            tuple[re.Pattern[str], re.Pattern[str]]: the regular expression patterns for the .save
+                cubes and the intensities STEREO B 30.4nm.
         """
 
         # Patterns
         cube_pattern = re.compile(r'cube(\d{3})\.save')
-        date_pattern = re.compile(r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png')
+        date_pattern = re.compile(
+            r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png'
+        )
         return cube_pattern, date_pattern
     
     def setup_attributes(self):
         """
-        Multiple instance attributes are defined here. Function is only here to not flood the __init__ method.
+        Multiple instance attributes are defined here. Function is only here to not flood the
+        __init__ method.
         """
         
         # Paths
@@ -169,16 +184,23 @@ class DataSaver:
         year = treated_dates[0].year
         days_per_month = DatesUtils.days_per_month(year)
         self.dates_seconds = [
-            (((days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute) * 60 + date.second
+            ((
+                ((days_per_month[date.month] + date.day) * 24 + date.hour) * 60 + date.minute
+            ) * 60 + date.second)
             for date in treated_dates
         ]
 
-    def setup_feet(self, lonlat: tuple[tuple[int, int], ...]) -> astropy.coordinates.SkyCoord:
+    def setup_feet(
+            self,
+            lonlat: tuple[tuple[int | float, int | float], ...],
+        ) -> astropy.coordinates.SkyCoord:
         """
-        Gives the 2 feet positions as an astropy.coordinates.SkyCoord object in Carrington Heliographic Coordinates. 
+        Gives the 2 feet positions as an astropy.coordinates.SkyCoord object in Carrington
+        Heliographic Coordinates. 
 
         Args:
-            lonlat (tuple[tuple[int, int], ...]): the longitude and latitude positions for the added feet (i.e. ((lon1, lat1), (lon2, lat2))).
+            lonlat (tuple[tuple[int, int], ...]): the longitude and latitude positions for the
+                added feet (i.e. ((lon1, lat1), (lon2, lat2))).
 
         Returns:
             coordinates.SkyCoord: the SkyCoord for the feet.
@@ -191,17 +213,27 @@ class DataSaver:
         feet_pos[2, :] = self.solar_r
 
         # Creating the feet
-        feet = astropy.coordinates.SkyCoord(feet_pos[0, :] * u.deg, feet_pos[1, :] * u.deg, feet_pos[2, :] * u.km,
-                                    frame=sunpy.coordinates.frames.HeliographicCarrington)
+        feet = astropy.coordinates.SkyCoord(
+            feet_pos[0, :] * u.deg,
+            feet_pos[1, :] * u.deg,
+            feet_pos[2, :] * u.km,
+            frame=sunpy.coordinates.frames.HeliographicCarrington,
+        )
         cartesian_feet = feet.represent_as(astropy.coordinates.CartesianRepresentation)
-        return astropy.coordinates.SkyCoord(cartesian_feet, frame=feet.frame, representation_type='cartesian')
+        feet = astropy.coordinates.SkyCoord(
+            cartesian_feet,
+            frame=feet.frame,
+            representation_type='cartesian',
+        )
+        return feet
     
     def get_cube_dates_info(self) -> dict[str, dict[str, str | np.ndarray]]:
         """
         Gives the cube numbers and dates information. 
 
         Returns:
-            dict[str, dict[str, str | np.ndarray]]: the data and metadata for the cube numbers and dates.
+            dict[str, dict[str, str | np.ndarray]]: the data and metadata for the cube numbers and
+                dates.
         """
 
         # Add metadata
@@ -209,16 +241,19 @@ class DataSaver:
             'data': np.array(self.cube_numbers).astype('uint16'),
             'unit': 'none',
             'description': (
-                "The time indexes for the data cubes that are used in this file. This value is used to filter which dates (using the dates dataset) and where "
-                "the satellite is positioned (using the 'SDO positions' and 'STEREO B positions' datasets)."
+                "The time indexes for the data cubes that are used in this file. This value is "
+                "used to filter which dates (using the dates dataset) and where the satellite is "
+                "positioned (using the 'SDO positions' and 'STEREO B positions' datasets)."
             ),
         }
         cube_dates_info = {
             'data': np.array(self.dates).astype('S19'),
             'unit': 'none',
             'description': (
-                "The dates of the STEREO B 30.4nm acquisitions. These represent all the possible dates, and as such, to get the specific date for each data cube "
-                "used the time index dataset needs to be used (something like Dates[Time indexes] will give you the right dates if in 0 indexing)."
+                "The dates of the STEREO B 30.4nm acquisitions. These represent all the possible "
+                "dates, and as such, to get the specific date for each data cube used the time "
+                "index dataset needs to be used (something like Dates[Time indexes] will give you "
+                "the right dates if in 0 indexing)."
             ),
         }
         
@@ -256,7 +291,10 @@ class DataSaver:
             # Interpolation data and metadata
             H5PYFile = self.interpolation_group(H5PYFile)
 
-    def create_borders(self, values: tuple[float, ...]) -> tuple[dict[str, str | float], dict[str, dict[str, str | float]]]:
+    def create_borders(
+            self,
+            values: tuple[float, ...],
+        ) -> tuple[dict[str, str | float], dict[str, dict[str, str | float]]]:
         """
         Gives the border information for the data.
 
@@ -264,7 +302,8 @@ class DataSaver:
             values (tuple[float, ...]): the dx, xmin, ymin, zmin value in km.
 
         Returns:
-            tuple[dict[str, any], dict[str, dict[str, any]]]: the data and metadata for the data borders.
+            tuple[dict[str, any], dict[str, dict[str, any]]]: the data and metadata for the data
+                borders.
         """
 
         # Data and metadata
@@ -277,20 +316,29 @@ class DataSaver:
             'xmin': {
                 'data': np.array(values[1], dtype='float32'),
                 'unit': 'km',
-                'description': ("The minimum X-axis Carrington Heliographic Coordinates value for each data cube.\n"
-                                "The X-axis in Carrington Heliographic Coordinates points towards the First Point of Aries."),
+                'description': (
+                    "The minimum X-axis Carrington Heliographic Coordinates value for each data "
+                    "cube.\nThe X-axis in Carrington Heliographic Coordinates points towards the "
+                    "First Point of Aries."
+                ),
             }, 
             'ymin': {
                 'data': np.array(values[2], dtype='float32'),
                 'unit': 'km',
-                'description': ("The minimum Y-axis Carrington Heliographic Coordinates value for each data cube.\n"
-                                "The Y-axis in Carrington Heliographic Coordinates points towards the ecliptic's eastern horizon."),
+                'description': (
+                    "The minimum Y-axis Carrington Heliographic Coordinates value for each data "
+                    "cube.\nThe Y-axis in Carrington Heliographic Coordinates points towards the "
+                    "ecliptic's eastern horizon."
+                ),
             },
             'zmin': {
                 'data': np.array(values[3], dtype='float32'),
                 'unit': 'km',
-                'description': ("The minimum Z-axis Carrington Heliographic Coordinates value for each data cube.\n"
-                                "The Z-axis in Carrington Heliographic Coordinates points towards Sun's north pole."),
+                'description': (
+                    "The minimum Z-axis Carrington Heliographic Coordinates value for each data "
+                    "cube.\nThe Z-axis in Carrington Heliographic Coordinates points towards Sun's "
+                    "north pole."
+                ),
             },
         }
         return dx, info
@@ -307,14 +355,17 @@ class DataSaver:
         """
 
         description = (
-            "Contains the data cubes for the Solar Rainbow event gotten from the intersection of masks gotten from SDO and STEREO images.The SDO masks "
-            "were created from an automatic code created by Dr. Elie Soubrie, while the STEREO masks where manually created by Dr. Karine Bocchialini "
-            "by visual interpretation of the 30.4nm STEREO B acquisitions.\n"
-            "New values for the feet where added to help for a curve fitting of the filament. These were added by looking at the STEREO B [...] nm images "
-            "as the ends of the filament are more visible. Hence, the feet are not actually visible in the initial masks.\n"
-            "Explanation on what each HDF5 group or dataset represent is given in the corresponding 'description' attribute."
+            "Contains the data cubes for the Solar Rainbow event gotten from the intersection of "
+            "masks gotten from SDO and STEREO images.The SDO masks were created from an automatic "
+            "code created by Dr. Elie Soubrie, while the STEREO masks where manually created by "
+            "Dr. Karine Bocchialini by visual interpretation of the 30.4nm STEREO B acquisitions."
+            "\nNew values for the feet where added to help for a curve fitting of the filament. "
+            "These were added by looking at the STEREO B [...] nm images as the ends of the "
+            "filament are more visible. Hence, the feet are not actually visible in the initial "
+            "masks.\nExplanation on what each HDF5 group or dataset represent is given in the "
+            "corresponding 'description' attribute."
         )
-        #TODO: need to finish the explanation here and also explain that the data is saved as sparse arrays.
+        #TODO: finish explanation here explain that the data is saved as sparse arrays.
 
         info = {
             'author': 'Voyeux Alfred',
@@ -359,10 +410,12 @@ class DataSaver:
             'data': coordinates.astype('float32'),
             'unit': 'km',
             'description': (
-                "The position of the SDO satellite during the observations in cartesian heliocentric coordinates.\n"
-                "The shape of the data is (413, 3) where 413 represents the time indexes for the data and the 3 the x, y, z position of the satellite. "
-                "To find the right position for the right data cube, you need to use the 'Time indexes' dataset as they represent which time indexes we "
-                "have usable data."
+                "The position of the SDO satellite during the observations in cartesian "
+                "heliocentric coordinates.\nThe shape of the data is (413, 3) where 413 "
+                "represents the time indexes for the data and the 3 the x, y, z position of the "
+                "satellite. To find the right position for the right data cube, you need to use "
+                "the 'Time indexes' dataset as they represent which time indexes we have usable "
+                "data."
             ),
         }
         return information
@@ -377,7 +430,9 @@ class DataSaver:
         """
 
         # Get data
-        stereo_information = scipy.io.readsav(os.path.join(self.paths['main'], 'rainbow_stereob_304.save')).datainfos
+        stereo_information = scipy.io.readsav(
+            os.path.join(self.paths['main'], 'rainbow_stereob_304.save')
+        ).datainfos
 
         # Get results
         coordinates = self.get_pos_code(stereo_information, self.get_pos_stereo_sub)
@@ -387,21 +442,28 @@ class DataSaver:
             'data': coordinates.astype('float32'),
             'unit': 'km',
             'description': (
-                "The position of the STEREO B satellite during the observations in cartesian heliocentric coordinates.\n"
-                "The shape of the data is (413, 3) where 413 represents the time indexes for the data and the 3 the x, y, z position of the satellite. "
-                "To find the right position for the right data cube, you need to use the 'Time indexes' dataset as they represent which time indexes we "
-                "have usable data."
+                "The position of the STEREO B satellite during the observations in cartesian "
+                "heliocentric coordinates.\nThe shape of the data is (413, 3) where 413 "
+                "represents the time indexes for the data and the 3 the x, y, z position of the "
+                "satellite. To find the right position for the right data cube, you need to use "
+                "the 'Time indexes' dataset as they represent which time indexes we have usable "
+                "data."
             ),          
         }
         return information
 
-    def get_pos_code(self, data: np.recarray | list[str], function: typing.Callable[[], np.ndarray]) -> np.ndarray:
+    def get_pos_code(
+            self,
+            data: np.recarray | list[str],
+            function: typing.Callable[[], np.ndarray]
+        ) -> np.ndarray:
         """
         To multiprocess the getting of the positions of the SDO and STEREO B satellites.
 
         Args:
             data (np.recarray | list[str]): the data information for SDO or STEREO B.
-            function (typing.Callable[[], np.ndarray]): the function used for each process to get the position of the satellite.
+            function (typing.Callable[[], np.ndarray]): the function used for each process to get
+                the position of the satellite.
 
         Returns:
             np.ndarray: the position of the satellite in cartesian heliocentric coordinates.
@@ -435,7 +497,8 @@ class DataSaver:
         To get the position of the SDO satellite.
 
         Args:
-            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for identification and SDO information.
+            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for
+                identification and SDO information.
             output_queue (mp.queues.Queue): to save the results outside the function.
         """
         
@@ -455,7 +518,11 @@ class DataSaver:
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
             # In km
-            result = np.array([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value])
+            result = np.array([
+                coords.x.to(u.km).value,
+                coords.y.to(u.km).value,
+                coords.z.to(u.km).value,
+            ])
             output_queue.put((identification, result))
         
     @staticmethod
@@ -464,7 +531,8 @@ class DataSaver:
         To get the position of the STEREO B satellite.
 
         Args:
-            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for identification and SDO information.
+            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for
+                identification and SDO information.
             output_queue (mp.queues.Queue): to save the results outside the function.
         """
 
@@ -476,26 +544,40 @@ class DataSaver:
             
             # Get positions
             date = CustomDate(information_recarray.strdate)
-            stereo_date = f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
+            stereo_date = (
+                f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
+            )
             coords = sunpy.coordinates.frames.HeliographicCarrington(
-                information_recarray.lon * u.deg, information_recarray.lat * u.deg, information_recarray.dist * u.km,
+                information_recarray.lon * u.deg,
+                information_recarray.lat * u.deg,
+                information_recarray.dist * u.km,
                 obstime=stereo_date,
                 observer='self',
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
             # In km
-            result = np.array([coords.x.to(u.km).value, coords.y.to(u.km).value, coords.z.to(u.km).value])
+            result = np.array([
+                coords.x.to(u.km).value,
+                coords.y.to(u.km).value,
+                coords.z.to(u.km).value,
+            ])
             output_queue.put((identification, result))
 
-    def add_dataset(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str = '') -> h5py.File | h5py.Group:
+    def add_dataset(
+            self,
+            group: h5py.File | h5py.Group,
+            info: dict[str, any],
+            name: str = '',
+        ) -> h5py.File | h5py.Group:
         """
         Adds a DataSet to a HDF5 group like object.
 
         Args:
             group (h5py.File | h5py.Group): the HDF5 group like object.
             info (dict[str, any]): the information to add in the DataSet.
-            name (str, optional): the name of the DataSet to add. Defaults to '' (then the attributes are directly added to the group).
+            name (str, optional): the name of the DataSet to add. Defaults to '' (then the
+                attributes are directly added to the group).
 
         Returns:
             h5py.File | h5py.Group: the input group like object with the added DataSet.
@@ -507,19 +589,29 @@ class DataSaver:
             if not isinstance(item, str): stopped = True; break
         if not stopped: key = ''  # No Datasets. Add attribute to group
 
-        dataset = group.require_dataset(name, shape=info[key].shape, dtype=info[key].dtype, data=info[key]) if (name != '') or (key != '') else group
+        dataset = group.require_dataset(
+            name,
+            shape=info[key].shape,
+            dtype=info[key].dtype,
+            data=info[key],
+        ) if (name != '') or (key != '') else group
         for attrs_key, item in info.items():
             if key==attrs_key: continue
             dataset.attrs[attrs_key] = item 
         return group
     
-    def add_group(self, group: h5py.File | h5py.Group, info: dict[str, any], name: str) -> h5py.File | h5py.Group:
+    def add_group(
+            self,
+            group: h5py.File | h5py.Group,
+            info: dict[str, any],
+            name: str,
+        ) -> h5py.File | h5py.Group:
         """
         Adds a group with the corresponding DataSets to a HDF5 group like object.
 
         Args:
             group (h5py.File | h5py.Group): the HDF5 group like object.
-            info (dict[str, str  |  dict[str  |  any]]): the information  and data to add in the group.
+            info (dict[str, str | dict[str | any]]): the information  and data to add in the group.
             name (str): the name of the group.
 
         Returns:
@@ -527,7 +619,8 @@ class DataSaver:
         """
 
         # print(f'the type of the input is {type(info)}')
-        if not all(isinstance(value, (str, dict)) for value in info.values()):  #TODO: will need to change this later if I get datasets without attributes
+        if not all(isinstance(value, (str, dict)) for value in info.values()):
+            #TODO: will need to change this later if I get datasets without attributes
             group = self.add_dataset(group, info, name)
         else:
             new_group = group.require_group(name)
@@ -539,13 +632,19 @@ class DataSaver:
         return group
     
     @Decorators.running_time
-    def raw_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
+    def raw_group(
+            self,
+            H5PYFile: h5py.File,
+            borders: dict[str, dict[str, str | float]],
+        ) -> h5py.File:
         """
-        To create the initial h5py.Group object; where the raw data (with/without feet and/or in Carrington Heliographic Coordinates).
+        To create the initial h5py.Group object; where the raw data (with/without feet and/or in
+        Carrington Heliographic Coordinates).
 
         Args:
             H5PYFile (h5py.File): the opened file pointer.
-            borders (dict[str, dict[str, str | float]]): the border info (i.e. x_min, etc.) for the given data.
+            borders (dict[str, dict[str, str | float]]): the border info (i.e. x_min, etc.) for the
+                given data.
 
         Returns:
             h5py.File: the opened file pointer and the new data border information.
@@ -557,51 +656,75 @@ class DataSaver:
         # Setup group
         group = H5PYFile.create_group('Raw')
         group.attrs['description'] = (
-            "The filament voxels in sparse COO format (i.e. with a coords and values arrays) of the initial cubes gotten from Dr. Karine [...]'s work.\n"
-            "Furthermore, the necessary information to be able to position the filament relative to the Sun are also available. "
-            "Both cubes, with or without feet, are inside this group."
+            "The filament voxels in sparse COO format (i.e. with a coords and values arrays) of "
+            "the initial cubes gotten from Dr. Karine [...]'s work.\n Furthermore, the necessary "
+            "information to be able to position the filament relative to the Sun are also "
+            "available. Both cubes, with or without feet, are inside this group."
         )
 
         # Add raw cubes group
         group = self.add_cube(group, data, 'Raw cubes', borders)
-        group['Raw cubes'].attrs['description'] = "The initial voxel data in COO format without the feet for the interpolation."
+        group['Raw cubes'].attrs['description'] = (
+            "The initial voxel data in COO format without the feet for the interpolation."
+        )
         group['Raw cubes/values'].attrs['description'] = (
-            "The values for each voxel as a 1D numpy array, in the same order than the coordinates given in the 'coords' group.\n"
-            "Each specific bit set to 1 in these uint8 values represent a specific information on the voxel. Hence, you can easily filter these values given which "
-            "bit is set to 1.\n"
-            "The value information is as follows:\n"
-            "-0b" + "0" * 7 + "1 represents the intersection between the STEREO and SDO point of views regardless if the voxel is a duplicate or not.\n"
-            "-0b" + "0" * 6 + "10 represents the no duplicates regions from STEREO's point of view.\n"
-            "-0b" + "0" * 5 + "100 represents the no duplicates regions from SDO's point of view.\n"
-            "-0b" + "0" * 4 + "1000 represents the no duplicates data from STEREO's point of view. This takes into account if a region has a bifurcation.\n"
-            "-0b0001" + "0" * 4 + " represents the no duplicates data from SDO's point of view. This takes into account if a region has a bifurcation.\n"
+            "The values for each voxel as a 1D numpy array, in the same order than the "
+            "coordinates given in the 'coords' group.\nEach specific bit set to 1 in these uint8 "
+            "values represent a specific information on the voxel. Hence, you can easily filter "
+            "these values given which bit is set to 1.\nThe value information is as follows:\n"
+            "-0b" + "0" * 7 + "1 represents the intersection between the STEREO and SDO point of "
+            "views regardless if the voxel is a duplicate or not.\n"
+            "-0b" + "0" * 6 + "10 represents the no duplicates regions from STEREO's point of "
+            "view.\n"
+            "-0b" + "0" * 5 + "100 represents the no duplicates regions from SDO's point of "
+            "view.\n"
+            "-0b" + "0" * 4 + "1000 represents the no duplicates data from STEREO's point of "
+            "view. This takes into account if a region has a bifurcation.\n"
+            "-0b0001" + "0" * 4 + " represents the no duplicates data from SDO's point of view. "
+            "This takes into account if a region has a bifurcation.\n"
             "-0b001" + "0" * 5 + " gives out the feet positions.\n"
-            "It is important to note the difference between the second/third bit being set to 1 or the fourth/fifth bit being set to 1. For the fourth and "
-            "fifth bit, the definition for a duplicate is more strict. It also takes into account if, in the same region (i.e. block of voxels that are in contact), "
-            "there is a bifurcation. If each branch of the bifurcation can be duplicates, then both branches are taken out (not true for the second/third bits as "
-            "the duplicate treatment is done region by region.\n"
-            "Furthermore, it is of course also possible to mix and match to get more varied datasets, e.g. -0b00011000 represents the no duplicates data."
+            "It is important to note the difference between the second/third bit being set to 1 "
+            "or the fourth/fifth bit being set to 1. For the fourth and fifth bit, the definition "
+            "for a duplicate is more strict. It also takes into account if, in the same region "
+            "(i.e. block of voxels that are in contact), there is a bifurcation. If each branch "
+            "of the bifurcation can be duplicates, then both branches are taken out (not true for "
+            "the second/third bits as the duplicate treatment is done region by region.\n"
+            "Furthermore, it is of course also possible to mix and match to get more varied "
+            "datasets, e.g. -0b00011000 represents the no duplicates data."
         )
 
         if self.full:
             # Add raw skycoords group
             group = self.add_skycoords(group, data, 'Raw coordinates', borders)
-            group['Raw coordinates'].attrs['description'] = 'The initial data saved as Carrington Heliographic Coordinates in km.'
+            group['Raw coordinates'].attrs['description'] = (
+                'The initial data saved as Carrington Heliographic Coordinates in km.'
+            )
 
         # Add raw feet
         data, borders = self.with_feet(data, borders)
         group = self.add_cube(group, data, 'Raw cubes with feet', borders)
-        group['Raw cubes with feet'].attrs['description'] = 'The initial raw data in COO format with the feet positions added.'
-        group['Raw cubes with feet/values'].attrs['description'] = group['Raw cubes/values'].attrs['description']
+        group['Raw cubes with feet'].attrs['description'] = (
+            'The initial raw data in COO format with the feet positions added.'
+        )
+        group['Raw cubes with feet/values'].attrs['description'] = (
+            group['Raw cubes/values'].attrs['description']
+        )
 
         if self.full:
             # Add raw skycoords with feet
             group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
-            group['Raw coordinates with feet'].attrs['description'] = 'The initial data with the feet positions added saved as Carrington Heliographic Coordinates in km.'
+            group['Raw coordinates with feet'].attrs['description'] = (
+                "The initial data with the feet positions added saved as Carrington Heliographic "
+                "Coordinates in km."
+            )
         return H5PYFile
     
     @Decorators.running_time
-    def filtered_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
+    def filtered_group(
+            self,
+            H5PYFile: h5py.File,
+            borders: dict[str, dict[str, str | float]],
+        ) -> h5py.File:
         """
         To filter the data and save it with feet.
 
@@ -616,8 +739,9 @@ class DataSaver:
         # Setup group
         group = H5PYFile.create_group('Filtered')
         group.attrs['description'] = (
-            "This group is based on the data from the 'Raw' HDF5 group. It is made up of already filtered data for easier use later but also to be able to add a "
-            "weight to the feet. Hence, the interpolation data for each filtered data group is also available."
+            "This group is based on the data from the 'Raw' HDF5 group. It is made up of already "
+            "filtered data for easier use later but also to be able to add a weight to the feet. "
+            "Hence, the interpolation data for each filtered data group is also available."
         )
 
         # Get data
@@ -630,18 +754,28 @@ class DataSaver:
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(group, filtered_data, f'All data{option}', new_borders)
             group[f'All data{option}'].attrs['description'] = (
-                f"All data, i.e. the 0b00000001 filtered data{option}. Hence, the data represents the intersection between the STEREO and SDO point of views.\n"
-                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
+                f"All data, i.e. the 0b00000001 filtered data{option}. Hence, the data represents "
+                "the intersection between the STEREO and SDO point of views.\n"
+                + (
+                    f"The feet are saved with a value corresponding to 0b00100000."
+                    if option != '' else ''
+                )
             )
 
             # Add no duplicates init
-            filtered_data = ((data & 0b00000110) == 0b00000110).astype('uint8') #TODO: the shape of the resulting data is weird, no clue why.
+            filtered_data = ((data & 0b00000110) == 0b00000110).astype('uint8')
+            #TODO: the shape of the resulting data is weird, no clue why.
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(group, data, f'No duplicates init{option}', new_borders)
             group[f'No duplicates init{option}'].attrs['description'] = (
-                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. Hence, the data represents all the data without the duplicates, "
-                "without taking into account if there are bifurcations in some of the regions. Therefore, some duplicates might still exist using this filtering.\n"
-                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
+                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. "
+                "Hence, the data represents all the data without the duplicates, without taking "
+                "into account if there are bifurcations in some of the regions. Therefore, some "
+                "duplicates might still exist using this filtering.\n"
+                + (
+                    f"The feet are saved with a value corresponding to 0b00100000."
+                    if option != '' else ''
+                )
             )
 
             # Add no duplicates new
@@ -649,9 +783,14 @@ class DataSaver:
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(group, filtered_data, f'No duplicates new{option}', new_borders)
             group[f'No duplicates new{option}'].attrs['description'] = (
-                f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, the data represents all the data without any of the duplicates. "
-                "Even the bifurcations are taken into account. No duplicates should exist in this filtering.\n"
-                + (f"The feet are saved with a value corresponding to 0b00100000." if option != '' else '')
+                f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, "
+                "the data represents all the data without any of the duplicates. Even the "
+                "bifurcations are taken into account. No duplicates should exist in this "
+                "filtering.\n"
+                + (
+                    f"The feet are saved with a value corresponding to 0b00100000."
+                    if option != '' else ''
+                )
             )
 
             # Add line of sight data
@@ -659,21 +798,28 @@ class DataSaver:
             if option != '': continue
             group = self.add_cube(group, filtered_data, f'SDO line of sight', new_borders)
             group[f'SDO line of sight'].attrs['description'] = (
-                "The SDO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data represents what is seen by SDO if represented in 3D inside the "
-                "space of the rainbow cube data. The limits of the borders are defined in the .save IDL code named new_toto.pro created by Dr. Frederic Auchere."
+                "The SDO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data "
+                "represents what is seen by SDO if represented in 3D inside the space of the "
+                "rainbow cube data. The limits of the borders are defined in the .save IDL code "
+                "named new_toto.pro created by Dr. Frederic Auchere."
             )
             filtered_data = ((data & 0b01000000) == 0b01000000).astype('uint8')
             group = self.add_cube(group, filtered_data, f'STEREO line of sight', new_borders)
             group[f'STEREO line of sight'].attrs['description'] = (
-                "The STEREO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data represents what is seen by STEREO if represented in 3D "
-                "inside the space of the rainbow cube data. The limits of the borders are defined in the .save IDL code named new_toto.pro "
-                "created by Dr. Frederic Auchere."
+                "The STEREO line of sight data, i.e. the 0b01000000 filtered data. Hence, this "
+                "data represents what is seen by STEREO if represented in 3D inside the space of "
+                "the rainbow cube data. The limits of the borders are defined in the .save IDL "
+                "code named new_toto.pro created by Dr. Frederic Auchere."
             )
             
         return H5PYFile
     
     @Decorators.running_time
-    def integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> h5py.File:
+    def integrated_group(
+            self,
+            H5PYFile: h5py.File,
+            borders: dict[str, dict[str, str | float]],
+        ) -> h5py.File:
         """
         To integrate the data and save it inside a specific HDF5 group.
 
@@ -705,7 +851,10 @@ class DataSaver:
             inside_group.attrs['description'] = (
                 f"This group only contains {option.lower()} time integrated data.\n"
                 f"To get border info, please refer to the Filtered/{option} data group."
-                + ("Furthermore, the feet are saved with values equal to 0b00100000." if 'with feet' in option else '')
+                + (
+                    "Furthermore, the feet are saved with values equal to 0b00100000."
+                    if 'with feet' in option else ''
+                )
             )
 
             # For each integration time
@@ -715,12 +864,18 @@ class DataSaver:
                 group_name = f'Time integration of {time_hours} hours'
 
                 # Get data
-                data = self.time_integration(H5PYFile, f'Filtered/{option}', integration_time, borders)
+                data = self.time_integration(
+                    H5PYFile=H5PYFile,
+                    datapath=f'Filtered/{option}',
+                    time=integration_time,
+                    borders=borders,
+                )
 
                 # Setup group
                 inside_group = self.add_cube(inside_group, data, group_name)
                 inside_group[group_name].attrs['description'] = (
-                    f"This group contains the {option.lower()} data integrated on {time_hours} hours intervals."
+                    f"This group contains the {option.lower()} data integrated on {time_hours} "
+                    "hours intervals."
                 )
         return H5PYFile                
 
@@ -746,7 +901,8 @@ class DataSaver:
         """
 
         # Get data
-        data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))  #TODO: will need to make a shared memory object later
+        data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))
+        #TODO: will need to make a shared memory object later
 
         # Setup multiprocessing
         dates_len = len(self.dates_seconds)
@@ -754,7 +910,8 @@ class DataSaver:
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        for i, date in enumerate(self.dates_seconds): input_queue.put((i, data, date, self.dates_seconds, time))
+        for i, date in enumerate(self.dates_seconds):
+            input_queue.put((i, data, date, self.dates_seconds, time))
         for _ in range(nb_processes): input_queue.put(None)
         # Run
         processes = [None] * nb_processes
@@ -789,7 +946,8 @@ class DataSaver:
             if arguments is None: return
 
             index, data, date, dates, integration_time = arguments
-            date_min = date - integration_time / 2  #TODO: need to change this so that I can do the same for multiple integration times
+            date_min = date - integration_time / 2
+            #TODO: need to change this so that I can do the same for multiple integration times
             date_max = date + integration_time / 2
 
             # Result
@@ -797,9 +955,15 @@ class DataSaver:
             output_queue.put((index, chunk))
 
     @staticmethod
-    def cube_integration(data: sparse.COO, date_max: int, date_min: int, dates: list[int]) -> sparse.COO:
+    def cube_integration(
+            data: sparse.COO,
+            date_max: int,
+            date_min: int,
+            dates: list[int],
+        ) -> sparse.COO:
         """
-        To integrate the date cubes given the max and min date (in seconds) for the integration limits.
+        To integrate the date cubes given the max and min date (in seconds) for the integration
+        limits.
 
         Args:
             data (sparse.COO): the data to integrate.
@@ -866,8 +1030,12 @@ class DataSaver:
             for feet in self.feet_options
         ]
 
-        # main_options = ['All data with feet', 'No duplicates new with feet']  #TODO: need to add the new duplicates init when I understand the error
-        sub_options = [f'/Time integration of {round(time / 3600, 1)} hours' for time in self.integration_time]
+        # main_options = ['All data with feet', 'No duplicates new with feet']
+        # #TODO: need to add the new duplicates init when I understand the error
+        sub_options = [
+            f'/Time integration of {round(time / 3600, 1)} hours'
+            for time in self.integration_time
+        ]
         
         # Time integration group
         main_path_2 = 'Time integrated/'
@@ -897,7 +1065,10 @@ class DataSaver:
         # Multiprocessing
         processes = [None] * processes_nb
         for i, index in enumerate(indexes): 
-            process = mp.Process(target=self.raw_cubes_sub, args=(queue, i, self.filepaths[index[0]:index[1] + 1]))
+            process = mp.Process(
+                target=self.raw_cubes_sub,
+                args=(queue, i, self.filepaths[index[0]:index[1] + 1]),
+            )
             process.start()
             processes[i] = process
         for p in processes: p.join()
@@ -948,7 +1119,8 @@ class DataSaver:
             sparse.COO: the corresponding sparse COO array.
         """
 
-        cubes = sparse.COO(cubes)  # the .to_numpy() method wasn't used as the idx_type argument isn't working properly
+        cubes = sparse.COO(cubes)
+        # the .to_numpy() method wasn't used as the idx_type argument isn't working properly
         cubes.coords = cubes.coords.astype('uint16')  # to save RAM
         return cubes
     
@@ -959,7 +1131,8 @@ class DataSaver:
             borders: dict[str, dict[str, str | float]] | None = None
         ) -> h5py.File | h5py.Group:
         """
-        To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes also into account the border information.
+        To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes
+        also into account the border information.
 
         Args:
             group (h5py.File | h5py.Group): the Group where to add the data information.
@@ -976,9 +1149,11 @@ class DataSaver:
             'coords': {
                 'data': data.coords.astype('uint16'),
                 'unit': 'none',
-                'description': ("The index coordinates of the initial voxels.\n"
-                                "The shape is (4, N) where the rows represent t, x, y, z where t the time index (i.e. which cube it is), and N the total number "
-                                "of voxels.\n"),
+                'description': (
+                    "The index coordinates of the initial voxels.\nThe shape is (4, N) where the "
+                    "rows represent t, x, y, z where t the time index (i.e. which cube it is), "
+                    "and N the total number of voxels.\n"
+                ),
             },
             'values': {
                 'data': data.data, 
@@ -999,14 +1174,16 @@ class DataSaver:
             borders: dict[str, dict[str, str | float]]
         ) -> h5py.File | h5py.Group:
         """
-        To add to an h5py.Group, the data and metadata of the Carrington Heliographic Coordinates for a corresponding cube index spare.COO object. 
+        To add to an h5py.Group, the data and metadata of the Carrington Heliographic Coordinates
+        for a corresponding cube index spare.COO object. 
         This takes also into account the border information.
 
         Args:
             group (h5py.File | h5py.Group): the Group where to add the data information.
             data (sparse.COO): the data that needs to be included in the file.
             data_name (str): the group name to be used in the file.
-            borders (dict[str, dict[str, str  |  float]] | None, optional): the data border information.
+            borders (dict[str, dict[str, str  |  float]] | None, optional): the data border
+                information.
 
         Returns:
             h5py.File | h5py.Group: the updated group.
@@ -1032,9 +1209,10 @@ class DataSaver:
                 'data': data,
                 'unit': 'km',
                 'description': (
-                    "The t, x, y, z coordinates of the cube voxels.\n"
-                    "The shape is (4, N) where the rows represent t, x, y, z where t the time index (i.e. which cube it is), and N the total number "
-                    "of voxels. Furthermore, x, y, z, represent the X, Y, Z axis Carrington Heliographic Coordinates.\n"
+                    "The t, x, y, z coordinates of the cube voxels.\nThe shape is (4, N) where "
+                    "the rows represent t, x, y, z where t the time index (i.e. which cube it "
+                    "is), and N the total number of voxels. Furthermore, x, y, z, represent the "
+                    "X, Y, Z axis Carrington Heliographic Coordinates.\n"
                 ),
             },
         }
@@ -1071,7 +1249,11 @@ class DataSaver:
             info = instance.get_information()
             group = self.add_group(group, info, f'{n_order}th order interpolation')
     
-    def with_feet(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
+    def with_feet(
+            self,
+            data: sparse.COO,
+            borders: dict[str, dict[str, any]],
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
 
@@ -1080,7 +1262,8 @@ class DataSaver:
             borders (dict[str, dict[str, any]]): the initial data borders.
 
         Returns:
-            tuple[sparse.COO, dict[str, dict[str, str | float]]]: the new_data with feet and the corresponding borders data and metadata.
+            tuple[sparse.COO, dict[str, dict[str, str | float]]]: the new_data with feet and the
+                corresponding borders data and metadata.
         """
 
         # Getting the positions
@@ -1112,7 +1295,8 @@ class DataSaver:
         ])
 
         # Add feet 
-        init_coords = np.hstack([init_coords, feet]).astype('int32')  #TODO: will change it to uint16 when I am sure that it is working as intended
+        init_coords = np.hstack([init_coords, feet]).astype('int32')
+        #TODO: will change it to uint16 when I am sure that it is working as intended
 
         # Indexes to positive values
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
@@ -1123,21 +1307,27 @@ class DataSaver:
         # Changing to COO 
         shape = np.max(init_coords, axis=1) + 1
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
-        values = np.concatenate([data.data, feet_values], axis=0)  #TODO: took away as type uint8 on data but it shouldn't change anything
+        values = np.concatenate([data.data, feet_values], axis=0)
+        #TODO: took away as type uint8 on data but it shouldn't change anything
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
-        print(f"The number of feet in the new sparse data is {np.sum(data.data.astype('uint8') & 0b00100000>0)}", flush=True)
         return data, new_borders
         
-    def carrington_skyCoords(self, data: sparse.COO, borders: dict[str, dict[str, any]]) -> list[astropy.coordinates.SkyCoord]:
+    def carrington_skyCoords(
+            self,
+            data: sparse.COO,
+            borders: dict[str, dict[str, any]],
+        ) -> list[astropy.coordinates.SkyCoord]:
         """
-        Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord objects.
+        Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord
+        objects.
 
         Args:
             data (sparse.COO): the cube index data to be converted.
             borders (dict[str, dict[str, any]]): the input data border information.
 
         Returns:
-            list[coordinates.SkyCoord]: corresponding list of the coordinates for the cube index data. They are in Carrington Heliographic Coordinates. 
+            list[coordinates.SkyCoord]: corresponding list of the coordinates for the cube index
+                data. They are in Carrington Heliographic Coordinates. 
         """
         
         # Get coordinates
@@ -1165,7 +1355,10 @@ class DataSaver:
         # Run
         processes = [None] * processes_nb
         for i in range(processes_nb):
-            process = mp.Process(target=self.skyCoords_slice, args=(coords, input_queue, output_queue))
+            process = mp.Process(
+                target=self.skyCoords_slice,
+                args=(coords, input_queue, output_queue),
+            )
             process.start()
             processes[i] = process
         for p in processes: p.join()
@@ -1178,14 +1371,22 @@ class DataSaver:
         return all_SkyCoords
     
     @staticmethod
-    def skyCoords_slice(coords: dict[str, any], input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+    def skyCoords_slice(
+            coords: dict[str, any],
+            input_queue: mp.queues.Queue,
+            output_queue: mp.queues.Queue,
+        ) -> None:
         """
-        To create an astropy.coordinates.SkyCoord object for a singular cube (i.e. for a unique time index).
+        To create an astropy.coordinates.SkyCoord object for a singular cube (i.e. for a unique
+        time index).
 
         Args:
-            coords (dict[str, any]): information to find the sparse.COO(data).coords multiprocessing.shared_memory.SharedMemory object.
-            input_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used for the function inputs.
-            output_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used to extract the function results.
+            coords (dict[str, any]): information to find the sparse.COO(data).coords
+                multiprocessing.shared_memory.SharedMemory object.
+            input_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used for the
+                function inputs.
+            output_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used to extract
+                the function results.
         """
         
         shm, coords = MultiProcessing.open_shared_memory(coords)
@@ -1232,15 +1433,18 @@ class Interpolation:
             full: bool = False,
         ) -> None:
         """ #TODO:update docstring
-        Initialisation of the Interpolation class. Using the get_information() instance method, you can get the curve position voxels and the 
-        corresponding n-th order polynomial parameters with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
+        Initialisation of the Interpolation class. Using the get_information() instance method, you
+        can get the curve position voxels and the corresponding n-th order polynomial parameters
+        with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
 
         Args:
             data (sparse.COO): the data for which a fit is needed.
             order (int): the polynomial order for the fit.
-            feet_sigma (float): the sigma uncertainty value used for the feet when fitting the data.
+            feet_sigma (float): the sigma uncertainty value used for the feet when fitting the
+                data.
             processes (int): the number of processes for multiprocessing.
-            precision_nb (int | float, optional): the number of points used in the fitting. Defaults to 10**6.
+            precision_nb (int | float, optional): the number of points used in the fitting.
+                Defaults to 10**6.
         """
 
         # Arguments 
@@ -1254,12 +1458,12 @@ class Interpolation:
         self.full = full
 
         # New attributes
-        self.params_init = np.random.rand(order + 1)  # the initial (random) polynomial coefficients
+        self.params_init = np.random.rand(order + 1)  # initial (random) polynomial coefficients
     
     def reorder_data(self, data: sparse.COO) -> sparse.COO:
         """
-        To reorder a sparse.COO array so that the axes orders change. This is done to change which axis is 'sorted', as the first axis is always 
-        sorted (think about the .ravel() function).
+        To reorder a sparse.COO array so that the axes orders change. This is done to change which
+        axis is 'sorted', as the first axis is always sorted (think about the .ravel() function).
 
         Args:
             data (sparse.COO): the array to be reordered, i.e. swapping the axes ordering.
@@ -1274,11 +1478,13 @@ class Interpolation:
 
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
         """
-        To get the information and data for the interpolation and corresponding parameters (i.e. polynomial coefficients) ndarray. The explanations for these two 
-        arrays are given inside the dict in this method.
+        To get the information and data for the interpolation and corresponding parameters (i.e.
+        polynomial coefficients) ndarray. The explanations for these two arrays are given inside
+        the dict in this method.
 
         Returns:
-            dict[str, str | dict[str, str | np.ndarray]]: the data and metadata for the interpolation and corresponding polynomial coefficients.
+            dict[str, str | dict[str, str | np.ndarray]]: the data and metadata for the
+                interpolation and corresponding polynomial coefficients.
         """
 
         # Get data
@@ -1289,23 +1495,30 @@ class Interpolation:
         
         # Save information
         information = {
-            'description': f"The interpolation curve with the corresponding parameters of the {self.poly_order}th order polynomial for each cube.",
+            'description': (
+                "The interpolation curve with the corresponding parameters of the "
+                f"{self.poly_order}th order polynomial for each cube."
+            ),
 
             'coords': {
                 'data': treated_interpolations,
                 'unit': 'none',
                 'description': (
-                    "The index positions of the fitting curve for the corresponding data. The shape of this data is (4, N) where the rows represent (t, x, y, z). "
-                    "This data set is treated, i.e. the coords here can directly be used in a sparse.COO object as the indexes are uint type and the duplicates "
-                    "are already taken out."
+                    "The index positions of the fitting curve for the corresponding data. The "
+                    "shape of this data is (4, N) where the rows represent (t, x, y, z). This "
+                    "data set is treated, i.e. the coords here can directly be used in a "
+                    "sparse.COO object as the indexes are uint type and the duplicates are "
+                    "already taken out."
                 ),
             },
             'parameters': {
                 'data': parameters.astype('float32'),
                 'unit': 'none',
                 'description': (
-                    "The constants of the polynomial for the fitting. The shape is (4, total number of constants) where the 4 represents t, x, y, z. " 
-                    "Moreover, the constants are in order a0, a1, ... where the polynomial is a0 + a1*x + a2*x**2 ..."
+                    "The constants of the polynomial for the fitting. The shape is (4, total "
+                    "number of constants) where the 4 represents t, x, y, z. Moreover, the "
+                    "constants are in order a0, a1, ... where the polynomial is "
+                    "a0 + a1*x + a2*x**2 ..."
                 ),
             },
         }
@@ -1315,8 +1528,10 @@ class Interpolation:
                     'data': interpolations.astype('float32'),
                     'unit': 'none',
                     'description': (
-                        "The index positions of the fitting curve for the corresponding data. The shape of this data is (4, N) where the rows represent (t, x, y, z). "
-                        "Furthermore, the index positions are saved as floats, i.e. if you need to visualise it as voxels, then an np.round() and np.unique() is needed."
+                        "The index positions of the fitting curve for the corresponding data. The "
+                        "shape of this data is (4, N) where the rows represent (t, x, y, z). "
+                        "Furthermore, the index positions are saved as floats, i.e. if you need "
+                        "to visualise it as voxels, then an np.round() and np.unique() is needed."
                     ),
                 },
             }
@@ -1358,15 +1573,22 @@ class Interpolation:
         return interpolations.astype('uint16')
 
     @staticmethod
-    def no_duplicates_data_sub(data: dict[str, any], queue: mp.queues.Queue, index: tuple[int, int], position: int) -> None:
+    def no_duplicates_data_sub(
+            data: dict[str, any],
+            queue: mp.queues.Queue,
+            index: tuple[int, int],
+            position: int,
+        ) -> None:
         """
         To multiprocess the no duplicates uint16 voxel positions treatment.
 
         Args:
-            data (dict[str, any]): the information to get the data from a multiprocessing.shared_memory.SharedMemory() object.
+            data (dict[str, any]): the information to get the data from a
+                multiprocessing.shared_memory.SharedMemory() object.
             queue (mp.queues.Queue): the output queue.
             index (tuple[int, int]): the indexes to slice the data properly.
-            position (int): the position of the process to concatenate the result in the right order.
+            position (int): the position of the process to concatenate the result in the right
+                order.
         """
         
         # Open SharedMemory
@@ -1385,32 +1607,39 @@ class Interpolation:
     @Decorators.running_time
     def get_data(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        To get the interpolation and corresponding polynomial coefficients. The interpolation in this case is the voxel positions of the curve fit as a sparse.COO
-        coords array (i.e. shape (4, N) where N the number of non zeros).
+        To get the interpolation and corresponding polynomial coefficients. The interpolation in
+        this case is the voxel positions of the curve fit as a sparse.COO coords array (i.e. shape
+        (4, N) where N the number of non zeros).
 
         Returns:
-            tuple[np.ndarray, np.ndarray]: the interpolation and parameters array, both with shape (4, N) (not the same value for N of course).
+            tuple[np.ndarray, np.ndarray]: the interpolation and parameters array, both with shape
+                (4, N) (not the same value for N of course).
         """
 
-        # Constants
-        self.time_indexes = list(set(self.data.coords[0, :]))  #TODO: might get this from outside the class so that it is not computed twice or more
+        # CONSTANTS
+        self.time_indexes = list(set(self.data.coords[0, :]))
+        #TODO: might get this from outside the class so that it is not computed twice or more
         self.time_len = len(self.time_indexes)
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
         sigma = self.data.data.astype('float64')
-        print(f'The maximum value found even before the filtering and everything is {np.max(sigma)}')
+        print(
+            f'The maximum value found even before the filtering and everything is {np.max(sigma)}'
+        )
         print(f'The number of non 1 values are {np.sum(sigma > 2)}', flush=True)
 
         # Shared memory
-        shm_coords, coords = MultiProcessing.create_shared_memory(self.data.coords.astype('float64'))
+        shm_coords, coords = MultiProcessing.create_shared_memory(
+            data=self.data.coords.astype('float64'),
+        )
         shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
 
         # Multiprocessing
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        # Setup input
+        # QUEUE input
         for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
         for _ in range(process_nb): input_queue.put(None)
         # Run
@@ -1461,8 +1690,10 @@ class Interpolation:
         Static method to multiprocess the curve fitting creation.
 
         Args:
-            coords (dict[str, any]): the coordinates information to access the multiprocessing.shared_memory.SharedMemory() object.
-            sigma (dict[str, any]): the weights (here sigma) information to access the multiprocessing.shared_memory.SharedMemory() object.
+            coords (dict[str, any]): the coordinates information to access the
+                multiprocessing.shared_memory.SharedMemory() object.
+            sigma (dict[str, any]): the weights (here sigma) information to access the
+                multiprocessing.shared_memory.SharedMemory() object.
             input_queue (mp.queues.Queue): the input_queue for each process.
             output_queue (mp.queues.Queue): the output_queue to save the results.
             kwargs_sub (dict[str, any]): the kwargs for the polynomial_fit function.
@@ -1486,7 +1717,11 @@ class Interpolation:
             # Check if enough points for interpolation
             nb_parameters = len(kwargs_sub['params_init'])
             if nb_parameters >= sigma_section.shape[0]:
-                print(f'For cube index {index}, not enough points for interpolation (shape {coords_section.shape})', flush=True)
+                print(
+                    f"For cube index {index}, not enough points for interpolation (shape "
+                    f"{coords_section.shape})",
+                    flush=True,
+                )
                 result = np.empty((4, 0)) 
                 params = np.empty((4, 0))
             else:
@@ -1524,7 +1759,10 @@ class Interpolation:
             params_init: np.ndarray,
             shape: tuple[int, ...],
             precision_nb: float,
-            nth_order_polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
+            nth_order_polynomial: typing.Callable[
+                [np.ndarray, tuple[int | float, ...]],
+                np.ndarray
+            ],
             feet_sigma: int | float,
             south_sigma: int | float,
             leg_threshold: float,
@@ -1534,22 +1772,29 @@ class Interpolation:
 
         Args:
             coords (np.ndarray): the coordinates ndarray to be fitted.
-            sigma (np.ndarray): the corresponding weights (here as sigma) for the coordinates array.
+            sigma (np.ndarray): the corresponding weights (here as sigma) for the coordinates
+                array.
             t (np.ndarray): the polynomial variable. In our case the cumulative distance.
             time_index (int): the time index for the cube that is being fitted.
             params_init (np.ndarray): the initial (random) polynomial coefficients.
             shape (tuple[int, ...]): the shape of the inputted data cube. 
             precision_nb (float): the number of points used in the polynomial when saved.
-            nth_order_polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the n-th order polynomial function.
+            nth_order_polynomial (typing.Callable[
+                [np.ndarray, tuple[int  |  float, ...]],
+                np.ndarray
+                ]): the n-th order polynomial function.
             feet_sigma (float): the sigma position uncertainty used for the feet.
 
         Returns:
-            tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding coefficients.
+            tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding
+                coefficients.
         """
 
         # Setting up interpolation weights
         feet_mask = sigma > 2
-        beginning_mask = t < leg_threshold  #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to pass through the left leg.
+        beginning_mask = t < leg_threshold
+        #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to
+        # pass through the left leg.
         t_mask = beginning_mask & ~feet_mask
 
         # Try to get params
@@ -1574,8 +1819,13 @@ class Interpolation:
         data = np.vstack([x, y, z]).astype('float64')
 
         # Cut outside init data
-        conditions_upper = (data[0, :] >= shape[1] - 1) | (data[1, :] >= shape[2] - 1) | (data[2, :] >= shape[3] - 1)
-        #TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to make sure no problem arouses from floats. will need to see what to do later
+        conditions_upper = (
+            (data[0, :] >= shape[1] - 1) |
+            (data[1, :] >= shape[2] - 1) |
+            (data[2, :] >= shape[3] - 1)
+        )
+        #TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to
+        # make sure no problem arouses from floats. will need to see what to do later
         conditions_lower = np.any(data < 0, axis=0)  # as floats can be a little lower than 0
         conditions = conditions_upper | conditions_lower
         data = data[:, ~conditions]
@@ -1588,7 +1838,8 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
-        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]  #TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]
+        #TODO: will need to change this if I cancel the ax swapping in cls.__init__
 
     @staticmethod
     def scipy_curve_fit(
@@ -1603,17 +1854,21 @@ class Interpolation:
             south_sigma: int | float,
         ) -> np.ndarray:
         """
-        To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge on a solution due to the feet weight, 
-        then the feet weight is divided by 4 (i.e. the corresponding sigma is multiplied by 4) and the fitting is tried again.
+        To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge
+        on a solution due to the feet weight, then the feet weight is divided by 4 (i.e. the
+        corresponding sigma is multiplied by 4) and the fitting is tried again.
         #TODO: update docstring
         Args:
-            polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the function that outputs the n_th order polynomial function results.
+            polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the
+                function that outputs the n_th order polynomial function results.
             t (np.ndarray): the cumulative distance.
             coords (np.ndarray): the (x, y, z) coords of the data points.
             params_init (np.ndarray): the initial (random) polynomial parameters.
-            sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the inverse of the weight).
+            sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the
+                inverse of the weight).
             mask (np.ndarray): the mask representing the feet position.
-            feet_sigma (float): the value of sigma given for the feet. This value is quadrupled every time a try fails.
+            feet_sigma (float): the value of sigma given for the feet. This value is quadrupled
+                every time a try fails.
 
         Returns:
             np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
@@ -1642,24 +1897,35 @@ class Interpolation:
         except Exception:
             # Changing feet value
             feet_sigma *= 4
-            print(f"\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, i.e. value is {feet_sigma}.\033[0m", flush=True)
+            print(
+                "\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, "
+                f"i.e. value is {feet_sigma}.\033[0m",
+                flush=True,
+            )
             params = Interpolation.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
 
         finally:
-            print(f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m", flush=True)
+            print(
+                f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m",
+                flush=True,
+            )
             return params
 
-    def generate_nth_order_polynomial(self) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
+    def generate_nth_order_polynomial(
+            self,
+        ) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
         To generate a polynomial function given a polynomial order.
 
         Returns:
-            typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]: the polynomial function.
+            typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]: the polynomial
+                function.
         """
         
         def nth_order_polynomial(t: np.ndarray, *coeffs: int | float) -> np.ndarray:
             """
-            Polynomial function given a 1D ndarray and the polynomial coefficients. The polynomial order is defined before hand.
+            Polynomial function given a 1D ndarray and the polynomial coefficients. The polynomial
+            order is defined before hand.
 
             Args:
                 t (np.ndarray): the 1D array for which you want the polynomial results.
@@ -1697,5 +1963,4 @@ if __name__=='__main__':
     DataSaver(
         f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_test.h5",
         **kwargs,
-    )    
-
+    )
