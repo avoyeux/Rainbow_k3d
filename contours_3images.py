@@ -17,7 +17,7 @@ from glob import glob
 from astropy.io import fits
 
 # Personal libraries
-from Common import Decorators, PlotFunctions, SSHMirroredFilesystem
+from common import Decorators, Plot, SSHMirroredFilesystem
 
 
 class ForPlotting:
@@ -29,7 +29,8 @@ class ForPlotting:
     def Contours(mask):
         """
         To plot the contours given a mask
-        Source: https://stackoverflow.com/questions/40892203/can-matplotlib-contours-match-pixel-edges
+        Source:
+        https://stackoverflow.com/questions/40892203/can-matplotlib-contours-match-pixel-edges
         """
 
         pad = np.pad(mask, [(1, 1), (1, 1)])  # zero padding
@@ -231,8 +232,8 @@ class FirstFigure:
 
                 # Creating a bool array to get the contours 
                 bool_array = ~np.isnan(normalised_mask)
-                lines = PlotFunctions.Contours(bool_array)
-                lines_sdo = PlotFunctions.Contours(sdo_mask)
+                lines = Plot.contours(bool_array)
+                lines_sdo = Plot.contours(sdo_mask)
 
                 self.Plotting_func_new(number, stereo_image, avg_image, sdo_image, lines, lines_sdo)
                 print(f'Plotting for image nb {number} done.', flush=True)

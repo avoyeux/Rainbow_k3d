@@ -1,13 +1,18 @@
 """
-To change a cartesian image to a polar one. Still work in progress.
+To change an image to the corresponding polar representation using skimage.transform.warp_polar().
+For now, this code only works in a specific case looking at an AIA FITS image to find the solar
+disk's center and get the corresponding image defined inside borders in polar coordinate values.
 """
 
+# IMPORTs
 import os
 import skimage
 import astropy 
 
+# IMPORTS alias
 import numpy as np
 
+# IMPORTs sub
 import astropy.io.fits
 import skimage.transform
 
@@ -15,7 +20,8 @@ import skimage.transform
 
 class CartesianToPolar:
     """
-    To change coordinates, or an image, from the cartesian representation to polar coordinates.
+    To change an SDO FITS image to the polar representation centred on the Sun's disk.
+    The outputted image borders depends on the specified borders in polar coordinates (r, theta).
     """
 
     def __init__(
@@ -24,20 +30,31 @@ class CartesianToPolar:
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
-            channel_axis: None | int = None,
             **kwargs,
         ) -> None:
+        """
+        To change an SDO fits image to the polar representation centred on the Sun's disk.
+        The image borders will depend on the specified method.
+        The result of the processing is gotten from the .coordinates_cartesian_to_polar() after
+        initialisation of the class.
 
-        # Attributes
+        Args:
+            filepath (str): path to the SDO AIA FITS file.
+            borders (dict[str, tuple[int, int]]): the final borders for the polar SDO image.
+            direction (str, optional): the direction of the polar angle.
+                Defaults to 'anticlockwise'.
+            theta_offset (int | float, optional): the offset needed to get the wanted polar angle.
+                Defaults to 0.
+        """
+
+        # ATTRIBUTEs
         self.filepath = filepath
         self.borders = borders
         self.direction = direction
         self.theta_offset = theta_offset
-        self.channel_axis = channel_axis
-
         self.kwargs = kwargs
 
-        # Setup
+        # RUN
         self._initial_checks()
         self.paths = self._paths_setup()
         self.data_info = self._open_data()
@@ -49,23 +66,42 @@ class CartesianToPolar:
             borders: dict[str, tuple[int, int]],
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
-            channel_axis: None | int = None,
             **kwargs,
         ) -> dict[str | dict[str, float | np.ndarray], float]:
+        """
+        Class method to get the processed polar SDO image without needing to initialise the class
+        first.
+
+        Args:
+            filepath (str): path to the SDO AIA FITS file.
+            borders (dict[str, tuple[int, int]]): the final borders for the polar SDO image.
+            direction (str, optional): the direction of the polar angle.
+                Defaults to 'anticlockwise'.
+            theta_offset (int | float, optional): the offset needed to get the wanted polar angle.
+                Defaults to 0.
+
+        Returns:
+            dict[str | dict[str, float | np.ndarray], float]: _description_
+        """
 
         instance = cls(
             filepath=filepath,
             borders=borders,
             direction=direction,
             theta_offset=theta_offset,
-            channel_axis=channel_axis,
             **kwargs,
         )
-        return instance._coordinates_cartesian_to_polar()
+        return instance.coordinates_cartesian_to_polar()
 
     def _initial_checks(self) -> None:
+        """
+        To check the direction string attribute to make sure it is recognised.
 
-        # Direction keyword argument check
+        Raises:
+            ValueError: if the direction string attribute is wrong.
+        """
+
+        # CHECK direction
         direction_options = ['clockwise', 'anticlockwise']
         if self.direction not in direction_options:
             raise ValueError(
@@ -74,25 +110,40 @@ class CartesianToPolar:
             )
 
     def _paths_setup(self) -> dict[str, str]:
+        """
+        To get a dictionary with the needed directory paths.
 
-        # Check main path
+        Raises:
+            ValueError: if the main_path isn't recognised.
+
+        Returns:
+            dict[str, str]: contains all the needed directory or filepaths.
+        """
+
+        # CHECK path
         main_path = '/home/avoyeux/Documents/avoyeux/'
         if not os.path.exists(main_path): main_path = '/home/avoyeux/old_project/avoyeux/'
         if not os.path.exists(main_path):
             raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
 
-        paths = {
-            'sdo': os.path.join(main_path, 'sdo'),
-        }
+        # PATHs save
+        paths = {'sdo': os.path.join(main_path, 'sdo')}
         return paths
     
     def _open_data(self) -> dict[str, any]:
+        """
+        To open the FITS file and get the necessary info for the image processing.
+
+        Returns:
+            dict[str, any]: information needed for the processing, e.g. the image, sun center.
+        """
         
+        # OPEN fits
         index = 0 if 'AIA' in self.filepath else 1
         hdul = astropy.io.fits.open(self.filepath)
         header = hdul[index].header
 
-        # ORGANISE data
+        # DATA organise
         data_info = {
             'image': hdul[index].data,
             'center': (header['Y0_MP'], header['X0_MP']),
@@ -108,19 +159,34 @@ class CartesianToPolar:
         return data_info
 
     def _slice_image(self, image: np.ndarray, dx: float, d_theta: float) -> np.ndarray:
-        """To cut the image so that the bounds are the same than for the inputted borders"""
+        """
+        Slicing the polar image so that the image borders are the same that the ones specified in
+        .__init__().
 
-        # Radial distance section
+        Args:
+            image (np.ndarray): the polar image.
+            dx (float): the image resolution in km.
+            d_theta (float): the image resolution in degrees.
+
+        Returns:
+            np.ndarray: the sliced polar image.
+        """
+
+        # DISTANCE radial
         min_radial_index = round(min(self.borders['radial distance']) * 1e3 / dx)
 
-        # Polar angle section
+        # ANGLE polar
         max_polar_index = round(max(self.borders['polar angle']) / d_theta)
         min_polar_index = round(min(self.borders['polar angle']) / d_theta)
         return image[min_polar_index:max_polar_index + 1, min_radial_index:]
 
-    def _coordinates_cartesian_to_polar(self) -> dict[str | dict[str, float | np.ndarray], float]:
+    def coordinates_cartesian_to_polar(self) -> dict[str | dict[str, float | np.ndarray], float]:
         """
-        To change the cartesian coordinates to the polar ones.
+        To change the image from a cartesian representation to the corresponding polar one.
+
+        Returns:
+            dict[str | dict[str, float | np.ndarray], float]: the final processed image with some
+                needed information to be able to properly locate the position of the final image.
         """
 
         # Setup image shape depending on dx and dtheta
@@ -135,7 +201,6 @@ class CartesianToPolar:
             image=self.data_info['image'],
             center=self.data_info['center'],
             output_shape=(theta_nb_pixels, radial_nb_pixels),
-            channel_axis=self.channel_axis,
             radius=self.data_info['max index'],
         )
 
@@ -151,26 +216,20 @@ class CartesianToPolar:
             'dx': self.data_info['dx'],
             'd_theta': self.data_info['d_theta'],
         }
-        # print(f"dx is {info['dx']}")
-        # print(f"d_theta is {info['d_theta']}", flush=True)
         return info
     
     def _rotate_polar(self, polar_image: np.ndarray, d_theta: float) -> np.ndarray:
+        """
+        To rotate the image so that the theta angle angle starts where you want it to (given the
+        specified theta offset).
+
+        Args:
+            polar_image (np.ndarray): the polar SDO image.
+            d_theta (float): the polar image resolution in degrees.
+
+        Returns:
+            np.ndarray: the corresponding rotated polar image.
+        """
         
         shift = round(self.theta_offset / d_theta)
         return np.roll(polar_image, shift=-shift, axis=0)
-
-
-
-if __name__ == '__main__':
-
-    CartesianToPolar(
-        image_nb=1,
-        borders= {
-            'radial distance': (690, 870),
-            'polar angle': (245, 295),
-        },
-        direction='clockwise',
-        theta_offset=90,
-        channel_axis=None,
-    )

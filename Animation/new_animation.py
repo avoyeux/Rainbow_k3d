@@ -22,12 +22,11 @@ import numpy as np
 from common import Decorators
 
 
-#TODO: I have a problem with the north and south pole in the visualisation. Problem most likely comes from the data.h5 itself as the same problem arises in the
-#final reprojection.
 
 class Setup:
     """
-    Manipulates the HDF5 filament data file to setup the necessary data choices for the visualisation.
+    Manipulates the HDF5 filament data file to setup the necessary data choices for the
+    visualisation.
     This class is the parent class to the k3d visualisation class named K3dAnimation.
     """
 
@@ -51,28 +50,47 @@ class Setup:
             interpolation_order: int | list[int] = [5],
     ) -> None:
         """ 
-        To setup the instance attributes needed for the 3D visualisation of the Rainbow filament data.
+        To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
+        data.
+
         Args:
-            filename (str, optional): the HDF5 filename containing all the cube data. Defaults to 'order0321.h5'.
+            filename (str, optional): the HDF5 filename containing all the cube data.
+                Defaults to 'order0321.h5'.
             sun (bool, optional): choosing to add the sun visualisation. Defaults to False.
-            with_feet (bool, optional): choosing the data sets that have the feet manually added. Defaults to True.
-            all_data (bool, optional): choosing to visualise the data that also contains the duplicates. Defaults to False.
-            no_duplicates (bool, optional): choosing to visualise the data with no duplicates at all. Defaults to False.
-            time_interval (int, optional): the time interval for the time integration (in hours). Defaults to 24.
-            time_interval_all_data (bool, optional): choosing to visualise the time integrated data with duplicates. Defaults to False.
-            time_interval_no_duplicates (bool, optional): choosing to visualise the time integrated data without any duplicates. Defaults to False.
-            sdo_pov (bool, optional): choosing to take SDO's point of view when looking at the data. Defaults to False.
-            stereo_pov (bool, optional): choosing to take STEREO B's point of view when looking at the data. Defaults to False.
-            processes (int, optional): the number of processes used in the multiprocessing. Defaults to 5.
-            interpolation (bool, optional): choosing to visualise the polynomial data fits. Defaults to False.
-            interpolation_order (int | list[int], optional): the polynomial orders that you want to visualise (if interpolation is set to True).
-                Defaults to [5].
+            with_feet (bool, optional): choosing the data sets that have the feet manually added.
+                Defaults to True.
+            all_data (bool, optional): choosing to visualise the data that also contains the
+                duplicates. Defaults to False.
+            no_duplicates (bool, optional): choosing to visualise the data with no duplicates at
+                all. Defaults to False.
+            time_interval (int, optional): the time interval for the time integration (in hours).
+                Defaults to 24.
+            time_interval_all_data (bool, optional): choosing to visualise the time integrated data
+                with duplicates. Defaults to False.
+            time_interval_no_duplicates (bool, optional): choosing to visualise the time integrated
+                data without any duplicates. Defaults to False.
+            line_of_sight_SDO (bool, optional): deciding to visualise the line of sight data from
+                SDO's position. Defaults to False.
+            line_of_sight_STEREO (bool, optional): deciding to visualise the line of sight data
+                from STEREO's position. Defaults to False.
+            sdo_pov (bool, optional): choosing to take SDO's point of view when looking at the
+                data. Defaults to False.
+            stereo_pov (bool, optional): choosing to take STEREO B's point of view when looking at
+                the data. Defaults to False.
+            processes (int, optional): the number of processes used in the multiprocessing.
+                Defaults to 5.
+            interpolation (bool, optional): choosing to visualise the polynomial data fits.
+                Defaults to False.
+            interpolation_order (int | list[int], optional): the polynomial orders that you want to
+                visualise (if interpolation is set to True). Defaults to [5].
         """
         
+        # ATTRIBUTES
+        self.solar_r = 6.96e5
         self.filename = filename
         self.sun = sun
         self.all_data = all_data
-        self.with_feet = with_feet  # TODO: will need to change this so that I can choose which has feet or not
+        self.with_feet = with_feet  #TODO: Doesn't work as intended yet.
         self.no_duplicates = no_duplicates
         self.time_interval = time_interval
         self.time_interval_all_data = time_interval_all_data
@@ -82,18 +100,17 @@ class Setup:
         self.sdo_pov = sdo_pov
         self.stereo_pov = stereo_pov
         self.processes = processes
-        self.interpolation = interpolation  # TODO: probably will keep the interpolation only for the main data
-        self.interpolation_order = interpolation_order if isinstance(interpolation_order, list) else [interpolation_order]
-        self.solar_r = 6.96e5
+        self.interpolation = interpolation
+        if isinstance(interpolation, list):
+            self.interpolation_data = interpolation_order
+        else:
+            self.interpolation_order = [interpolation_order]
 
-        self.paths = self.setup_paths()
-        self.get_data()
-
-        # Attributes placeholders for [...]
-        # [...] interpolation data
+        # PLACEHOLDERs for [...]
+        # [...] interpolation
         self.interpolation_names: list[str]
         self.interpolation_data: list[sparse.COO]
-        # [...] data cubes
+        # [...] cubes
         self.shape: tuple[int, int, int, int]
         self.dates: list[str]
         self.radius_index: float
@@ -104,10 +121,13 @@ class Setup:
         self.cubes_integrated_no_duplicate: sparse.COO
         self.cubes_lost_sdo: sparse.COO
         self.cubes_lost_stereo: sparse.COO
-
         # [...] satellite positions
         self.sdo_pos: np.ndarray
         self.stereo_pos: np.ndarray
+
+        # RUN
+        self.paths = self.setup_paths()
+        self.get_data()
 
     def setup_paths(self) -> dict[str, str]:
         """
@@ -120,12 +140,14 @@ class Setup:
             dict[str, str]: the filepath dictionary.
         """
 
+        # CHECK path
         main = '/home/avoyeux/old_project/avoyeux'
         if not os.path.exists(main): 
             main = '/home/avoyeux/Documents/avoyeux'
             if not os.path.exists(main): raise ValueError(f"Main path not found: {main}")
-        codes = os.path.join(main, 'python_codes')
 
+        # PATHs save
+        codes = os.path.join(main, 'python_codes')
         paths = {
             'main': main,
             'codes': codes,
@@ -136,26 +158,30 @@ class Setup:
     @Decorators.running_time
     def get_data(self) -> None:
         """
-        To get the visualisation data.
+        Opens the HDF5 file to get the necessary data for visualisation.
         """
 
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
-            # Get main data
+            # DATA main
             dx = H5PYFile['dx'][...]
             dates = H5PYFile['Dates'][...]
             numbers = H5PYFile['Time indexes'][...]
             self.dates = [dates[number].decode('utf-8') for number in numbers]
             self.radius_index = self.solar_r / dx
 
-            # Feet setup
+            # FEET
             feet = ' with feet' if self.with_feet else ''
 
-            # Sun center setup
+            # SUN CENTER
             border_group = H5PYFile['Filtered/All data' + feet]  
-            self.sun_center = np.array([- border_group['xmin'][...], - border_group['ymin'][...], - border_group['zmin'][...]]) / dx
+            self.sun_center = np.array([
+                - border_group['xmin'][...],
+                - border_group['ymin'][...],
+                - border_group['zmin'][...]
+            ]) / dx
 
-            # Get data choices
+            # CHOICES data
             shape = None
             paths = []
             if self.all_data: 
@@ -169,15 +195,24 @@ class Setup:
                 if shape is None: shape = self.cubes_no_duplicates.shape
 
             if self.time_interval_all_data: 
-                paths.append('Time integrated/All data' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
+                paths.append(
+                    'Time integrated/All data' +
+                    feet +
+                    f'/Time integration of {round(float(self.time_interval), 1)} hours'
+                )
                 self.cubes_integrated_all_data = self.get_COO(H5PYFile, paths[-1])
                 if shape is None: shape = self.cubes_integrated_all_data.shape
 
             if self.time_interval_no_duplicates:
-                paths.append('Time integrated/No duplicates new' + feet + f'/Time integration of {round(float(self.time_interval), 1)} hours')
+                paths.append(
+                    'Time integrated/No duplicates new' +
+                    feet +
+                    f'/Time integration of {round(float(self.time_interval), 1)} hours'
+                )
                 self.cubes_integrated_no_duplicate = self.get_COO(H5PYFile, paths[-1])
                 if shape is None: shape = self.cubes_integrated_no_duplicate.shape
-            # Saving cubes shape
+
+            # SHAPE cubes
             cubes_shape = shape
             print(f'the data cube shape is {shape}')
 
@@ -191,14 +226,15 @@ class Setup:
                 self.cubes_los_stereo = self.get_COO(H5PYFile, paths[-1])
                 if shape is None: shape = self.cubes_los_stereo.shape
 
-            # Saving the shape
+            # SHAPE save
             if shape is not None:
                 self.shape = shape
             else:
                 raise ValueError(f'You need to set at least one of the data attributes to True.')
             
+            # INTERPOLATIONs
             if self.interpolation and (cubes_shape is not None):
-                # Data path
+                # PATH data
                 interpolation_paths = [
                     path + f'/{order}th order interpolation/coords' 
                     for path in paths
@@ -206,20 +242,28 @@ class Setup:
                     for order in self.interpolation_order
                 ]
 
-                # Get the polynomial curve names
+                # POLYNOMIAL names
                 self.interpolation_names = self.name_polynomial(interpolation_paths)
 
-                # Get interpolation curves
+                # CURVES get
                 self.interpolation_data = [
-                    sparse.COO(coords=H5PYFile[path][...], data=1, shape=cubes_shape).astype('uint8')
+                    sparse.COO(
+                        coords=H5PYFile[path][...],
+                        data=1,
+                        shape=cubes_shape
+                    ).astype('uint8')
                     for path in interpolation_paths
                 ]
             
-            #TODO: weirdly, the [2,1,0] seems to be right as I am pointing on the right side of the sun. Problem is the cubes themselves
+            # POVs sdo, stereo
             if self.sdo_pov:
-                self.sdo_pos = (H5PYFile['SDO positions'][numbers] / dx + self.sun_center).astype('float32')  #TODO: need to add fov for sdo
+                self.sdo_pos = (
+                    H5PYFile['SDO positions'][numbers] / dx + self.sun_center
+                ).astype('float32')  #TODO: need to add fov for sdo
             elif self.stereo_pov:
-                self.stereo_pos = (H5PYFile['STEREO B positions'][numbers] / dx + self.sun_center).astype('float32')  #TODO: will need to add the POV center
+                self.stereo_pos = (
+                    H5PYFile['STEREO B positions'][numbers] / dx + self.sun_center
+                ).astype('float32')  #TODO: will need to add the POV center
 
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
@@ -253,18 +297,20 @@ class Setup:
             list[str]: the polynomial curves names.
         """
 
-        # Pattern setup
+        # PATTERN setup
         intergration_time_pattern = re.compile(r"(\d+\.?\d+|\d+)")
         interpolation_order_pattern = re.compile(r"(\d+)")
 
+        # PLACEHOLDER
         names = [None] * len(group_paths)
 
+        # NAMEs get
         for i, group_path in enumerate(group_paths):
-            # Get group names
+            # NAMEs group
             segments = group_path.split('/')
             data_type = segments[1]
 
-            # Naming the polynomials
+            # POLYNOMIAL name
             beginning = 'Fit '
             if 'All data' in data_type:
                 beginning += 'all'
@@ -273,9 +319,10 @@ class Setup:
             if 'feet' in data_type:
                 beginning += ' n feet'
 
-            # Get integration time        
+            # TIME integration    
             integration = segments[2]
-            # print(f'end is {end}')
+            
+            # CHECK pattern
             pattern_match = re.search(intergration_time_pattern, integration)
             if pattern_match is not None:
                 time_integration = float(pattern_match.group(0))
@@ -283,7 +330,7 @@ class Setup:
             else:
                 raise ValueError('Pattern is wrong boss.')
             
-            # Get polynomial order
+            # ORDER of polynomial
             interpolation_name = segments[-2]
             interp_match = re.search(interpolation_order_pattern, interpolation_name)
             if interp_match is not None:
@@ -313,11 +360,42 @@ class K3dAnimation(Setup):
             outlines: bool = False,
             texture_resolution: int = 960,  
             **kwargs,
-    ) -> None:
+        ) -> None:
+        """
+        To visualise the data in k3d. The fetching and naming of the data is done in the parent
+        class.
+
+        Args:
+            compression_level (int, optional): the compression used in k3d. The higher the value,
+                the more compressed it is (max is 9). Defaults to 9.
+            plot_height (int, optional): the hight in pixels of the jupyter display plot.
+                Defaults to 1260.
+            sleep_time (int | float, optional): the sleep time used when playing through the cubes.
+                Used when trying to save screenshots of the display. Defaults to 2.
+            camera_fov (int | float | str, optional): the field of view, in degrees. Can be also a
+                string if the field of view needs to represent 'sdo' or 'stereo'. Defaults to 0.23.
+            camera_zoom_speed (int | float, optional): the zoom speed when trying to zoom in on the
+                display. Defaults to 0.7.
+            camera_pos (tuple[int | float, int | float, int | float] | None, optional): the
+                index position of the camera. Automatically set if 'sdo_pov' or 'stereo_pov' is set
+                to True. Defaults to None.
+            up_vector (tuple[int, int, int], optional): the up vector when displaying the
+                protuberance. Defaults to (0, 0, 1).
+            visible_grid (bool, optional): deciding to make the k3d grid visible or not.
+                Defaults to False.
+            outlines (bool, optional): deciding to add the voxel outlines when displaying the data.
+                Defaults to False.
+            texture_resolution (int, optional): the resolution of the sun's texture, i.e. how many
+                points need to be displayed phi direction. Defaults to 960.
+
+        Raises:
+            ValueError: if 'camera_fov' string value is not recognised.
+        """
         
+        # PARENT init
         super().__init__(**kwargs)
 
-        # Arguments
+        # ATTRIBUTEs
         self.plot_height = plot_height  # the height in pixels of the plot (initially it was 512)
         self.sleep_time = sleep_time  # sets the time between each frames (in seconds)
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
@@ -328,6 +406,7 @@ class K3dAnimation(Setup):
         self.compression_level = compression_level
         self.outlines = outlines
         
+        # CHECK fov
         if camera_fov=='sdo':
             self.camera_fov = self.Fov_for_SDO()
         elif camera_fov=='stereo':
@@ -337,7 +416,7 @@ class K3dAnimation(Setup):
         else:
             raise ValueError('When "camera_fov" a string, needs to be `sdo` or `stereo`.')
 
-        # Instance attributes set when running the class
+        # PLACEHOLDERs
         self.plot: k3d.plot  # plot object
         self.plot_alldata: k3d.voxels  # voxels plot of the all data 
         self.plot_dupli_new: k3d.voxels  # same for the second method
@@ -348,8 +427,9 @@ class K3dAnimation(Setup):
         self.date_dropdown: ipywidgets.Dropdown  # Date dropdown widget to show the date
         self.time_link: ipywidgets.jslink  # JavaScript Link between the two widgets
 
-        # Making the animation
-        if self.time_interval_all_data or self.time_interval_no_duplicates: self.time_interval_string()
+        # RUN
+        if self.time_interval_all_data or self.time_interval_no_duplicates:
+            self.time_interval_string()
         self.animation()
 
     def animation(self) -> None:
@@ -357,20 +437,32 @@ class K3dAnimation(Setup):
         Creates the 3D animation using k3d. 
         """
         
-        # Initialisation of the plot
-        self.plot = k3d.plot(grid_visible=self.visible_grid)  # plot with no axes. If a dark background is needed then background_color=0x000000
+        # DISPLAY setup
+        self.plot = k3d.plot(grid_visible=self.visible_grid)  # black: background_color=0x000000
         self.plot.height = self.plot_height  
             
-        # Add camera parameters
+        # CAMERA params
         self.camera_params()
 
-        # Add default parameters
+        # DEFAULT params
         kwargs = {
-            'compression_level': self.compression_level, # the compression level of the data in the 3D visualisation
+            'compression_level': self.compression_level,
             'outlines': self.outlines,
         }
 
-        # Add filaments
+        # SUN add
+        if self.sun:
+            self.add_sun()
+            points = k3d.points(
+                positions=self.sun_points,
+                point_size=0.7, colors=[0xffff00] * len(self.sun_points),
+                shader='flat',
+                name='SUN',
+                compression_level=self.compression_level,
+            )
+            self.plot += points
+
+        # ALL DATA add
         if self.all_data: 
             self.plot_alldata = k3d.voxels(
                 voxels=self.cubes_all_data[0].todense().transpose(2, 1, 0),
@@ -380,7 +472,8 @@ class K3dAnimation(Setup):
                 **kwargs,
             )
             self.plot += self.plot_alldata      
-               
+        
+        # NO DUPLICATES add
         if self.no_duplicates:
             self.plot_dupli_new = k3d.voxels(
                 voxels=self.cubes_no_duplicates[0].todense().transpose(2, 1, 0),
@@ -391,6 +484,7 @@ class K3dAnimation(Setup):
             )
             self.plot += self.plot_dupli_new
 
+        # TIME INTEGRATION add
         if self.time_interval_all_data:
             self.plot_interv_new = k3d.voxels(
                 voxels=self.cubes_integrated_all_data[0].todense().transpose(2, 1, 0),
@@ -401,6 +495,7 @@ class K3dAnimation(Setup):
             )
             self.plot += self.plot_interv_new        
        
+        # TIME NO DUPLICATES add       
         if self.time_interval_no_duplicates:
             self.plot_interv_dupli_new = k3d.voxels(
                 voxels=self.cubes_integrated_no_duplicate[0].todense().transpose(2, 1, 0),
@@ -411,6 +506,7 @@ class K3dAnimation(Setup):
             )
             self.plot += self.plot_interv_dupli_new      
 
+        # SDO LINE OF SIGHT add
         if self.line_of_sight_SDO:
             self.plot_los_sdo = k3d.voxels(
                 voxels=self.cubes_los_sdo[0].todense().transpose(2, 1, 0),
@@ -421,6 +517,7 @@ class K3dAnimation(Setup):
             )
             self.plot += self.plot_los_sdo
 
+        # STEREO LINE OF SIGHT add
         if self.line_of_sight_STEREO:
             self.plot_los_stereo = k3d.voxels(
                 voxels=self.cubes_los_stereo[0].todense().transpose(2, 1, 0),
@@ -430,17 +527,8 @@ class K3dAnimation(Setup):
                 **kwargs,
             )
             self.plot += self.plot_los_stereo
-    
-        # if self.skeleton:
-        #     self.plot_skeleton = k3d.voxels(self.Full_array(self.cubes_skeleton[0]), color_map=[0xff6e00], opacity=1, name='barycenter for the no dupliactes',
-        #                                     **self.kwargs)
-        #     self.plot += self.plot_skeleton
 
-        # if self.convolution:
-        #     self.plot_convolution = k3d.voxels(self.Full_array(self.cubes_convolution[0]), color_map=[0xff6e00], opacity=0.5, name='conv3d', **self.kwargs)
-        #     self.plot += self.plot_convolution
-
-        # Add curve fitting
+        # POLYNOMIAL FIT add
         if self.interpolation:
             self.plot_interpolation = []
             for (data, name) in zip(self.interpolation_data, self.interpolation_names):
@@ -454,29 +542,52 @@ class K3dAnimation(Setup):
                 self.plot += plot
                 self.plot_interpolation.append(plot)
 
-        # Add Sun
-        if self.sun:
-            self.add_sun()
-            self.plot += k3d.points(
-                positions=self.sun_points,
-                point_size=0.7, colors=[0xffff00] * len(self.sun_points),
-                shader='flat',
-                name='SUN',
-                compression_level=self.compression_level,
-            )
+        # if self.skeleton:
+        #     self.plot_skeleton = k3d.voxels(
+        #         self.Full_array(self.cubes_skeleton[0]),
+        #         color_map=[0xff6e00],
+        #         opacity=1,
+        #         name='barycenter for the no dupliactes',
+        #         **self.kwargs,
+        #     )
+        #     self.plot += self.plot_skeleton
 
-        # Adding a play/pause button
-        self.play_pause_button = ipywidgets.ToggleButton(value=False, description='Play', icon='play')
+        # if self.convolution:
+        #     self.plot_convolution = k3d.voxels(
+        #         self.Full_array(self.cubes_convolution[0]),
+        #         color_map=[0xff6e00],
+        #         opacity=0.5,
+        #         name='conv3d',
+        #         **self.kwargs,
+        #     )
+        #     self.plot += self.plot_convolution
 
-        # Set up the time slider and the play/pause button
+        # BUTTON play/pause
+        self.play_pause_button = ipywidgets.ToggleButton(
+            value=False,
+            description='Play',
+            icon='play',
+        )
+
+        # SETUP time-slider and play/pause
         self.time_slider = ipywidgets.IntSlider(min=0, max=len(self.dates)-1, description='Frame:')
         self.date_dropdown = ipywidgets.Dropdown(options=self.dates, description='Date:')
         self.time_slider.observe(self.update_voxel, names='value')
-        self.time_link = ipywidgets.jslink((self.time_slider, 'value'), (self.date_dropdown, 'index'))
+        self.time_link = ipywidgets.jslink(
+            (self.time_slider,'value'),
+            (self.date_dropdown, 'index'),
+        )
         self.play_pause_button.observe(self.play_pause_handler, names='value')
 
-        # Display
-        IPython.display.display(self.plot, self.time_slider, self.date_dropdown, self.play_pause_button)
+        # DISPLAY
+        IPython.display.display(
+            self.plot,
+            self.time_slider,
+            self.date_dropdown,
+            self.play_pause_button,
+        )
+        
+        # SCREENSHOTS save
         # if self.make_screenshots:
         #     self.plot.screenshot_scale = self.screenshot_scale
         #     self.Screenshot_making()
@@ -485,21 +596,23 @@ class K3dAnimation(Setup):
         """
         Camera visualisation parameters.
         """
- 
+
+        # PARAMs constant
         self.plot.camera_auto_fit = False
         self.plot.camera_fov = self.camera_fov  # FOV in degrees
-        self.plot.camera_zoom_speed = self.camera_zoom_speed  # it was zooming too quickly (default=1.2)
-        
-        # Point to look at, i.e. initial rotational reference
+        self.plot.camera_zoom_speed = self.camera_zoom_speed  # zooming too quickly (default=1.2)
 
-        self._camera_reference = np.array([self.shape[3], self.shape[2], self.shape[1]]) / 2  # TODO: this is wrong but will do for now
+        self._camera_reference = np.array([self.shape[3], self.shape[2], self.shape[1]]) / 2
+        # TODO: this is wrong but will do for now
         
+        # POV stereo
         if self.stereo_pov:
             self.plot.camera = [
                 self.stereo_pos[0, 0], self.stereo_pos[0, 1], self.stereo_pos[0, 2],
                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                 self.up_vector[0], self.up_vector[1], self.up_vector[2] # up vector
             ] 
+        # POV sdo
         elif self.sdo_pov:
             self.plot.camera = [
                 self.sdo_pos[0, 0], self.sdo_pos[0, 1], self.sdo_pos[0, 2],
@@ -512,32 +625,35 @@ class K3dAnimation(Setup):
 
             if not self.camera_pos:
                 print("No 'camera_pos', setting default values.")
-                self.camera_pos = (-1, -0.5, 0)
+                self.camera_pos = (- distance_to_sun, -0.5 * distance_to_sun, 0)
+
             self.plot.camera = [
-                self._camera_reference[0] + self.camera_pos[0] * distance_to_sun, 
-                self._camera_reference[1] + self.camera_pos[1] * distance_to_sun,
-                self._camera_reference[2] + self.camera_pos[2] * distance_to_sun,
+                self._camera_reference[0] + self.camera_pos[0], 
+                self._camera_reference[1] + self.camera_pos[1],
+                self._camera_reference[2] + self.camera_pos[2],
                 self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
                 self.up_vector[0], self.up_vector[1], self.up_vector[2]
             ] 
 
     def add_sun(self):
-        # TODO: to add the sun, will need to change it later to re-add the grid.
+        """
+        Add the Sun in the visualisation.
+        The Sun is just made up of small spheres positioned at the Sun's surface.
+        """
+        # TODO: re-add the choice where I can decide to add a texture.
 
-        # Initialisation
+        # COORDs spherical
         N = self.texture_resolution  # number of points in the theta direction
         phi = np.linspace(0, np.pi, N)  # latitude of the points
         theta = np.linspace(0, 2 * np.pi, 2 * N)  # longitude of the points
         phi, theta = np.meshgrid(phi, theta)  # the subsequent meshgrid
 
-        # Conversion to cartesian coordinates
+        # COORDs cartesian
         x = self.radius_index * np.sin(phi) * np.cos(theta) + self.sun_center[0]
         y = self.radius_index * np.sin(phi) * np.sin(theta) + self.sun_center[1]
         z = self.radius_index * np.cos(phi) + self.sun_center[2] 
 
-        print(f"x, y and z shapes for the sun are {x.shape}, {y.shape}, {z.shape}.")
-
-        # Creation of the position of the spherical cloud of points
+        # SAVE coords
         self.sun_points = np.array([x.ravel(), y.ravel(), z.ravel()], dtype='float32').T
 
     def update_voxel(self, change: dict[str, any]) -> None:
@@ -545,39 +661,82 @@ class K3dAnimation(Setup):
         Updates the voxels depending on which time value is chosen.
 
         Args:
-            change (dict[str, any]): the time value, with the 'new' key being the new value and 'old' key being the old value.
+            change (dict[str, any]): the time value, with the 'new' key being the new value and
+                'old' key being the old value.
         """
 
+        # POV stereo
         if self.stereo_pov:
             self.plot.camera = [
-                self.stereo_pos[change['new'], 0], self.stereo_pos[change['new'], 1], self.stereo_pos[change['new'], 2],
-                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                self.up_vector[0], self.up_vector[1], self.up_vector[2],
+                self.stereo_pos[change['new'], 0],
+                self.stereo_pos[change['new'], 1],
+                self.stereo_pos[change['new'], 2],
+                self._camera_reference[0],
+                self._camera_reference[1],
+                self._camera_reference[2],
+                self.up_vector[0],
+                self.up_vector[1],
+                self.up_vector[2],
             ]
             time.sleep(0.2) 
+
+        # POV sdo
         elif self.sdo_pov:
             self.plot.camera = [
-                self.sdo_pos[change['new'], 0], self.sdo_pos[change['new'], 1], self.sdo_pos[change['new'], 2],
-                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                self.up_vector[0], self.up_vector[1], self.up_vector[2],
+                self.sdo_pos[change['new'], 0],
+                self.sdo_pos[change['new'], 1],
+                self.sdo_pos[change['new'], 2],
+                self._camera_reference[0],
+                self._camera_reference[1],
+                self._camera_reference[2],
+                self.up_vector[0],
+                self.up_vector[1],
+                self.up_vector[2],
             ]
             time.sleep(0.2)
+        
+        # ALL DATA
+        if self.all_data:
+            self.plot_alldata.voxels = (
+                self.cubes_all_data[change['new']].todense().transpose(2, 1, 0)
+            )
 
-        if self.all_data: self.plot_alldata.voxels = self.cubes_all_data[change['new']].todense().transpose(2, 1, 0)
+        # NO DUPLICATES
+        if self.no_duplicates:
+            self.plot_dupli_new.voxels = (
+                self.cubes_no_duplicates[change['new']].todense().transpose(2, 1, 0)
+            )
 
-        if self.no_duplicates: self.plot_dupli_new.voxels = self.cubes_no_duplicates[change['new']].todense().transpose(2, 1, 0)
- 
-        if self.time_interval_all_data: self.plot_interv_new.voxels = self.cubes_integrated_all_data[change['new']].todense().transpose(2, 1, 0)
-                          
-        if self.time_interval_no_duplicates: self.plot_interv_dupli_new.voxels = self.cubes_integrated_no_duplicate[change['new']].todense().transpose(2, 1, 0)
+        # TIME INTEGRATION
+        if self.time_interval_all_data:
+            self.plot_interv_new.voxels = (
+                self.cubes_integrated_all_data[change['new']].todense().transpose(2, 1, 0)
+            )
 
-        if self.line_of_sight_SDO: self.plot_los_sdo.voxels = self.cubes_los_sdo[change['new']].todense().transpose(2, 1, 0)
+        # TIME NO DUPLICATES             
+        if self.time_interval_no_duplicates:
+            self.plot_interv_dupli_new.voxels = (
+                self.cubes_integrated_no_duplicate[change['new']].todense().transpose(2, 1, 0)
+            )
 
-        if self.line_of_sight_STEREO: self.plot_los_stereo.voxels = self.cubes_los_stereo[change['new']].todense().transpose(2, 1, 0)
+        # SDO LINE OF SIGHT
+        if self.line_of_sight_SDO:
+            self.plot_los_sdo.voxels = (
+                self.cubes_los_sdo[change['new']].todense().transpose(2, 1, 0)
+            )
+
+        # STEREO LINE OF SIGHT
+        if self.line_of_sight_STEREO:
+            self.plot_los_stereo.voxels = (
+                self.cubes_los_stereo[change['new']].todense().transpose(2, 1, 0)
+            )
        
-        # if self.skeleton: self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
-        # if self.convolution: self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
+        # if self.skeleton:
+        #     self.plot_skeleton.voxels = self.Full_array(self.cubes_skeleton[change['new']])
+        # if self.convolution:
+        #     self.plot_convolution.voxels = self.Full_array(self.cubes_convolution[change['new']])
 
+        # POLYNOMIAL FIT
         if self.interpolation:
             for i, plot in enumerate(self.plot_interpolation):
                 data = self.interpolation_data[i]
@@ -590,7 +749,8 @@ class K3dAnimation(Setup):
         
         if self.play_pause_button.value and self.time_slider.value < len(self.dates) - 1:
             self.time_slider.value += 1
-            threading.Timer(self.sleep_time, self.play).start()  # where you also set the sleep() time.
+            threading.Timer(self.sleep_time, self.play).start()
+            # where you also set the sleep() time.
                 
         else:
             self.play_pause_button.description = 'Play'
