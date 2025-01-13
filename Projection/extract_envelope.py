@@ -72,7 +72,7 @@ class Envelope:
     def get(
             cls,
             polynomial_order: int,
-            number_of_points: int | float,
+            number_of_points: int,
             plot: bool,
         ) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
         """
@@ -349,6 +349,143 @@ class Envelope:
         plt.savefig(os.path.join(self.paths['results'], saving_name), dpi=1000)
         plt.close()
         if self.verbose > 0: print(f"File {saving_name} saved.")
+
+
+class CreateFitEnvelope:
+    """
+    To create the envelope of the 3D polynomial fit.
+    """
+
+    def __init__(self, coords: np.ndarray, radius: int | float):
+
+        self.coords = coords  # (r, theta)
+        self.radius = radius  # in km
+
+    @classmethod
+    def get(cls, coords: np.ndarray, radius: int | float) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Class method to get the upper and lower limit of the envelope without needing to initialise
+        the class when using it.
+
+        Args:
+            coords (np.ndarray): the coordinates (r, theta) of the polynomial fit as seen from SDO.
+            radius (int | float): the radius to consider for the envelope (in km).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the upper and lower limits of the envelope.
+        """
+
+        instance = cls(coords=coords, radius=radius)        
+        return instance.get_envelope()
+
+    def get_envelope(self) -> tuple[np.ndarray, np.ndarray]:
+        
+        # COORDs polar
+        r, theta = self.coords
+
+        # COORDs cartesian
+        x = r * np.cos(np.deg2rad(theta))
+        y = r * np.sin(np.deg2rad(theta))
+        coords_cartesian = np.stack([x, y], axis=0)
+
+        # VECTORs
+        x_direction = x[2:] - x[:-2]
+        y_direction = y[2:] - y[:-2]
+
+        # VECTORs envelope #TODO: need to change this to use vector operations
+        solutions = np.stack([
+            self.envelope_vectors(np.array([x, y]))
+            for (x, y) in zip(x_direction, y_direction)
+        ], axis=0)
+
+        envelope_one = self.envelope_setup(coords_cartesian, solutions)
+        envelope_two = self.envelope_setup(coords_cartesian, - solutions)
+        envelope_up, envelope_down = self.get_up_down((envelope_one, envelope_two))
+        return envelope_up, envelope_down
+    
+    def get_up_down(self, coords: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """
+        To differentiate between the upper limit of the envelope and the lower one.
+
+        Args:
+            coords (tuple[np.ndarray, np.ndarray]): the coords separated into two curves which are
+                a mix of the upper and lower limit.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the upper and lower coordinates for the envelope limit.
+        """
+
+        # DATA open
+        one, two = coords
+
+        # MASK on rho
+        mask = one[0] >= two[0]
+
+        # RESULTs init
+        up_array = np.empty(one.shape)
+        down_array = np.empty(one.shape)
+
+        # POPULATE result
+        up_array[:, mask] = one[:, mask]
+        up_array[:, ~mask] = two[:, ~mask]
+        down_array[:, mask] = two[:, mask]
+        down_array[:, ~mask] = one[:, ~mask]
+        return up_array, down_array
+    
+    def envelope_setup(self, coords_cartesian: np.ndarray, solutions: np.ndarray) -> np.ndarray:
+        
+        # COORDs cartesian
+        x, y = coords_cartesian
+
+        # COORDs envelope
+        envelope_x_down = [None] * len(solutions)  
+        envelope_y_down = [None] * len(solutions)
+        for index, (x_init, y_init) in enumerate(zip(x[1:-1], y[1:-1])):
+            
+            solution = solutions[index]
+
+            envelope_x_down[index] = x_init + self.radius * solution[0]
+            envelope_y_down[index] = y_init + self.radius * solution[1]
+
+        # NDARRAY coords
+        envelope_x_down = np.array(envelope_x_down)
+        envelope_y_down = np.array(envelope_y_down)
+        envelope_r = np.sqrt(envelope_x_down**2 + envelope_y_down**2)
+        envelope_theta = np.rad2deg(np.atan2(envelope_y_down, envelope_x_down)) + 360
+
+        envelope_coords = np.stack([envelope_r, envelope_theta], axis=0)
+        return envelope_coords
+
+    def testing_filters(self):
+
+        vectors: np.ndarray = np.array([0])
+
+        a_0_filter = (vectors[0] == 0)
+        a_1_filter = (vectors[1] == 0)
+
+        vectors[~(a_0_filter | a_1_filter)]
+        pass
+
+    def envelope_vectors(self, vector: np.ndarray) -> np.ndarray:
+        #TODO: can I just filter the values with a_0 or a_1 ==0 and then treat them separately?
+        # COMPONENTs vector
+        a_0, a_1 = vector
+
+        # SOLUTIONs
+        b_0, b_1 = 1, 1
+        if a_0 == 0:
+            b_1 = 0
+        elif a_1 == 0:
+            b_0 = 0
+        else:
+            b_1 = - a_0 / a_1 
+        
+        # NORMALISATION
+        N_b = np.sqrt(b_0**2 + b_1**2)
+
+        # VECTOR
+        solution = 1 / N_b * np.array([b_0, b_1])
+        return solution
 
 
 

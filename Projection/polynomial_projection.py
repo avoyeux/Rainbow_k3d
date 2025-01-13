@@ -19,7 +19,7 @@ import multiprocessing.queues
 
 # IMPORTS personal
 from common import Decorators, Plot
-from Projection.extract_envelope import Envelope
+from Projection.extract_envelope import Envelope, CreateFitEnvelope
 from Projection.cartesian_to_polar import CartesianToPolar
 from Data.get_interpolation import GetCartesianProcessedInterpolation
 
@@ -73,7 +73,7 @@ class OrthographicalProjection:
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
                 the reprojection. The possible choices are:
                 ['polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-                'envelope', 'interpolation']. 
+                'envelope', 'fit']. 
             verbose (int, optional): gives the verbosity in the outputted prints. The higher the
                 value, the more prints. Starts at 0 for no prints. Defaults to 1.
             flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to
@@ -168,7 +168,7 @@ class OrthographicalProjection:
         # CHOICES
         possibilities = [
             'polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-            'envelope', 'interpolation',
+            'envelope', 'fit', 'fit envelope',
         ]
         plot_choices_kwargs = {
             key: False 
@@ -214,17 +214,23 @@ class OrthographicalProjection:
 
         # SETUP plots kwargs
         plot_kwargs = {
-            'interpolation': {
-                'cmap': 'Blues',
-                'vmin': 0.5,
-                'vmax': 1.,
+            'fit': {
+                'cmap': 'seismic',
+                'vmin': -55,
+                'vmax': 55,
                 's': 1.5,
                 'zorder': 9,
             },
             'envelope': {
                 'linestyle': '--',
-                'alpha': 0.9,
+                'alpha': 0.8,
                 'zorder': 4,
+            },
+            'fit envelope': {
+                'linestyle': '--',
+                'color': 'yellow',
+                'alpha': 0.8,
+                'zorder':4,
             },
             'image': {
                 'extent': (
@@ -330,7 +336,7 @@ class OrthographicalProjection:
                 GetCartesianProcessedInterpolation(
                     interpolation_order=polynomial_order,
                     integration_time=self.integration_time,
-                    number_of_points=500,
+                    number_of_points=250,
                     borders={
                         'dx': dx,
                         'xmin': xmin,
@@ -379,7 +385,7 @@ class OrthographicalProjection:
                     data=self.cartesian_pos(no_duplicate, data),
                     sdo_pos=data['sdo_pos'],
                 ))
-                data['interpolation'] = [
+                data['fit'] = [
                     self.get_polar_image_angles(self.matrix_rotation(
                         data=self.cartesian_pos(interp, data),
                         sdo_pos=data['sdo_pos'],
@@ -562,7 +568,7 @@ class OrthographicalProjection:
         x_interp, y_interp, ang_interp = [
             [
                 interp[i]
-                for interp in data_info['interpolation']
+                for interp in data_info['fit']
             ]
             for i in range(3)
         ]
@@ -584,7 +590,7 @@ class OrthographicalProjection:
         )
 
         # SDO polar projection plotting
-        plt.figure(figsize=(14, 5))
+        plt.figure(figsize=(18, 5))
         if self.plot_choices['envelope']: 
             
             if self.global_data['envelope'] is None:
@@ -684,8 +690,8 @@ class OrthographicalProjection:
                 label='no duplicate contours',
             )
         
-        if self.plot_choices['interpolation']: 
-            for i in range(len(data_info['interpolation'])):
+        if self.plot_choices['fit']: 
+            for i in range(len(data_info['fit'])):
                 # POSITIONS polar
                 r_interp, theta_interp, val_interp = x_interp[i], y_interp[i], ang_interp[i]
 
@@ -694,12 +700,31 @@ class OrthographicalProjection:
                     theta_interp,
                     r_interp / 10**3,
                     label=f'{self.polynomial_order[i]}th order polynomial',
-                    c=np.cos(val_interp),
-                    **self.global_data['plot']['interpolation'],
+                    c=np.rad2deg(val_interp),
+                    **self.global_data['plot']['fit'],
                 )
                 cbar = plt.colorbar(sc)
-                cbar.set_label(r'$cos(\theta)$')
+                cbar.set_label(r'$\theta$ (degrees)')
 
+                # ENVELOPE polynomial
+                if self.plot_choices['fit envelope']:
+                    # ENVELOPE get
+                    envelopes = CreateFitEnvelope.get(
+                        coords=np.stack([r_interp, theta_interp], axis=0),
+                        radius = 3e4,
+                    )
+
+                    # PLOT envelope
+                    for label, new_envelope in enumerate(envelopes):
+                        r_env, theta_env = new_envelope
+                        plt.plot(
+                            theta_env,
+                            r_env / 1e3,
+                            label='fit envelope' if label==0 else None,
+                            **self.global_data['plot']['fit envelope'],
+                        )
+
+        # PLOT settings
         plt.xlim(
             self.projection_borders['polar angle'][0],
             self.projection_borders['polar angle'][1],
@@ -950,7 +975,8 @@ if __name__ == '__main__':
         processes=4,
         polynomial_order=[4],
         plot_choices=[
-            'polar', 'no duplicate', 'sdo mask', 'interpolation', 'sdo image', 'integration',
+            'polar', 'no duplicate', 'sdo mask', 'fit', 'sdo image', 'integration',
+            'envelope', 'fit envelope',
         ],
         flush=True,
     )
