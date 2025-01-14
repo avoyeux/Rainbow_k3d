@@ -1,6 +1,6 @@
 """
-To get the polynomial fit parameters and recreate the corresponding curve given the data type and
-the interpolation order to consider.
+To create the polynomial fit given the 3D protuberance voxels, but also to use the polynomial fit
+parameters to recreate the curve.
 In the child class, you can recreate the polynomial fit starting form the Sun's surface (if 
 possible) and with a given number of points in the curve.
 """
@@ -8,10 +8,546 @@ possible) and with a given number of points in the curve.
 # IMPORTS
 import os
 import h5py
+import scipy
+import typing
+import sparse
 
 # IMPORTs alias
 import numpy as np
+import multiprocessing as mp
 
+# IMPORTs personal
+from common import Decorators, MultiProcessing
+
+
+
+class Interpolation:
+    """
+    To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
+    """
+
+    axes_order = [0, 3, 2, 1]
+
+    def __init__(
+            self, 
+            data: sparse.COO, 
+            order: int, 
+            feet_sigma: int | float,
+            south_sigma: int | float,
+            leg_threshold: float,
+            processes: int, 
+            precision_nb: int | float = 10**6, 
+            full: bool = False,
+        ) -> None:
+        """ #TODO:update docstring
+        Initialisation of the Interpolation class. Using the get_information() instance method, you
+        can get the curve position voxels and the corresponding n-th order polynomial parameters
+        with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
+
+        Args:
+            data (sparse.COO): the data for which a fit is needed.
+            order (int): the polynomial order for the fit.
+            feet_sigma (float): the sigma uncertainty value used for the feet when fitting the
+                data.
+            processes (int): the number of processes for multiprocessing.
+            precision_nb (int | float, optional): the number of points used in the fitting.
+                Defaults to 10**6.
+        """
+
+        # Arguments 
+        self.data = self.reorder_data(data)
+        self.poly_order = order
+        self.feet_sigma = feet_sigma
+        self.south_sigma = south_sigma
+        self.leg_threshold = leg_threshold
+        self.processes = processes
+        self.precision_nb = precision_nb
+        self.full = full
+
+        # New attributes
+        self.params_init = np.random.rand(order + 1)  # initial (random) polynomial coefficients
+    
+    def reorder_data(self, data: sparse.COO) -> sparse.COO:
+        """
+        To reorder a sparse.COO array so that the axes orders change. This is done to change which
+        axis is 'sorted', as the first axis is always sorted (think about the .ravel() function).
+
+        Args:
+            data (sparse.COO): the array to be reordered, i.e. swapping the axes ordering.
+
+        Returns:
+            sparse.COO: the reordered sparse.COO array.
+        """
+
+        new_coords = data.coords[Interpolation.axes_order]
+        new_shape = [data.shape[i] for i in Interpolation.axes_order]
+        return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)
+
+    def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
+        """
+        To get the information and data for the interpolation and corresponding parameters (i.e.
+        polynomial coefficients) ndarray. The explanations for these two arrays are given inside
+        the dict in this method.
+
+        Returns:
+            dict[str, str | dict[str, str | np.ndarray]]: the data and metadata for the
+                interpolation and corresponding polynomial coefficients.
+        """
+
+        # Get data
+        interpolations, parameters = self.get_data()
+
+        # No duplicates uint16
+        treated_interpolations = self.no_duplicates_data(interpolations)
+        
+        # Save information
+        information = {
+            'description': (
+                "The interpolation curve with the corresponding parameters of the "
+                f"{self.poly_order}th order polynomial for each cube."
+            ),
+
+            'coords': {
+                'data': treated_interpolations,
+                'unit': 'none',
+                'description': (
+                    "The index positions of the fitting curve for the corresponding data. The "
+                    "shape of this data is (4, N) where the rows represent (t, x, y, z). This "
+                    "data set is treated, i.e. the coords here can directly be used in a "
+                    "sparse.COO object as the indexes are uint type and the duplicates are "
+                    "already taken out."
+                ),
+            },
+            'parameters': {
+                'data': parameters.astype('float32'),
+                'unit': 'none',
+                'description': (
+                    "The constants of the polynomial for the fitting. The shape is (4, total "
+                    "number of constants) where the 4 represents t, x, y, z. Moreover, the "
+                    "constants are in order a0, a1, ... where the polynomial is "
+                    "a0 + a1*x + a2*x**2 ..."
+                ),
+            },
+        }
+        if self.full:
+            raw_coords = {
+                'raw_coords': {
+                    'data': interpolations.astype('float32'),
+                    'unit': 'none',
+                    'description': (
+                        "The index positions of the fitting curve for the corresponding data. The "
+                        "shape of this data is (4, N) where the rows represent (t, x, y, z). "
+                        "Furthermore, the index positions are saved as floats, i.e. if you need "
+                        "to visualise it as voxels, then an np.round() and np.unique() is needed."
+                    ),
+                },
+            }
+            information |= raw_coords 
+        return information
+    
+    @Decorators.running_time
+    def no_duplicates_data(self, data: np.ndarray) -> np.ndarray:
+        """
+        To get no duplicates uint16 voxel positions from a float type data.
+
+        Args:
+            data (np.ndarray): the data to treat.
+
+        Returns:
+            np.ndarray: the corresponding treated data.
+        """
+
+        # Setup multiprocessing
+        manager = mp.Manager()
+        output_queue = manager.Queue()
+        processes_nb = min(self.processes, self.time_len)
+        indexes = MultiProcessing.pool_indexes(self.time_len, processes_nb)
+        shm, data = MultiProcessing.create_shared_memory(data)
+        # Run
+        processes = [None] * processes_nb
+        for i, index in enumerate(indexes):
+            p = mp.Process(target=self.no_duplicates_data_sub, args=(data, output_queue, index, i))
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        shm.unlink()
+        # Results
+        interpolations = [None] * processes_nb
+        while not output_queue.empty():
+            identifier, result = output_queue.get()
+            interpolations[identifier] = result
+        interpolations = np.concatenate(interpolations, axis=1)
+        return interpolations.astype('uint16')
+
+    @staticmethod
+    def no_duplicates_data_sub(
+            data: dict[str, any],
+            queue: mp.queues.Queue,
+            index: tuple[int, int],
+            position: int,
+        ) -> None:
+        """
+        To multiprocess the no duplicates uint16 voxel positions treatment.
+
+        Args:
+            data (dict[str, any]): the information to get the data from a
+                multiprocessing.shared_memory.SharedMemory() object.
+            queue (mp.queues.Queue): the output queue.
+            index (tuple[int, int]): the indexes to slice the data properly.
+            position (int): the position of the process to concatenate the result in the right
+                order.
+        """
+        
+        # Open SharedMemory
+        shm, data = MultiProcessing.open_shared_memory(data)
+
+        # Select data
+        data_filters = (data[0, :] >= index[0]) & (data[0, :] <= index[1])
+        data = np.copy(data[:, data_filters])
+        shm.close()
+
+        # No duplicates indexes
+        data = np.rint(np.abs(data.T))
+        data = np.unique(data, axis=0).T.astype('uint16')
+        queue.put((position, data))
+        
+    @Decorators.running_time
+    def get_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        To get the interpolation and corresponding polynomial coefficients. The interpolation in
+        this case is the voxel positions of the curve fit as a sparse.COO coords array (i.e. shape
+        (4, N) where N the number of non zeros).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the interpolation and parameters array, both with shape
+                (4, N) (not the same value for N of course).
+        """
+
+        # CONSTANTS
+        self.time_indexes = list(set(self.data.coords[0, :]))
+        #TODO: might get this from outside the class so that it is not computed twice or more
+        self.time_len = len(self.time_indexes)
+        process_nb = min(self.processes, self.time_len)
+
+        # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
+        sigma = self.data.data.astype('float64')
+        print(
+            f'The maximum value found even before the filtering and everything is {np.max(sigma)}'
+        )
+        print(f'The number of non 1 values are {np.sum(sigma > 2)}', flush=True)
+
+        # Shared memory
+        shm_coords, coords = MultiProcessing.create_shared_memory(
+            data=self.data.coords.astype('float64'),
+        )
+        shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
+
+        # Multiprocessing
+        manager = mp.Manager()
+        input_queue = manager.Queue()
+        output_queue = manager.Queue()
+        # QUEUE input
+        for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
+        for _ in range(process_nb): input_queue.put(None)
+        # Run
+        processes = [None] * process_nb
+        kwargs = {
+            'coords': coords,
+            'sigma': sigma,
+            'input_queue': input_queue,
+            'output_queue': output_queue,
+        }
+        kwargs_sub = {
+            'params_init': self.params_init,
+            'shape': self.data.shape,
+            'nth_order_polynomial': self.generate_nth_order_polynomial(),
+            'precision_nb': self.precision_nb,
+            'feet_sigma': self.feet_sigma,
+            'south_sigma': self.south_sigma,
+            'leg_threshold': self.leg_threshold,
+        }
+        for i in range(process_nb):
+            p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
+            p.start()
+            processes[i] = p
+        for p in processes: p.join()
+        # Unlink shared memories
+        shm_coords.unlink()
+        shm_sigma.unlink()
+        # Results
+        parameters = [None] * self.time_len
+        interpolations = [None] * self.time_len
+        while not output_queue.empty():
+            identifier, interp, params = output_queue.get()
+            interpolations[identifier] = interp
+            parameters[identifier] = params
+        interpolations = np.concatenate(interpolations, axis=1)
+        parameters = np.concatenate(parameters, axis=1)
+        return interpolations, parameters
+
+    @staticmethod
+    def get_data_sub(
+            coords: dict[str, any],
+            sigma: dict[str, any],
+            input_queue: mp.queues.Queue,
+            output_queue: mp.queues.Queue,
+            kwargs_sub: dict[str, any],
+        ) -> None:
+        """
+        Static method to multiprocess the curve fitting creation.
+
+        Args:
+            coords (dict[str, any]): the coordinates information to access the
+                multiprocessing.shared_memory.SharedMemory() object.
+            sigma (dict[str, any]): the weights (here sigma) information to access the
+                multiprocessing.shared_memory.SharedMemory() object.
+            input_queue (mp.queues.Queue): the input_queue for each process.
+            output_queue (mp.queues.Queue): the output_queue to save the results.
+            kwargs_sub (dict[str, any]): the kwargs for the polynomial_fit function.
+        """
+        
+        # Open shared memories
+        shm_coords, coords = MultiProcessing.open_shared_memory(coords)
+        shm_sigma, sigma = MultiProcessing.open_shared_memory(sigma)
+        
+        while True:
+            # Get arguments
+            args = input_queue.get()
+            if args is None: break
+            index, time_index = args
+
+            # Filter data
+            time_filter = coords[0, :] == time_index
+            coords_section = coords[1:, time_filter]
+            sigma_section = sigma[time_filter]
+
+            # Check if enough points for interpolation
+            nb_parameters = len(kwargs_sub['params_init'])
+            if nb_parameters >= sigma_section.shape[0]:
+                print(
+                    f"For cube index {index}, not enough points for interpolation (shape "
+                    f"{coords_section.shape})",
+                    flush=True,
+                )
+                result = np.empty((4, 0)) 
+                params = np.empty((4, 0))
+            else:
+                # Get cumulative distance
+                t = np.empty(sigma_section.shape[0], dtype='float64')
+                t[0] = 0
+                for i in range(1, sigma_section.shape[0]): 
+                    t[i] = t[i - 1] + np.sqrt(np.sum([
+                        (coords_section[a, i] - coords_section[a, i - 1])**2 
+                        for a in range(3)
+                    ]))
+                t /= t[-1]  # normalisation 
+
+                # Get results
+                kwargs = {
+                    'coords': coords_section,
+                    'sigma': sigma_section,
+                    't': t,
+                    'time_index': time_index,
+                }
+                result, params = Interpolation.polynomial_fit(**kwargs, **kwargs_sub)
+
+            # Save results
+            output_queue.put((index, result, params))
+        # Close shared memories
+        shm_coords.close()
+        shm_sigma.close()
+
+    @staticmethod
+    def polynomial_fit(
+            coords: np.ndarray,
+            sigma: np.ndarray,
+            t: np.ndarray,
+            time_index: int,
+            params_init: np.ndarray,
+            shape: tuple[int, ...],
+            precision_nb: float,
+            nth_order_polynomial: typing.Callable[
+                [np.ndarray, tuple[int | float, ...]],
+                np.ndarray
+            ],
+            feet_sigma: int | float,
+            south_sigma: int | float,
+            leg_threshold: float,
+        ) -> tuple[np.ndarray, np.ndarray]:
+        """ #TODO: update docstring
+        To get the polynomial fit of a data cube.
+
+        Args:
+            coords (np.ndarray): the coordinates ndarray to be fitted.
+            sigma (np.ndarray): the corresponding weights (here as sigma) for the coordinates
+                array.
+            t (np.ndarray): the polynomial variable. In our case the cumulative distance.
+            time_index (int): the time index for the cube that is being fitted.
+            params_init (np.ndarray): the initial (random) polynomial coefficients.
+            shape (tuple[int, ...]): the shape of the inputted data cube. 
+            precision_nb (float): the number of points used in the polynomial when saved.
+            nth_order_polynomial (typing.Callable[
+                [np.ndarray, tuple[int  |  float, ...]],
+                np.ndarray
+                ]): the n-th order polynomial function.
+            feet_sigma (float): the sigma position uncertainty used for the feet.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding
+                coefficients.
+        """
+
+        # Setting up interpolation weights
+        feet_mask = sigma > 2
+        beginning_mask = t < leg_threshold
+        #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to
+        # pass through the left leg.
+        t_mask = beginning_mask & ~feet_mask
+
+        # Try to get params
+        params = Interpolation.scipy_curve_fit(
+            polynomial=nth_order_polynomial,
+            t=t,
+            t_mask=t_mask,
+            coords=coords,
+            params_init=params_init,
+            sigma=sigma,
+            feet_mask=feet_mask,
+            feet_sigma=feet_sigma,
+            south_sigma=south_sigma,
+        )
+
+        # Get curve
+        params_x, params_y, params_z = params
+        t_fine = np.linspace(-0.5, 1.5, precision_nb)
+        x = nth_order_polynomial(t_fine, *params_x)
+        y = nth_order_polynomial(t_fine, *params_y)
+        z = nth_order_polynomial(t_fine, *params_z)
+        data = np.vstack([x, y, z]).astype('float64')
+
+        # Cut outside init data
+        conditions_upper = (
+            (data[0, :] >= shape[1] - 1) |
+            (data[1, :] >= shape[2] - 1) |
+            (data[2, :] >= shape[3] - 1)
+        )
+        #TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to
+        # make sure no problem arouses from floats. will need to see what to do later
+        conditions_lower = np.any(data < 0, axis=0)  # as floats can be a little lower than 0
+        conditions = conditions_upper | conditions_lower
+        data = data[:, ~conditions]
+
+        # No duplicates
+        unique_data = np.unique(data, axis=1)
+
+        # Recreate format
+        time_row = np.full((1, unique_data.shape[1]), time_index)
+        unique_data = np.vstack([time_row, unique_data]).astype('float64')
+        time_row = np.full((1, params.shape[1]), time_index)
+        params = np.vstack([time_row, params]).astype('float64')
+        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]
+        #TODO: will need to change this if I cancel the ax swapping in cls.__init__
+
+    @staticmethod
+    def scipy_curve_fit(
+            polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
+            t: np.ndarray,
+            t_mask: np.ndarray,
+            coords: np.ndarray,
+            params_init: np.ndarray,
+            sigma: np.ndarray,
+            feet_mask: np.ndarray,
+            feet_sigma: int | float,
+            south_sigma: int | float,
+        ) -> np.ndarray:
+        """
+        To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge
+        on a solution due to the feet weight, then the feet weight is divided by 4 (i.e. the
+        corresponding sigma is multiplied by 4) and the fitting is tried again.
+        #TODO: update docstring
+        Args:
+            polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the
+                function that outputs the n_th order polynomial function results.
+            t (np.ndarray): the cumulative distance.
+            coords (np.ndarray): the (x, y, z) coords of the data points.
+            params_init (np.ndarray): the initial (random) polynomial parameters.
+            sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the
+                inverse of the weight).
+            mask (np.ndarray): the mask representing the feet position.
+            feet_sigma (float): the value of sigma given for the feet. This value is quadrupled
+                every time a try fails.
+
+        Returns:
+            np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
+        """
+
+        kwargs = {
+            'polynomial': polynomial,
+            't': t, 
+            't_mask': t_mask,
+            'coords': coords,
+            'params_init': params_init,
+            'sigma': sigma,
+            'feet_mask': feet_mask,
+            'south_sigma': south_sigma,
+        }
+        try: 
+            sigma[feet_mask] = feet_sigma
+            x, y, z = coords
+            params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
+            sigma[~feet_mask] = 20
+            sigma[t_mask] = south_sigma
+            params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init, sigma=sigma)
+            params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
+            params = np.vstack([params_x, params_y, params_z]).astype('float64')
+        
+        except Exception:
+            # Changing feet value
+            feet_sigma *= 4
+            print(
+                "\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, "
+                f"i.e. value is {feet_sigma}.\033[0m",
+                flush=True,
+            )
+            params = Interpolation.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
+
+        finally:
+            print(
+                f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m",
+                flush=True,
+            )
+            return params
+
+    def generate_nth_order_polynomial(
+            self,
+        ) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
+        """
+        To generate a polynomial function given a polynomial order.
+
+        Returns:
+            typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]: the polynomial
+                function.
+        """
+        
+        def nth_order_polynomial(t: np.ndarray, *coeffs: int | float) -> np.ndarray:
+            """
+            Polynomial function given a 1D ndarray and the polynomial coefficients. The polynomial
+            order is defined before hand.
+
+            Args:
+                t (np.ndarray): the 1D array for which you want the polynomial results.
+
+            Returns:
+                np.ndarray: the polynomial results.
+            """
+
+            # Initialisation
+            result = 0
+
+            # Calculating the polynomial
+            for i in range(self.poly_order + 1): result += coeffs[i] * t**i
+            return result
+        return nth_order_polynomial
 
 
 class GetInterpolation:

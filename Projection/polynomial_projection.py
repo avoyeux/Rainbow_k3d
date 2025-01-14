@@ -357,13 +357,7 @@ class OrthographicalProjection:
                 index: int = indexes[process]
                 date: str = dates[index].decode('utf8')
                 sdo_pos: np.ndarray = sdo_pos_list[index].astype('float64')
-                no_duplicate = self.filter_data(no_duplicates, process)
-                cube = self.filter_data(cubes, process)
-                interpolation = [
-                    interp.reprocessed_interpolation(process)
-                    for interp in interpolations
-                ]
-
+                
                 # DATA formatting
                 data = {
                     'dx': dx,
@@ -377,21 +371,34 @@ class OrthographicalProjection:
 
                 sun_perimeter = 2 * np.pi * self.solar_r
                 data['d_theta'] = 360 / (sun_perimeter / data['dx'])
-                data['integration'] = self.get_polar_image(self.matrix_rotation(
-                    data=self.cartesian_pos(cube, data),
-                    sdo_pos=data['sdo_pos'],
-                ))
-                data['no duplicate'] = self.get_polar_image(self.matrix_rotation(
-                    data=self.cartesian_pos(no_duplicate, data),
-                    sdo_pos=data['sdo_pos'],
-                ))
-                data['fit'] = [
-                    self.get_polar_image_angles(self.matrix_rotation(
-                        data=self.cartesian_pos(interp, data),
+
+                if self.plot_choices['integration']:
+                    cube = self.filter_data(cubes, process)
+
+                    data['integration'] = self.get_polar_image(self.matrix_rotation(
+                        data=self.cartesian_pos(cube, data),
                         sdo_pos=data['sdo_pos'],
                     ))
-                    for interp in interpolation
-                ]
+
+                if self.plot_choices['no duplicate']:
+                    no_duplicate = self.filter_data(no_duplicates, process)
+
+                    data['no duplicate'] = self.get_polar_image(self.matrix_rotation(
+                        data=self.cartesian_pos(no_duplicate, data),
+                        sdo_pos=data['sdo_pos'],
+                    ))
+
+                if self.plot_choices['fit']:
+                    data['fit'] = [
+                        self.get_polar_image_angles(self.matrix_rotation(
+                            data=self.cartesian_pos(
+                                interp.reprocessed_interpolation(process),
+                                data,
+                            ),
+                            sdo_pos=data['sdo_pos'],
+                        ))
+                        for interp in interpolations
+                    ]
                 # print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
                 self.plotting(data)
         
@@ -562,17 +569,6 @@ class OrthographicalProjection:
                 processed data initially gotten from the HDF5 file (i.e. the 3D data).
         """
 
-        # VOXEL pos
-        r_cube, theta_cube = data_info['integration']
-        r_no_duplicate, theta_no_duplicate = data_info['no duplicate']
-        x_interp, y_interp, ang_interp = [
-            [
-                interp[i]
-                for interp in data_info['fit']
-            ]
-            for i in range(3)
-        ]
-
         # IMAGE shape
         image_shape = (
             int(
@@ -667,7 +663,10 @@ class OrthographicalProjection:
                 **self.global_data['plot']['image'],
             )
 
-        if self.plot_choices['integration']: 
+        if self.plot_choices['integration']:
+            # DATA (r, theta)
+            r_cube, theta_cube = data_info['integration']
+
             # PLOT contours time integrated
             self.plot_contours(
                 rho=r_cube,
@@ -680,6 +679,10 @@ class OrthographicalProjection:
             )
         
         if self.plot_choices['no duplicate']:
+            # DATA (r, theta) no duplicate
+            r_no_duplicate, theta_no_duplicate = data_info['no duplicate']
+
+            # PLOT contours no duplicates
             self.plot_contours(
                 rho=r_no_duplicate,
                 theta=theta_no_duplicate,
@@ -690,7 +693,17 @@ class OrthographicalProjection:
                 label='no duplicate contours',
             )
         
-        if self.plot_choices['fit']: 
+        if self.plot_choices['fit']:
+
+            # DATA (r, theta, ang) polynomial fit
+            x_interp, y_interp, ang_interp = [
+                [
+                    interp[i]
+                    for interp in data_info['fit']
+                ]
+                for i in range(3)
+            ]
+
             for i in range(len(data_info['fit'])):
                 # POSITIONS polar
                 r_interp, theta_interp, val_interp = x_interp[i], y_interp[i], ang_interp[i]
@@ -972,11 +985,10 @@ if __name__ == '__main__':
         filename='sig1e20_leg20_lim0_03.h5',
         with_feet=True,
         verbose=2,
-        processes=4,
+        processes=2,
         polynomial_order=[4],
         plot_choices=[
-            'polar', 'no duplicate', 'sdo mask', 'fit', 'sdo image', 'integration',
-            'envelope', 'fit envelope',
+            'polar', 'no duplicate', 'sdo mask', 'sdo image', 'envelope',
         ],
         flush=True,
     )

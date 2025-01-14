@@ -16,6 +16,7 @@ import numpy as np
 import astropy.io.fits
 import skimage.transform
 
+import matplotlib.pyplot as plt
 
 
 class CartesianToPolar:
@@ -81,7 +82,9 @@ class CartesianToPolar:
                 Defaults to 0.
 
         Returns:
-            dict[str | dict[str, float | np.ndarray], float]: _description_
+            dict[str | dict[str, float | np.ndarray], float]: contains the final polar image inside
+                the specified borders, with the initial dx and dtheta used and the new image's dx
+                and dtheta.
         """
 
         instance = cls(
@@ -132,7 +135,7 @@ class CartesianToPolar:
     
     def _open_data(self) -> dict[str, any]:
         """
-        To open the FITS file and get the necessary info for the image processing.
+        To open the FITS file, get and compute the necessary info for the image processing.
 
         Returns:
             dict[str, any]: information needed for the processing, e.g. the image, sun center.
@@ -189,24 +192,47 @@ class CartesianToPolar:
                 needed information to be able to properly locate the position of the final image.
         """
 
-        # Setup image shape depending on dx and dtheta
+        # SHAPE image
         theta_nb_pixels = round(360 / self.data_info['d_theta'])
-        radial_nb_pixels = round(max(self.borders['radial distance']) * 1e3 / self.data_info['dx'])
+        radial_nb_pixels = round(self.data_info['max index'])
 
-        # Re-calculating dx and dtheta as round() needed to be used.
+        # RE-CALCULATION dx and dtheta (round() was used).
         new_d_theta = 360 / theta_nb_pixels  
         new_dx = max(self.borders['radial distance']) * 1e3 / radial_nb_pixels
 
+        # POLAR image
         image = skimage.transform.warp_polar(
             image=self.data_info['image'],
             center=self.data_info['center'],
             output_shape=(theta_nb_pixels, radial_nb_pixels),
             radius=self.data_info['max index'],
         )
+  
+        # TEST plotting
+        # lower_cut = np.nanpercentile(image, 2)
+        # higher_cut = np.nanpercentile(image, 99.99)
 
-        # Corrections
+        # # SATURATION
+        # image[image < lower_cut] = lower_cut
+        # image[image > higher_cut] = higher_cut
+        
+        # if not np.any(image == 0):
+        #     image = np.log(image.T)
+
+        #     plt.figure(figsize=(18, 10))
+        #     plt.imshow(image, interpolation='none')
+        #     ax = plt.gca()
+        #     ax.minorticks_on()
+        #     ax.set_aspect('auto')
+        #     plt.savefig(f'testing{np.round(np.random.random(1), 5)}.png', dpi=800)
+        #     plt.close()
+        #     print('done')
+
+        # CORRECTIONs
         if self.theta_offset != 0: image = self._rotate_polar(image, new_d_theta)
         if self.direction == 'clockwise': image = np.flip(image, axis=0)
+
+        # SAVE data
         info = {
             'image': {
                 'data': self._slice_image(image, new_dx, new_d_theta).T,
