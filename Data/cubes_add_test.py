@@ -6,6 +6,7 @@ data.
 # IMPORTs
 import os
 import h5py
+import sparse
 
 # IMPORTs sub
 import numpy as np
@@ -13,6 +14,24 @@ import numpy as np
 # IMPORTs personal
 from Data.Cubes import DataSaver
 from common import Decorators
+
+# ! the projection error still hasn't been found. Need to make test data that copies the initial
+# Doesn't seem to be because of the feet as when I seem to be using the data without feet
+# (by setting with_feet=False in polynomial_projection.py), the error in the re-projection still
+# exists while the fake sun surface projection seem to be right.
+
+# The problem doesn't seem to be from recalculating the voxel positions from index to cartesian as
+# reusing the same code used in the feet to add them as index positions seem to work properly when
+# applying it to my test sun surface data.
+# ? could the problem come from using the wrong position for SDO? 
+# the fake data that I am using won't be able to answer the prior comment.
+# ? could the problem come from the new_toto.pro 3D creation (highly unlikely)
+# the solar_r values are not always the same but the problem shouldn't come from there.
+# ? could the problem come from the definition of nx in the idl codes. Something like taking n and
+# ? not n+1 (as the number of discreet values is n+1 or n depending on the problem)
+
+# todo need to create some test data for which I know the position but that also depends on SDO's
+# todo position. Still thinking how to do so though.
 
 
 
@@ -53,6 +72,9 @@ class AddTestingData(DataSaver):
         """
 
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'a') as HDF5File:
+            
+            # GET dx
+            dx: float = HDF5File['dx'][...]
 
             test_group_name = 'TEST data'
             if test_group_name in HDF5File:
@@ -62,11 +84,107 @@ class AddTestingData(DataSaver):
                 group.attrs['description'] =  (
                     "This group only contains data to be used for testing."
                 )
+
             # SUN add
             sun_coords = self.create_sun()
             group = self.add_sun(group, sun_coords, 'Sun sphere')
 
-    def add_sun(self, group: h5py.Group, coords: np.ndarray, name: str) -> h5py.File | h5py.Group:
+            # SUN index add
+            path_to_copy = "Filtered/No duplicates new"
+            no_duplicates_info_info = self.get_path_info(HDF5File[path_to_copy])
+            sun_index, borders = self.sun_to_index(
+                data_info=no_duplicates_info_info,
+                dx=dx,
+                sun_data=sun_coords,
+            )
+            group = self.add_sun_in_index(group, sun_index.coords, borders, 'Sun index')
+
+    @Decorators.running_time
+    def sun_to_index(
+            self,
+            data_info: dict[str, float | np.ndarray],
+            dx: float,
+            sun_data: np.ndarray,
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
+
+        # ATTRIBUTE create
+        time_indexes = np.unique(data_info['coords'][0])
+
+        # BORDERs new
+        x_min, y_min, z_min = np.min(sun_data, axis=1) # todo need to change this as too many
+        # todo points will be kept.
+        x_min: float = x_min if x_min <= data_info['xmin'] else data_info['xmin']
+        y_min: float = y_min if y_min <= data_info['ymin'] else data_info['ymin']
+        z_min: float = z_min if z_min <= data_info['zmin'] else data_info['zmin']
+        _, new_borders = self.create_borders((0, x_min, y_min, z_min))
+
+        # COORDs indexes
+        sun_data[0, :] = sun_data[0, :] - data_info['xmin']
+        sun_data[1, :] = sun_data[1, :] - data_info['ymin']
+        sun_data[2, :] = sun_data[2, :] - data_info['zmin']
+        sun_data /= dx
+        sun_data = np.round(sun_data).astype('int32')
+
+        # FUSION sun - cubes
+        print('yes')
+        data = np.hstack([
+            np.vstack((np.full((1, sun_data.shape[1]), time), sun_data))
+            for time in time_indexes
+        ])
+        print('tey')
+        data = np.hstack([data_info['coords'], data]).astype('int32')
+        print('fail')
+        # INDEXEs positive
+        x_min, y_min, z_min = np.min(sun_data, axis=1).astype(int)
+        if x_min < 0: data[1, :] -= x_min
+        if y_min < 0: data[2, :] -= y_min
+        if z_min < 0: data[3, :] -= z_min
+
+        # COO data
+        print('no')
+        shape = np.max(data, axis=1) + 1
+        print('yes')
+        values = np.ones(data.shape[1], dtype='uint8')
+        print('what')
+        data = sparse.COO(coords=data, data=values, shape=shape).astype('uint8')
+        return data, new_borders
+
+    def add_sun_in_index(
+            self,
+            group: h5py.Group,
+            data: np.ndarray,
+            borders: dict[str, dict[str, str | float]],
+            name: str,
+        ) -> h5py.Group:
+
+        sun_index = {
+            'description': "The Sun surface with data no duplicates new.",
+            'coords': {
+                'data': data,
+                'unit': 'none',
+                'description': (
+                    "The sun surface with the data from new duplicates new (without feet) as "
+                    "indexes. This data is only for testing the visualisation and re-projection "
+                    "codes."
+                ),
+            },
+        }
+        if name in group: del group[name]
+        sun_index |= borders
+        group = self.add_group(group, sun_index, name)
+        return group
+
+    def get_path_info(self, group: h5py.Group) -> dict[str, float | np.ndarray]:
+        
+        data_info = {
+            'xmin': group['xmin'][...],
+            'ymin': group['ymin'][...],
+            'zmin': group['zmin'][...],
+            'coords': group['coords'][...],
+        }
+        return data_info
+
+    def add_sun(self, group: h5py.Group, coords: np.ndarray, name: str) -> h5py.Group:
         """
         To add the fake sun data to the HDF5 file.
 
@@ -81,7 +199,7 @@ class AddTestingData(DataSaver):
 
         sun = {
             'description': (
-                "The sun surface as points on the sun surface. Used to test if the visualisation "
+                "The Sun surface as points on the sun surface. Used to test if the visualisation "
                 "and re-projection codes are working properly."
             ),
             'raw coords': {
@@ -92,11 +210,20 @@ class AddTestingData(DataSaver):
                     f"{2* self.test_resolution**2} points positioned uniformly on the surface."
                 ),
             },
+            'values': {
+                'data': np.ones(coords.shape[1], dtype='uint8'),
+                'unit': 'none',
+                'description': (
+                    "The value associated to each voxel position. In this case, it's just a 1D "
+                    "ndarray of ones."
+                )
+            }
         }
         if name in group: del group[name]
         group = self.add_group(group, sun, name)
         return group
     
+    @Decorators.running_time
     def create_sun(self) -> np.ndarray:
         """
         To find the coords of the Sun's surface. The points delimiting the surface are uniformly
@@ -120,9 +247,8 @@ class AddTestingData(DataSaver):
         return np.stack([x.ravel(), y.ravel(), z.ravel()], axis=0)
 
 
-
 if __name__=='__main__':
 
     # RUN
-    instance = AddTestingData(filename='sig1e20_leg20_lim0_03.h5', test_resolution=int(1e4))
+    instance = AddTestingData(filename='sig1e20_leg20_lim0_03.h5', test_resolution=int(2e3))
     instance.add_to_file()

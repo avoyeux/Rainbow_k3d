@@ -73,7 +73,7 @@ class OrthographicalProjection:
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
                 the reprojection. The possible choices are:
                 ['polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-                'envelope', 'fit']. 
+                'envelope', 'fit', 'fit envelope', 'test']. 
             verbose (int, optional): gives the verbosity in the outputted prints. The higher the
                 value, the more prints. Starts at 0 for no prints. Defaults to 1.
             flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to
@@ -168,7 +168,7 @@ class OrthographicalProjection:
         # CHOICES
         possibilities = [
             'polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-            'envelope', 'fit', 'fit envelope',
+            'envelope', 'fit', 'fit envelope', 'test'
         ]
         plot_choices_kwargs = {
             key: False 
@@ -347,6 +347,18 @@ class OrthographicalProjection:
                 )
                 for polynomial_order in self.polynomial_order
             ]
+
+            if self.plot_choices['test']:
+                # TEST data
+                test_path = 'TEST data/Sun index'
+                test_data = H5PYFile[test_path + '/coords']
+
+                test_info = {
+                    'dx': dx,
+                    'xmin': H5PYFile[test_path + '/xmin'][...].astype('float64'),
+                    'ymin': H5PYFile[test_path + '/ymin'][...].astype('float64'),
+                    'zmin': H5PYFile[test_path + '/zmin'][...].astype('float64'),
+                }
             
             while True:
                 # INFO process 
@@ -399,6 +411,13 @@ class OrthographicalProjection:
                         ))
                         for interp in interpolations
                     ]
+                
+                if self.plot_choices['test']:
+                    test = self.filter_data(test_data, process)
+                    data['test'] = self.get_polar_image(self.matrix_rotation(
+                        data=self.cartesian_pos(test, test_info),
+                        sdo_pos=data['sdo_pos'],
+                    ))
                 # print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
                 self.plotting(data)
         
@@ -737,6 +756,20 @@ class OrthographicalProjection:
                             **self.global_data['plot']['fit envelope'],
                         )
 
+        # TEST plot
+        if self.plot_choices['test']:
+            # DATA (r, theta) fake
+            r_fake, theta_fake = data_info['test']
+
+            self.plot_contours(
+                rho=r_fake,
+                theta=theta_fake,
+                d_theta=data_info['d_theta'],
+                dx=data_info['dx'],
+                image_shape=image_shape,
+                color='white',
+                label='fake data',
+            )
         # PLOT settings
         plt.xlim(
             self.projection_borders['polar angle'][0],
@@ -983,12 +1016,12 @@ class OrthographicalProjection:
 if __name__ == '__main__':
     OrthographicalProjection(
         filename='sig1e20_leg20_lim0_03.h5',
-        with_feet=True,
+        with_feet=False,
         verbose=2,
         processes=2,
         polynomial_order=[4],
         plot_choices=[
-            'polar', 'no duplicate', 'sdo mask', 'sdo image', 'envelope',
+            'polar', 'no duplicate', 'sdo mask', 'sdo image', 'envelope', 'test',
         ],
         flush=True,
     )

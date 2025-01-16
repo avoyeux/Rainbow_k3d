@@ -511,8 +511,11 @@ class DataSaver:
             header = astropy.io.fits.getheader(filepath)
             # Get positions
             coords = sunpy.coordinates.frames.HeliographicCarrington(
-                header['CRLN_OBS'] * u.deg, header['CRLT_OBS'] * u.deg, header['DSUN_OBS'] * u.m,
-                obstime=header['DATE-OBS'], observer='self'
+                header['CRLN_OBS'] * u.deg,
+                header['CRLT_OBS'] * u.deg,
+                header['DSUN_OBS'] * u.m,
+                obstime=header['DATE-OBS'],
+                observer='self',
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
@@ -1280,7 +1283,7 @@ class DataSaver:
         _, new_borders = self.create_borders((0, x_min, y_min, z_min))
 
         # Feet pos inside init data
-        positions[0, :] = positions[0, :] - borders['xmin']['data']
+        positions[0, :] = positions[0, :] - borders['xmin']['data'] # todo do -= 
         positions[1, :] = positions[1, :] - borders['ymin']['data']
         positions[2, :] = positions[2, :] - borders['zmin']['data']
         positions /= self.dx['data']
@@ -1301,7 +1304,7 @@ class DataSaver:
         # Indexes to positive values
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
         if x_min < 0: init_coords[1, :] -= x_min
-        if y_min < 0: init_coords[2, :] -= y_min
+        if y_min < 0: init_coords[2, :] -= y_min  # ? not sure what I meant there
         if z_min < 0: init_coords[3, :] -= z_min
 
         # Changing to COO 
