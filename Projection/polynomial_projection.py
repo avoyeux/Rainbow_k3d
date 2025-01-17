@@ -327,7 +327,7 @@ class OrthographicalProjection:
             # POINTERS
             indexes = H5PYFile['Time indexes']
             dates = H5PYFile['Dates']
-            sdo_pos_list = H5PYFile['SDO positions']
+            # sdo_pos_list = H5PYFile['SDO positions'] # ! take the pos from the SDO images
             no_duplicates = H5PYFile['Filtered/' + self.data_type + '/coords'] 
             cubes = H5PYFile[time_integrated_path + '/coords']
 
@@ -368,7 +368,8 @@ class OrthographicalProjection:
                 # DATA
                 index: int = indexes[process]
                 date: str = dates[index].decode('utf8')
-                sdo_pos: np.ndarray = sdo_pos_list[index].astype('float64')
+
+                # sdo_pos: np.ndarray = sdo_pos_list[index].astype('float64')
                 
                 # DATA formatting
                 data = {
@@ -378,18 +379,28 @@ class OrthographicalProjection:
                     'xmin': xmin,
                     'ymin': ymin,
                     'zmin': zmin,
-                    'sdo_pos': sdo_pos,
+                    # 'sdo_pos': sdo_pos,
                 }
 
                 sun_perimeter = 2 * np.pi * self.solar_r
                 data['d_theta'] = 360 / (sun_perimeter / data['dx'])
+
+                # SDO information
+                filepath = self.sdo_timestamps[data['date'][:-3]]
+                if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
+                sdo_image_info = self.sdo_image(filepath) 
+                # todo make the code more readable, right now I did too much random patching.
+                # todo make the code more modulable given the input choices
+
+                if self.plot_choices['sdo image']:
+                    data['sdo image'] = sdo_image_info
 
                 if self.plot_choices['integration']:
                     cube = self.filter_data(cubes, process)
 
                     data['integration'] = self.get_polar_image(self.matrix_rotation(
                         data=self.cartesian_pos(cube, data),
-                        sdo_pos=data['sdo_pos'],
+                        sdo_pos=sdo_image_info['sdo_pos'],
                     ))
 
                 if self.plot_choices['no duplicate']:
@@ -397,7 +408,7 @@ class OrthographicalProjection:
 
                     data['no duplicate'] = self.get_polar_image(self.matrix_rotation(
                         data=self.cartesian_pos(no_duplicate, data),
-                        sdo_pos=data['sdo_pos'],
+                        sdo_pos=sdo_image_info['sdo_pos'],
                     ))
 
                 if self.plot_choices['fit']:
@@ -407,7 +418,7 @@ class OrthographicalProjection:
                                 interp.reprocessed_interpolation(process),
                                 data,
                             ),
-                            sdo_pos=data['sdo_pos'],
+                            sdo_pos=sdo_image_info['sdo_pos'],
                         ))
                         for interp in interpolations
                     ]
@@ -416,7 +427,7 @@ class OrthographicalProjection:
                     test = self.filter_data(test_data, process)
                     data['test'] = self.get_polar_image(self.matrix_rotation(
                         data=self.cartesian_pos(test, test_info),
-                        sdo_pos=data['sdo_pos'],
+                        sdo_pos=sdo_image_info['sdo_pos'],
                     ))
                 # print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
                 self.plotting(data)
@@ -672,13 +683,13 @@ class OrthographicalProjection:
                 )
 
         if self.plot_choices['sdo image']:
-            # SDO image
-            filepath = self.sdo_timestamps[data_info['date'][:-3]]
-            if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
-            sdo_image_info = self.sdo_image(filepath)
+            # # SDO image
+            # filepath = self.sdo_timestamps[data_info['date'][:-3]]
+            # if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
+            # sdo_image_info = self.sdo_image(filepath)
 
             plt.imshow(
-                self.sdo_image_treatment(sdo_image_info['image']['data']),
+                self.sdo_image_treatment(data_info['sdo image']['image']['data']),
                 **self.global_data['plot']['image'],
             )
 
@@ -941,7 +952,10 @@ class OrthographicalProjection:
             ))
         return nw_lines
 
-    def sdo_image(self, filepath: str) -> dict[str | dict[str, float | np.ndarray], float]:
+    def sdo_image(
+            self,
+            filepath: str,
+        ) -> dict[str | dict[str, float | np.ndarray], float | np.ndarray]:
         """ 
         To get the sdo image in polar coordinates and delimited by the final plot borders.
         Furthermore, needed information are also saved in the output, e.g. dx and d_theta for the

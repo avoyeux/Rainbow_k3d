@@ -6,6 +6,8 @@ disk's center and get the corresponding image defined inside borders in polar co
 
 # IMPORTs
 import os
+import sunpy
+import astropy
 import skimage
 import astropy 
 
@@ -15,8 +17,13 @@ import numpy as np
 # IMPORTs sub
 import astropy.io.fits
 import skimage.transform
+import sunpy.coordinates
+from astropy import units as u
 
 import matplotlib.pyplot as plt
+
+# ? change the dictionaries to namedtuple (from collections) or dataclass from dataclasses
+
 
 
 class CartesianToPolar:
@@ -68,7 +75,7 @@ class CartesianToPolar:
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
             **kwargs,
-        ) -> dict[str | dict[str, float | np.ndarray], float]:
+        ) -> dict[str | dict[str, float | np.ndarray], float | np.ndarray]:
         """
         Class method to get the processed polar SDO image without needing to initialise the class
         first.
@@ -153,6 +160,7 @@ class CartesianToPolar:
             'dx': ((
                 (np.tan(np.deg2rad(header['CDELT1'] / 3600) / 2) * header['DSUN_OBS']) * 2
             ) / 1e3),  # in km
+            'sdo_pos': self.carrington_to_cartesian(header),
         }
         sun_radius = header['RSUN_REF']
         sun_perimeter = 2 * np.pi * sun_radius
@@ -160,6 +168,26 @@ class CartesianToPolar:
         data_info['max index'] = max(self.borders['radial distance']) * 1e3 / data_info['dx']
         hdul.close()
         return data_info
+    
+    def carrington_to_cartesian(self, header) -> np.ndarray:
+
+            # Get positions
+            coords = sunpy.coordinates.frames.HeliographicCarrington(
+                header['CRLN_OBS'] * u.deg,
+                header['CRLT_OBS'] * u.deg,
+                header['DSUN_OBS'] * u.m,
+                obstime=header['DATE-OBS'],
+                observer='self',
+            )
+            coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
+
+            # In km
+            result = np.array([
+                coords.x.to(u.km).value,
+                coords.y.to(u.km).value,
+                coords.z.to(u.km).value,
+            ])
+            return result
 
     def _slice_image(self, image: np.ndarray, dx: float, d_theta: float) -> np.ndarray:
         """
@@ -183,7 +211,9 @@ class CartesianToPolar:
         min_polar_index = round(min(self.borders['polar angle']) / d_theta)
         return image[min_polar_index:max_polar_index + 1, min_radial_index:]
 
-    def coordinates_cartesian_to_polar(self) -> dict[str | dict[str, float | np.ndarray], float]:
+    def coordinates_cartesian_to_polar(
+            self,
+        ) -> dict[str | dict[str, float | np.ndarray], float | np.ndarray]:
         """
         To change the image from a cartesian representation to the corresponding polar one.
 
@@ -241,6 +271,7 @@ class CartesianToPolar:
             },
             'dx': self.data_info['dx'],
             'd_theta': self.data_info['d_theta'],
+            'sdo_pos': self.data_info['sdo_pos'],
         }
         return info
     

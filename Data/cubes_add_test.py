@@ -15,6 +15,11 @@ import numpy as np
 from Data.Cubes import DataSaver
 from common import Decorators
 
+# ! the initial cubes coordinates are in carrington reprojected coordinates and I think that I am 
+# ! keeping them in that coordinate system through the whole code and as such there might be a
+# ! sort of deformation between what is seen and the actual 3D coordinates of the voxels. The SDO
+# ! position is also taken from the carrington position, so I might have misunderstood skycoords.
+
 # ! the projection error still hasn't been found. Need to make test data that copies the initial
 # Doesn't seem to be because of the feet as when I seem to be using the data without feet
 # (by setting with_feet=False in polynomial_projection.py), the error in the re-projection still
@@ -250,5 +255,5 @@ class AddTestingData(DataSaver):
 if __name__=='__main__':
 
     # RUN
-    instance = AddTestingData(filename='sig1e20_leg20_lim0_03.h5', test_resolution=int(2e3))
+    instance = AddTestingData(filename='sig1e20_leg20_lim0_03.h5', test_resolution=int(7e2))
     instance.add_to_file()
