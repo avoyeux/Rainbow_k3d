@@ -26,11 +26,12 @@ from astropy import units as u
 
 # IMPORTs personal
 from Data.get_interpolation import Interpolation
+from Data.base_hdf5_creator import BaseHdf5Creator
 from common import Decorators, CustomDate, DatesUtils, MultiProcessing
 
 
 
-class DataSaver:
+class DataSaver(BaseHdf5Creator):
     """
     To create cubes with and/or without feet in an HDF5 file.
     """
@@ -565,73 +566,6 @@ class DataSaver:
                 coords.z.to(u.km).value,
             ])
             output_queue.put((identification, result))
-
-    def add_dataset(
-            self,
-            group: h5py.File | h5py.Group,
-            info: dict[str, any],
-            name: str = '',
-        ) -> h5py.File | h5py.Group:
-        """
-        Adds a DataSet to a HDF5 group like object.
-
-        Args:
-            group (h5py.File | h5py.Group): the HDF5 group like object.
-            info (dict[str, any]): the information to add in the DataSet.
-            name (str, optional): the name of the DataSet to add. Defaults to '' (then the
-                attributes are directly added to the group).
-
-        Returns:
-            h5py.File | h5py.Group: the input group like object with the added DataSet.
-        """
-        
-        # Find dataset key
-        stopped = False
-        for key, item in info.items(): 
-            if not isinstance(item, str): stopped = True; break
-        if not stopped: key = ''  # No Datasets. Add attribute to group
-
-        dataset = group.require_dataset(
-            name,
-            shape=info[key].shape,
-            dtype=info[key].dtype,
-            data=info[key],
-        ) if (name != '') or (key != '') else group
-        for attrs_key, item in info.items():
-            if key==attrs_key: continue
-            dataset.attrs[attrs_key] = item 
-        return group
-    
-    def add_group(
-            self,
-            group: h5py.File | h5py.Group,
-            info: dict[str, any],
-            name: str,
-        ) -> h5py.File | h5py.Group:
-        """
-        Adds a group with the corresponding DataSets to a HDF5 group like object.
-
-        Args:
-            group (h5py.File | h5py.Group): the HDF5 group like object.
-            info (dict[str, str | dict[str | any]]): the information  and data to add in the group.
-            name (str): the name of the group.
-
-        Returns:
-            h5py.File | h5py.Group: the input group like object with the added group.
-        """
-
-        # print(f'the type of the input is {type(info)}')
-        if not all(isinstance(value, (str, dict)) for value in info.values()):
-            #TODO: will need to change this later if I get datasets without attributes
-            group = self.add_dataset(group, info, name)
-        else:
-            new_group = group.require_group(name)
-            for key, item in info.items():
-                if isinstance(item, str):
-                    new_group.attrs[key] = item
-                else:
-                    new_group = self.add_group(new_group, item, key)
-        return group
     
     @Decorators.running_time
     def raw_group(
@@ -1162,7 +1096,9 @@ class DataSaver:
                 'data': data.data, 
                 'unit': 'none',
                 'description': "The values for each voxel.",
-            },
+            },# ? might need to be able to add the values if there is no attributes but I don't think it'll be
+# ? easy
+
         }
         # Add border info
         if borders is not None: raw |= borders
