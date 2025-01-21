@@ -13,7 +13,6 @@ import sunpy
 import typing
 import sparse
 import astropy
-import datetime
 
 # IMPORTs alias
 import numpy as np
@@ -26,12 +25,18 @@ from astropy import units as u
 
 # IMPORTs personal
 from Data.get_interpolation import Interpolation
-from Data.base_hdf5_creator import BaseHdf5Creator
-from common import Decorators, CustomDate, DatesUtils, MultiProcessing
+from Data.base_hdf5_creator import BaseHDF5Protuberance
+from common import Decorators, CustomDate, DatesUtils, MultiProcessing, main_paths
+
+# todo I could change the code so that one process runs only one cube at once (except for the time
+# todo integration part where I need to only take the data section needed). This will need to
+# todo change the whole fetching, cube creating and saved data structure, so holding it off for now
+
+# todo need to change 'Coords' to 'Coords indexes' when I decide to re-run this code.
 
 
 
-class DataSaver(BaseHdf5Creator):
+class DataSaver(BaseHDF5Protuberance):
     """
     To create cubes with and/or without feet in an HDF5 file.
     """
@@ -73,6 +78,9 @@ class DataSaver(BaseHdf5Creator):
                 Defaults to False.
         """
 
+        # PARENT
+        super().__init__()
+
         # Initial attributes
         self.filename = filename
         self.processes = processes
@@ -92,7 +100,6 @@ class DataSaver(BaseHdf5Creator):
         self.full = full  # deciding to add the heavy sky coords arrays.
 
         # CONSTANTs
-        self.solar_r = 6.96e5  # in km
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
 
         # Attributes setup
@@ -112,13 +119,11 @@ class DataSaver(BaseHdf5Creator):
             dict[str, str]: the directory paths.
         """
 
-        # Setup
-        main = '/home/avoyeux/old_project/avoyeux'
-        if not os.path.exists(main): main = '/home/avoyeux/Documents/avoyeux'
-        if not os.path.exists(main): raise ValueError(f"\033[1;31mThe main path {main} not found.")
-        python_codes = os.path.join(main, 'python_codes')
+        # SETUP
+        python_codes = main_paths.root_path
+        main = os.path.join(python_codes, '..')
 
-        # Format paths
+        # PATHs keep
         paths = {
             'main': main,
             'codes': python_codes,
@@ -273,85 +278,31 @@ class DataSaver(BaseHdf5Creator):
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
-            values = (cube.dx, cube.xt_min, cube.yt_min, cube.zt_min)
-            self.dx, init_borders = self.create_borders(values)
+            self.dx = self.dx_to_dict()
+            values = (cube.xt_min, cube.yt_min, cube.zt_min)
+            init_borders = self.create_borders(values)
 
             # Main metadata
-            H5PYFile = self.foundation(H5PYFile)
+            self.foundation(H5PYFile)
 
             # Raw data and metadata
-            H5PYFile = self.raw_group(H5PYFile, init_borders)
+            self.raw_group(H5PYFile, init_borders)
 
             # Filtered data and metadata
-            H5PYFile = self.filtered_group(H5PYFile, init_borders)
+            self.filtered_group(H5PYFile, init_borders)
 
             # Integration data and metadata
-            H5PYFile = self.integrated_group(H5PYFile, init_borders)
+            self.integrated_group(H5PYFile, init_borders)
 
             # Interpolation data and metadata
-            H5PYFile = self.interpolation_group(H5PYFile)
-
-    def create_borders(
-            self,
-            values: tuple[float, ...],
-        ) -> tuple[dict[str, str | float], dict[str, dict[str, str | float]]]:
-        """
-        Gives the border information for the data.
-
-        Args:
-            values (tuple[float, ...]): the dx, xmin, ymin, zmin value in km.
-
-        Returns:
-            tuple[dict[str, any], dict[str, dict[str, any]]]: the data and metadata for the data
-                borders.
-        """
-
-        # Data and metadata
-        dx = {
-            'data': np.array([values[0]], dtype='float32'),
-            'unit': 'km',
-            'description': "The voxel resolution.",
-        }
-        info = {
-            'xmin': {
-                'data': np.array(values[1], dtype='float32'),
-                'unit': 'km',
-                'description': (
-                    "The minimum X-axis Carrington Heliographic Coordinates value for each data "
-                    "cube.\nThe X-axis in Carrington Heliographic Coordinates points towards the "
-                    "First Point of Aries."
-                ),
-            }, 
-            'ymin': {
-                'data': np.array(values[2], dtype='float32'),
-                'unit': 'km',
-                'description': (
-                    "The minimum Y-axis Carrington Heliographic Coordinates value for each data "
-                    "cube.\nThe Y-axis in Carrington Heliographic Coordinates points towards the "
-                    "ecliptic's eastern horizon."
-                ),
-            },
-            'zmin': {
-                'data': np.array(values[3], dtype='float32'),
-                'unit': 'km',
-                'description': (
-                    "The minimum Z-axis Carrington Heliographic Coordinates value for each data "
-                    "cube.\nThe Z-axis in Carrington Heliographic Coordinates points towards Sun's "
-                    "north pole."
-                ),
-            },
-        }
-        return dx, info
+            self.interpolation_group(H5PYFile)
     
-    def foundation(self, H5PYFile: h5py.File) -> h5py.File:
+    def foundation(self, H5PYFile: h5py.File) -> None:
         """
         For the main file metadata before getting to the HDF5 datasets and groups.
 
         Args:
             H5PYFile (h5py.File): the file.
-
-        Returns:
-            h5py.File: the updated file.
         """
 
         description = (
@@ -366,13 +317,8 @@ class DataSaver(BaseHdf5Creator):
             "corresponding 'description' attribute."
         )
         #TODO: finish explanation here explain that the data is saved as sparse arrays.
-
-        info = {
-            'author': 'Voyeux Alfred',
-            'creationDate': datetime.datetime.now().isoformat(),
-            'filename': self.filename,
-            'description': description,
-        }
+        metadata = self.main_metadata()
+        metadata['description'] += description
 
         # Get more metadata
         meta_info = self.get_cube_dates_info()
@@ -380,12 +326,11 @@ class DataSaver(BaseHdf5Creator):
         stereo_info = self.get_pos_stereo_info()
 
         # Update file
-        H5PYFile = self.add_dataset(H5PYFile, info)
-        H5PYFile = self.add_dataset(H5PYFile, self.dx, 'dx')
-        for key in meta_info.keys(): H5PYFile = self.add_dataset(H5PYFile, meta_info[key], key)
-        H5PYFile = self.add_dataset(H5PYFile, sdo_info, 'SDO positions')
-        H5PYFile = self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
-        return H5PYFile
+        self.add_dataset(H5PYFile, metadata)
+        self.add_dataset(H5PYFile, self.dx, 'dx')
+        for key in meta_info.keys(): self.add_dataset(H5PYFile, meta_info[key], key)
+        self.add_dataset(H5PYFile, sdo_info, 'SDO positions')
+        self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
     
     @Decorators.running_time
     def get_pos_sdo_info(self) -> dict[str, str | np.ndarray]:
@@ -568,11 +513,7 @@ class DataSaver(BaseHdf5Creator):
             output_queue.put((identification, result))
     
     @Decorators.running_time
-    def raw_group(
-            self,
-            H5PYFile: h5py.File,
-            borders: dict[str, dict[str, str | float]],
-        ) -> h5py.File:
+    def raw_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
         """
         To create the initial h5py.Group object; where the raw data (with/without feet and/or in
         Carrington Heliographic Coordinates).
@@ -581,9 +522,6 @@ class DataSaver(BaseHdf5Creator):
             H5PYFile (h5py.File): the opened file pointer.
             borders (dict[str, dict[str, str | float]]): the border info (i.e. x_min, etc.) for the
                 given data.
-
-        Returns:
-            h5py.File: the opened file pointer and the new data border information.
         """
 
         # Get data
@@ -653,23 +591,15 @@ class DataSaver(BaseHdf5Creator):
                 "The initial data with the feet positions added saved as Carrington Heliographic "
                 "Coordinates in km."
             )
-        return H5PYFile
     
     @Decorators.running_time
-    def filtered_group(
-            self,
-            H5PYFile: h5py.File,
-            borders: dict[str, dict[str, str | float]],
-        ) -> h5py.File:
+    def filtered_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
         """
         To filter the data and save it with feet.
 
         Args:
             H5PYFile (h5py.File): the file object.
             borders (dict[str, dict[str, str | float]]): the border information.
-
-        Returns:
-            h5py.File: the updated file object.
         """
 
         # Setup group
@@ -747,24 +677,15 @@ class DataSaver(BaseHdf5Creator):
                 "the rainbow cube data. The limits of the borders are defined in the .save IDL "
                 "code named new_toto.pro created by Dr. Frederic Auchere."
             )
-            
-        return H5PYFile
     
     @Decorators.running_time
-    def integrated_group(
-            self,
-            H5PYFile: h5py.File,
-            borders: dict[str, dict[str, str | float]],
-        ) -> h5py.File:
+    def integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
         """
         To integrate the data and save it inside a specific HDF5 group.
 
         Args:
             H5PYFile (h5py.File): the HDF5 file.
             borders (dict[str, dict[str, str | float]]): the border information.
-
-        Returns:
-            h5py.File: the updated HDF5.
         """
 
         # Setup group
@@ -812,8 +733,7 @@ class DataSaver(BaseHdf5Creator):
                 inside_group[group_name].attrs['description'] = (
                     f"This group contains the {option.lower()} data integrated on {time_hours} "
                     "hours intervals."
-                )
-        return H5PYFile                
+                )              
 
     @Decorators.running_time
     def time_integration(
@@ -948,15 +868,12 @@ class DataSaver(BaseHdf5Creator):
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
     @Decorators.running_time
-    def interpolation_group(self, H5PYFile: h5py.File) -> h5py.File:
+    def interpolation_group(self, H5PYFile: h5py.File):
         """
         To add the interpolation information to the file.
 
         Args:
             H5PYFile (h5py.File): the file object.
-
-        Returns:
-            h5py.File: the updated file object.
         """
         
         # Data options with or without feet
@@ -980,7 +897,6 @@ class DataSaver(BaseHdf5Creator):
                 group_path = main_path_2 + main_option + sub_option
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
                 self.add_interpolation(H5PYFile[group_path], data)
-        return H5PYFile
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1103,7 +1019,7 @@ class DataSaver(BaseHdf5Creator):
         # Add border info
         if borders is not None: raw |= borders
         
-        group = self.add_group(group, raw, data_name)
+        self.add_group(group, raw, data_name)
         return group
     
     def add_skycoords(
@@ -1157,7 +1073,7 @@ class DataSaver(BaseHdf5Creator):
         }
         # Add border info
         raw |= borders
-        group = self.add_group(group, raw, data_name)
+        self.add_group(group, raw, data_name)
         return group
     
     def add_interpolation(self, group: h5py.Group, data: sparse.COO) -> None:
@@ -1186,7 +1102,7 @@ class DataSaver(BaseHdf5Creator):
             instance = Interpolation(order=n_order, **interpolation_kwargs)
 
             info = instance.get_information()
-            group = self.add_group(group, info, f'{n_order}th order interpolation')
+            self.add_group(group, info, f'{n_order}th order interpolation')
     
     def with_feet(
             self,

@@ -45,12 +45,7 @@ class AddTestingData(DataSaver):
     To add a new h5py.Group to the HDF5 data file with fake data for testing the results.
     """
 
-    def __init__(
-            self,
-            filename: str,
-            test_resolution: int,
-            **kwargs,
-        ) -> None:
+    def __init__(self, filename: str, test_resolution: int, **kwargs) -> None:
         """
         To initialise the parent class to be able to access the class attributes and methods.
         This child class is to add a 'TEST data' group to the data file where fake data is saved to
@@ -70,7 +65,7 @@ class AddTestingData(DataSaver):
         self.test_resolution = test_resolution
 
     @Decorators.running_time
-    def add_to_file(self):
+    def add_to_file(self) -> None:
         """
         To add or update (if it already exist) the 'TEST data' group to the HDF5 file containing
         all the data.
@@ -79,7 +74,7 @@ class AddTestingData(DataSaver):
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'a') as HDF5File:
             
             # GET dx
-            dx: float = HDF5File['dx'][...]
+            dx = float(HDF5File['dx'][...])
 
             test_group_name = 'TEST data'
             if test_group_name in HDF5File:
