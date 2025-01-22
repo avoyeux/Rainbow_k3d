@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 
 
-@dataclass
+@dataclass(slots=True, repr=False, eq=False)
 class VolumeInfo:
     """
     To save basic volumetric protuberance data from a .save file.
