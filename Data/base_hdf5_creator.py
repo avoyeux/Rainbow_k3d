@@ -22,7 +22,7 @@ class VolumeInfo:
     """
 
     # VALUEs in km
-    dx: int
+    dx: float
     xt_min: float
     yt_min: float
     zt_min: float

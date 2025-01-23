@@ -25,14 +25,16 @@ from astropy import units as u
 
 # IMPORTs personal
 from Data.get_polynomial import Polynomial
-from Data.base_hdf5_creator import BaseHDF5Protuberance
+from Data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import Decorators, CustomDate, DatesUtils, MultiProcessing, main_paths
 
 # todo I could change the code so that one process runs only one cube at once (except for the time
-# todo integration part where I need to only take the data section needed). This will need to
-# todo change the whole fetching, cube creating and saved data structure, so holding it off for now
+# integration part where I need to only take the data section needed). This will need to change the
+# whole fetching, cube creating and saved data structure, so holding it off for now
 
 # todo need to change 'Coords' to 'Coords indexes' when I decide to re-run this code.
+
+# ! clearly the code is really badly optimised. really need to use one process per cube
 
 
 
@@ -278,6 +280,12 @@ class DataSaver(BaseHDF5Protuberance):
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
+            self.volume = VolumeInfo(  # ? dumb to be creating this but not using it
+                dx=float(cube.dx),
+                xt_min=float(cube.xt_min),
+                yt_min=float(cube.yt_min),
+                zt_min=float(cube.zt_min),
+            )
             self.dx = self.dx_to_dict()
             values = (cube.xt_min, cube.yt_min, cube.zt_min)
             init_borders = self.create_borders(values)
