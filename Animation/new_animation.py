@@ -257,10 +257,11 @@ class Setup:
             CubeInfo: the chosen cube 'type' information with the corresponding interpolations'.
         """
 
+        print(f'group_path is {group_path}')
         # BORDERs as index
-        xt_min_index = float(HDF5File[group_path + '/xmin'][...]) / self.constants.dx
-        yt_min_index = float(HDF5File[group_path + '/ymin'][...]) / self.constants.dx
-        zt_min_index = float(HDF5File[group_path + '/zmin'][...]) / self.constants.dx
+        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx
+        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx
+        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx
 
         # COO data
         data_coords: np.ndarray = HDF5File[group_path + '/coords'][...]

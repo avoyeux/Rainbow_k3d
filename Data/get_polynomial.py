@@ -21,7 +21,7 @@ from common import Decorators, MultiProcessing
 
 
 
-class Interpolation:
+class Polynomial:
     """
     To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
     """
@@ -40,7 +40,7 @@ class Interpolation:
             full: bool = False,
         ) -> None:
         """ #TODO:update docstring
-        Initialisation of the Interpolation class. Using the get_information() instance method, you
+        Initialisation of the Polynomial class. Using the get_information() instance method, you
         can get the curve position voxels and the corresponding n-th order polynomial parameters
         with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
 
@@ -79,36 +79,36 @@ class Interpolation:
             sparse.COO: the reordered sparse.COO array.
         """
 
-        new_coords = data.coords[Interpolation.axes_order]
-        new_shape = [data.shape[i] for i in Interpolation.axes_order]
+        new_coords = data.coords[Polynomial.axes_order]
+        new_shape = [data.shape[i] for i in Polynomial.axes_order]
         return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)
 
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
         """
-        To get the information and data for the interpolation and corresponding parameters (i.e.
+        To get the information and data for the polynomial and corresponding parameters (i.e.
         polynomial coefficients) ndarray. The explanations for these two arrays are given inside
         the dict in this method.
 
         Returns:
             dict[str, str | dict[str, str | np.ndarray]]: the data and metadata for the
-                interpolation and corresponding polynomial coefficients.
+                polynomial and corresponding polynomial coefficients.
         """
 
         # Get data
-        interpolations, parameters = self.get_data()
+        polynomials, parameters = self.get_data()
 
         # No duplicates uint16
-        treated_interpolations = self.no_duplicates_data(interpolations)
+        treated_polynomials = self.no_duplicates_data(polynomials)
         
         # Save information
         information = {
             'description': (
-                "The interpolation curve with the corresponding parameters of the "
+                "The polynomial curve with the corresponding parameters of the "
                 f"{self.poly_order}th order polynomial for each cube."
             ),
 
             'coords': {
-                'data': treated_interpolations,
+                'data': treated_polynomials,
                 'unit': 'none',
                 'description': (
                     "The index positions of the fitting curve for the corresponding data. The "
@@ -132,7 +132,7 @@ class Interpolation:
         if self.full:
             raw_coords = {
                 'raw_coords': {
-                    'data': interpolations.astype('float32'),
+                    'data': polynomials.astype('float32'),
                     'unit': 'none',
                     'description': (
                         "The index positions of the fitting curve for the corresponding data. The "
@@ -172,12 +172,12 @@ class Interpolation:
         for p in processes: p.join()
         shm.unlink()
         # Results
-        interpolations = [None] * processes_nb
+        polynomials = [None] * processes_nb
         while not output_queue.empty():
             identifier, result = output_queue.get()
-            interpolations[identifier] = result
-        interpolations = np.concatenate(interpolations, axis=1)
-        return interpolations.astype('uint16')
+            polynomials[identifier] = result
+        polynomials = np.concatenate(polynomials, axis=1)
+        return polynomials.astype('uint16')
 
     @staticmethod
     def no_duplicates_data_sub(
@@ -214,12 +214,12 @@ class Interpolation:
     @Decorators.running_time
     def get_data(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        To get the interpolation and corresponding polynomial coefficients. The interpolation in
+        To get the polynomial and corresponding polynomial coefficients. The polynomial in
         this case is the voxel positions of the curve fit as a sparse.COO coords array (i.e. shape
         (4, N) where N the number of non zeros).
 
         Returns:
-            tuple[np.ndarray, np.ndarray]: the interpolation and parameters array, both with shape
+            tuple[np.ndarray, np.ndarray]: the polynomial and parameters array, both with shape
                 (4, N) (not the same value for N of course).
         """
 
@@ -275,15 +275,15 @@ class Interpolation:
         shm_coords.unlink()
         shm_sigma.unlink()
         # Results
-        parameters = [None] * self.time_len
-        interpolations = [None] * self.time_len
+        parameters: list[np.ndarray] = [None] * self.time_len
+        polynomials: list[np.ndarray] = [None] * self.time_len
         while not output_queue.empty():
             identifier, interp, params = output_queue.get()
-            interpolations[identifier] = interp
+            polynomials[identifier] = interp
             parameters[identifier] = params
-        interpolations = np.concatenate(interpolations, axis=1)
-        parameters = np.concatenate(parameters, axis=1)
-        return interpolations, parameters
+        polynomials: np.ndarray = np.concatenate(polynomials, axis=1)
+        parameters: np.ndarray = np.concatenate(parameters, axis=1)
+        return polynomials, parameters
 
     @staticmethod
     def get_data_sub(
@@ -321,11 +321,11 @@ class Interpolation:
             coords_section = coords[1:, time_filter]
             sigma_section = sigma[time_filter]
 
-            # Check if enough points for interpolation
+            # Check if enough points for polynomial
             nb_parameters = len(kwargs_sub['params_init'])
             if nb_parameters >= sigma_section.shape[0]:
                 print(
-                    f"For cube index {index}, not enough points for interpolation (shape "
+                    f"For cube index {index}, not enough points for polynomial (shape "
                     f"{coords_section.shape})",
                     flush=True,
                 )
@@ -349,7 +349,7 @@ class Interpolation:
                     't': t,
                     'time_index': time_index,
                 }
-                result, params = Interpolation.polynomial_fit(**kwargs, **kwargs_sub)
+                result, params = Polynomial.polynomial_fit(**kwargs, **kwargs_sub)
 
             # Save results
             output_queue.put((index, result, params))
@@ -397,7 +397,7 @@ class Interpolation:
                 coefficients.
         """
 
-        # Setting up interpolation weights
+        # Setting up polynomial weights
         feet_mask = sigma > 2
         beginning_mask = t < leg_threshold
         #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to
@@ -405,7 +405,7 @@ class Interpolation:
         t_mask = beginning_mask & ~feet_mask
 
         # Try to get params
-        params = Interpolation.scipy_curve_fit(
+        params = Polynomial.scipy_curve_fit(
             polynomial=nth_order_polynomial,
             t=t,
             t_mask=t_mask,
@@ -445,7 +445,7 @@ class Interpolation:
         unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
-        return unique_data[Interpolation.axes_order], params[Interpolation.axes_order]
+        return unique_data[Polynomial.axes_order], params[Polynomial.axes_order]
         #TODO: will need to change this if I cancel the ax swapping in cls.__init__
 
     @staticmethod
@@ -509,7 +509,7 @@ class Interpolation:
                 f"i.e. value is {feet_sigma}.\033[0m",
                 flush=True,
             )
-            params = Interpolation.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
+            params = Polynomial.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
 
         finally:
             print(
@@ -550,7 +550,7 @@ class Interpolation:
         return nth_order_polynomial
 
 
-class GetInterpolation:
+class GetPolynomial:
     """
     Finds the polynomial fit parameters given the data_type and integration time to consider.
     Recreates the fit given a specified number of points. the fit is done for t going from 0 to 1
@@ -559,19 +559,19 @@ class GetInterpolation:
 
     def __init__(
             self,
-            interpolation_order: int,
+            polynomial_order: int,
             integration_time: int,
             number_of_points: int | float,
             data_type: str = 'No duplicates new with feet',
         ) -> None:
         """
         Initialise the class so that the pointer to the polynomial parameters is created (given
-        the specified data type, integration time and interpolation order).
+        the specified data type, integration time and polynomial order).
         After having finished using the class, the .close() method needs to be used to close the 
         HDF5 pointer.
 
         Args:
-            interpolation_order (int): the polynomial order to consider.
+            polynomial_order (int): the polynomial order to consider.
             integration_time (int): the integration time to consider for the choosing of the 
                 polynomial fit.
             number_of_points (int | float): the number of points to use when getting the polynomial
@@ -584,7 +584,7 @@ class GetInterpolation:
         self.t_fine = np.linspace(0, 1, int(number_of_points)) 
         self.data_type = data_type
         self.integration_time = integration_time
-        self.order = interpolation_order
+        self.order = polynomial_order
         
         # POINTERs
         self.file, self.data_reference = self.get_data_pointer()
@@ -609,7 +609,7 @@ class GetInterpolation:
             'Time integrated/' + 
             self.data_type +
             f'/Time integration of {self.integration_time}.0 hours' +
-            f'/{self.order}th order interpolation/parameters'
+            f'/{self.order}th order polynomial/parameters'
         )
 
         # FILE read
@@ -654,7 +654,7 @@ class GetInterpolation:
         for i in range(self.order + 1): result += coeffs[i] * t**i
         return result
 
-    def get_interpolation(self, cube_index: int) -> np.ndarray:
+    def get_polynomial(self, cube_index: int) -> np.ndarray:
         """
         Gives the polynomial fit coordinates with a certain number of points. The fit here is
         defined for t in [0, 1].
@@ -705,7 +705,7 @@ class GetInterpolation:
         self.file.close()
 
 
-class GetCartesianProcessedInterpolation(GetInterpolation):
+class GetCartesianProcessedPolynomial(GetPolynomial):
     """
     To process the polynomial fit positions so that the final result is a curve with a set number
     of points defined from the Sun's surface. If not possible, then the fit stops at a predefined
@@ -714,7 +714,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
 
     def __init__(
             self,
-            interpolation_order: int,
+            polynomial_order: int,
             integration_time: int,
             number_of_points: int | float,
             borders: dict[str, float],
@@ -726,7 +726,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
         predefined distance. The number of points in the resulting stays the same.
 
         Args:
-            interpolation_order (int): the order of the polynomial fit to consider.
+            polynomial_order (int): the order of the polynomial fit to consider.
             integration_time (int): the integration time to consider when choosing the polynomial
                 fit parameters.
             number_of_points (int | float): the number of positions to consider in the final
@@ -737,7 +737,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
 
         # PARENT
         super().__init__(
-            interpolation_order=interpolation_order,
+            polynomial_order=polynomial_order,
             integration_time=integration_time,
             number_of_points=0,
             data_type=data_type,
@@ -768,7 +768,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
         data[2, :] = data[2, :] * self.borders['dx'] + self.borders['zmin']
         return data
 
-    def reprocessed_interpolation(self, cube_index: int) -> np.ndarray:
+    def reprocessed_polynomial(self, cube_index: int) -> np.ndarray:
         """
         To create the polynomial fit to firstly find the polynomial fit limits to consider. From
         there the polynomial fit positions are recalculated keeping the new limits into
@@ -785,7 +785,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
                 re-computed.
         """
 
-        # PARAMs interpolation
+        # PARAMs polynomial
         params = self.get_params(cube_index)
 
         # COORDs cartesian
@@ -805,7 +805,7 @@ class GetCartesianProcessedInterpolation(GetInterpolation):
         to_filter = (x_filter | y_filter | z_filter | sun_filter)
         new_t = self.t_fine[~to_filter]
 
-        # RANGE filtered interpolation
+        # RANGE filtered polynomial
         t_fine = np.linspace(np.min(new_t), np.max(new_t), int(self.number_of_points))
 
         # COORDs new        

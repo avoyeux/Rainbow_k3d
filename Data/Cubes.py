@@ -24,7 +24,7 @@ import multiprocessing.queues
 from astropy import units as u
 
 # IMPORTs personal
-from Data.get_interpolation import Interpolation
+from Data.get_polynomial import Polynomial
 from Data.base_hdf5_creator import BaseHDF5Protuberance
 from common import Decorators, CustomDate, DatesUtils, MultiProcessing, main_paths
 
@@ -47,8 +47,8 @@ class DataSaver(BaseHDF5Protuberance):
         filename: str,
         processes: int, 
         integration_time: int | list[int] = [24],
-        interpolation_points: float = 10**6, 
-        interpolation_order: int | list[int] = [2, 3, 4],
+        polynomial_points: float = 10**6, 
+        polynomial_order: int | list[int] = [2, 3, 4],
         feet_lonlat: tuple[tuple[int | float, int | float], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: int | float = 1e-4,
         south_leg_sigma: int | float = 5,
@@ -64,9 +64,9 @@ class DataSaver(BaseHDF5Protuberance):
             processes (int): the number of processes used in the multiprocessed parts
             integration_time (int | list[int], optional): the time or times in hours used in the
                 time integration of the data. Defaults to [24].
-            interpolation_points (float, optional): the number of points used when recreating the
+            polynomial_points (float, optional): the number of points used when recreating the
                 polynomial gotten from the curve fitting of the data. Defaults to 10**6.
-            interpolation_order (int | list[int], optional): the order or orders used for the
+            polynomial_order (int | list[int], optional): the order or orders used for the
                 polynomial that fits the data. Defaults to [4, 5, 6].
             feet_lonlat (tuple[tuple[int, int], ...], optional): the positions of the feet in
                 Heliographic Carrington. Defaults to ((-177, 15), (-163, -16)).
@@ -88,11 +88,11 @@ class DataSaver(BaseHDF5Protuberance):
             self.integration_time = [integration_time * 3600]
         else:
             self.integration_time = [time * 3600 for time in integration_time]
-        if isinstance(interpolation_order, list):
-            self.interpolation_order = interpolation_order
+        if isinstance(polynomial_order, list):
+            self.polynomial_order = polynomial_order
         else:
-            self.interpolation_order = [interpolation_order]
-        self.interpolation_points = interpolation_points
+            self.polynomial_order = [polynomial_order]
+        self.polynomial_points = polynomial_points
         self.feet_sigma = feet_sigma
         self.south_leg_sigma = south_leg_sigma
         self.leg_threshold = leg_threshold
@@ -174,7 +174,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # Get dates
         date_filenames = sorted(os.listdir(self.paths['intensities']))
-        dates = [None] * self.max_cube_numbers
+        dates: list[str] = [None] * self.max_cube_numbers
         for i, number in enumerate(range(self.max_cube_numbers)):
             for filename in date_filenames:
                 filename_match = self.date_pattern.match(filename)
@@ -182,7 +182,7 @@ class DataSaver(BaseHDF5Protuberance):
                     if int(filename_match.group('number')) == number:
                         dates[i] = filename_match.group('date')
                         break
-        self.dates: list[str] = dates
+        self.dates = dates
 
         # Get pretreated dates
         treated_dates = [CustomDate(self.dates[number]) for number in self.cube_numbers]
@@ -294,8 +294,8 @@ class DataSaver(BaseHDF5Protuberance):
             # Integration data and metadata
             self.integrated_group(H5PYFile, init_borders)
 
-            # Interpolation data and metadata
-            self.interpolation_group(H5PYFile)
+            # Polynomial data and metadata
+            self.polynomial_group(H5PYFile)
     
     def foundation(self, H5PYFile: h5py.File) -> None:
         """
@@ -539,7 +539,7 @@ class DataSaver(BaseHDF5Protuberance):
         # Add raw cubes group
         group = self.add_cube(group, data, 'Raw cubes', borders)
         group['Raw cubes'].attrs['description'] = (
-            "The initial voxel data in COO format without the feet for the interpolation."
+            "The initial voxel data in COO format without the feet for the polynomial."
         )
         group['Raw cubes/values'].attrs['description'] = (
             "The values for each voxel as a 1D numpy array, in the same order than the "
@@ -607,7 +607,7 @@ class DataSaver(BaseHDF5Protuberance):
         group.attrs['description'] = (
             "This group is based on the data from the 'Raw' HDF5 group. It is made up of already "
             "filtered data for easier use later but also to be able to add a weight to the feet. "
-            "Hence, the interpolation data for each filtered data group is also available."
+            "Hence, the polynomial data for each filtered data group is also available."
         )
 
         # Get data
@@ -615,7 +615,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         for option in self.feet_options:
             # Add all data
-            new_borders = borders
+            new_borders = borders.copy()
             filtered_data = (data & 0b00000001).astype('uint8')
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(group, filtered_data, f'All data{option}', new_borders)
@@ -721,15 +721,20 @@ class DataSaver(BaseHDF5Protuberance):
                 group_name = f'Time integration of {time_hours} hours'
 
                 # Get data
-                data = self.time_integration(
+                data, new_borders = self.time_integration(
                     H5PYFile=H5PYFile,
                     datapath=f'Filtered/{option}',
                     time=integration_time,
-                    borders=borders,
+                    borders=borders, 
                 )
 
                 # Setup group
-                inside_group = self.add_cube(inside_group, data, group_name)
+                inside_group = self.add_cube(
+                    group=inside_group,
+                    data=data,
+                    data_name=group_name,
+                    borders=new_borders,
+                )
                 inside_group[group_name].attrs['description'] = (
                     f"This group contains the {option.lower()} data integrated on {time_hours} "
                     "hours intervals."
@@ -742,7 +747,7 @@ class DataSaver(BaseHDF5Protuberance):
             datapath: str,
             time: int,
             borders: dict[str, dict[str, str | float]]
-        ) -> sparse.COO:
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Gives the time integration of all the data for a given time interval in seconds.
 
@@ -753,7 +758,8 @@ class DataSaver(BaseHDF5Protuberance):
             borders (dict[str, dict[str, str | float]]): the border information.
 
         Returns:
-            sparse.COO: the integrated data.
+            tuple[sparse.COO, dict[str, dict[str, str | float]]]: the integration data and the new
+                corresponding data borders.
         """
 
         # Get data
@@ -784,8 +790,11 @@ class DataSaver(BaseHDF5Protuberance):
         data = sparse.stack(data, axis=0).astype('uint8')
 
         # If feet
-        if 'with feet' in datapath: data, _ = self.with_feet(data, borders)
-        return data
+        if 'with feet' in datapath:
+            data, new_borders = self.with_feet(data, borders)
+        else: 
+            new_borders = borders.copy()
+        return data, new_borders
 
     @staticmethod
     def time_integration_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
@@ -868,9 +877,9 @@ class DataSaver(BaseHDF5Protuberance):
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
     @Decorators.running_time
-    def interpolation_group(self, H5PYFile: h5py.File):
+    def polynomial_group(self, H5PYFile: h5py.File):
         """
-        To add the interpolation information to the file.
+        To add the polynomial information to the file.
 
         Args:
             H5PYFile (h5py.File): the file object.
@@ -896,7 +905,7 @@ class DataSaver(BaseHDF5Protuberance):
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
-                self.add_interpolation(H5PYFile[group_path], data)
+                self.add_polynomial(H5PYFile[group_path], data)
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1012,9 +1021,7 @@ class DataSaver(BaseHDF5Protuberance):
                 'data': data.data, 
                 'unit': 'none',
                 'description': "The values for each voxel.",
-            },# ? might need to be able to add the values if there is no attributes but I don't think it'll be
-# ? easy
-
+            },
         }
         # Add border info
         if borders is not None: raw |= borders
@@ -1076,33 +1083,33 @@ class DataSaver(BaseHDF5Protuberance):
         self.add_group(group, raw, data_name)
         return group
     
-    def add_interpolation(self, group: h5py.Group, data: sparse.COO) -> None:
+    def add_polynomial(self, group: h5py.Group, data: sparse.COO) -> None:
         """
-        To add to an h5py.Group, the interpolation curve and parameters given the data to fit.
+        To add to an h5py.Group, the polynomial curve and parameters given the data to fit.
 
         Args:
-            group (h5py.Group): the group in which an interpolation group needs to be added.
+            group (h5py.Group): the group in which an polynomial group needs to be added.
             data (sparse.COO): the data to interpolate.
 
         Returns:
             h5py.Group: the updated group.
         """
 
-        interpolation_kwargs = {
+        polynomial_kwargs = {
             'data': data, 
             'feet_sigma': self.feet_sigma,
             'south_sigma': self.south_leg_sigma,
             'leg_threshold': self.leg_threshold,
             'processes': self.processes,
-            'precision_nb': self.interpolation_points,
+            'precision_nb': self.polynomial_points,
             'full': self.full,
         }
         # Loop n-orders
-        for n_order in self.interpolation_order:
-            instance = Interpolation(order=n_order, **interpolation_kwargs)
+        for n_order in self.polynomial_order:
+            instance = Polynomial(order=n_order, **polynomial_kwargs)
 
             info = instance.get_information()
-            self.add_group(group, info, f'{n_order}th order interpolation')
+            self.add_group(group, info, f'{n_order}th order polynomial')
     
     def with_feet(
             self,
@@ -1129,15 +1136,15 @@ class DataSaver(BaseHDF5Protuberance):
 
         # Getting the new borders
         x_min, y_min, z_min = np.min(positions, axis=1) 
-        x_min = x_min if x_min <= borders['xmin']['data'] else borders['xmin']['data']
-        y_min = y_min if y_min <= borders['ymin']['data'] else borders['ymin']['data']
-        z_min = z_min if z_min <= borders['zmin']['data'] else borders['zmin']['data']
-        _, new_borders = self.create_borders((0, x_min, y_min, z_min))
+        x_min = x_min if x_min <= borders['xt_min']['data'] else borders['xt_min']['data']
+        y_min = y_min if y_min <= borders['yt_min']['data'] else borders['yt_min']['data']
+        z_min = z_min if z_min <= borders['zt_min']['data'] else borders['zt_min']['data']
+        new_borders = self.create_borders((x_min, y_min, z_min))
 
         # Feet pos inside init data
-        positions[0, :] = positions[0, :] - borders['xmin']['data'] # todo do -= 
-        positions[1, :] = positions[1, :] - borders['ymin']['data']
-        positions[2, :] = positions[2, :] - borders['zmin']['data']
+        positions[0, :] = positions[0, :] - borders['xt_min']['data'] # todo do -= 
+        positions[1, :] = positions[1, :] - borders['yt_min']['data']
+        positions[2, :] = positions[2, :] - borders['zt_min']['data']
         positions /= self.dx['data']
         positions = np.round(positions).astype('int32')
 
@@ -1189,9 +1196,9 @@ class DataSaver(BaseHDF5Protuberance):
         coords = data.coords.astype('float64')
 
         # Heliocentric kilometre conversion
-        coords[1, :] = coords[1, :] * self.dx['data'] + borders['xmin']['data']
-        coords[2, :] = coords[2, :] * self.dx['data'] + borders['ymin']['data']
-        coords[3, :] = coords[3, :] * self.dx['data'] + borders['zmin']['data']
+        coords[1, :] = coords[1, :] * self.dx['data'] + borders['xt_min']['data']
+        coords[2, :] = coords[2, :] * self.dx['data'] + borders['yt_min']['data']
+        coords[3, :] = coords[3, :] * self.dx['data'] + borders['zt_min']['data']
 
         # SharedMemory
         shm, coords = MultiProcessing.create_shared_memory(coords)
@@ -1273,7 +1280,7 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     kwargs = dict(
-        interpolation_order=[4, 5, 6, 8, 10],
+        polynomial_order=[4, 5, 6, 8, 10],
         processes=69,
         feet_sigma=20,
         south_leg_sigma=20,
