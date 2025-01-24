@@ -28,7 +28,7 @@ class CreateFakeData(BaseHDF5Protuberance):
     To create a fake data set for testing in an HDF5.
     """
 
-    def __init__(self, filename: str, sun_resolution: int) -> None:
+    def __init__(self, filename: str, sun_resolution: int, nb_of_cubes: int = 0) -> None:
 
         # PARENT
         super().__init__()
@@ -36,6 +36,7 @@ class CreateFakeData(BaseHDF5Protuberance):
         # ARGUMENTs
         self.filename = filename
         self.sun_resolution = sun_resolution
+        self.nb_of_cubes = nb_of_cubes
 
         # ATTRIBUTEs setup
         self.paths = self.setup_path()
@@ -82,6 +83,9 @@ class CreateFakeData(BaseHDF5Protuberance):
     
     @Decorators.running_time
     def create_hdf5(self) -> None:
+        """
+        To create the HDF5 file with the fake data.
+        """
 
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'w') as HDF5File:
             
@@ -108,8 +112,6 @@ class CreateFakeData(BaseHDF5Protuberance):
             for key, value in borders.items():
                 self.add_dataset(parent_group=group['Sun surface'], info=value, name=key)
 
-
-
             # CUBE add
             fake_cube = self.fake_cube()
             self.add_fake_cube(group, coords=fake_cube, name='Fake cube')
@@ -127,8 +129,14 @@ class CreateFakeData(BaseHDF5Protuberance):
                 self.add_dataset(parent_group=group['Fake cube'], info=value, name=key)
 
     def file_foundation(self, HDF5File: h5py.File) -> None:
+        """
+        To create the foundation of the HDF5 file, i.e. the metadata, the resolution, the SDO positions,
+        the time indexes, and the dates.
 
-        # ? should I write the code so that I can put a cube at the same time than an sdo pos
+        Args:
+            HDF5File (h5py.File): the HDF5 file object.
+        """
+
         # METADATA file
         metadata_dict = self.main_metadata()
         self.add_dataset(HDF5File, metadata_dict)
@@ -150,6 +158,15 @@ class CreateFakeData(BaseHDF5Protuberance):
         self.add_dataset(HDF5File, dates_dict, 'Dates')
     
     def fake_dates(self, nb_of_dates: int) -> dict[str, str | np.ndarray]:
+        """
+        To create the fake dates for the data.
+
+        Args:
+            nb_of_dates (int): the number of dates that are to be created.
+
+        Returns:
+            dict[str, str | np.ndarray]: the dates and its description.
+        """
 
         # DATE first
         first_date = datetime.datetime(2025, 1, 1, 0, 0, 0)
@@ -172,6 +189,12 @@ class CreateFakeData(BaseHDF5Protuberance):
         return dates_dict
 
     def fake_sdo_pos(self) -> dict[str, dict[str, str | np.ndarray]]:
+        """
+        To create the fake SDO positions for the data.
+
+        Returns:
+            dict[str, dict[str, str | np.ndarray]]: the SDO positions and its description.
+        """
         
         # DATA
         coef = 50
@@ -232,6 +255,14 @@ class CreateFakeData(BaseHDF5Protuberance):
         self.add_group(group, sun, name)
 
     def add_sun_indexes(self, group: h5py.Group, coords: np.ndarray, name: str) -> None:
+        """
+        To add the indexes of the Sun's surface to the HDF5 file.
+
+        Args:
+            group (h5py.Group): the HDF5 group where the Sun's surface indexes need to be inserted.
+            coords (np.ndarray): the (x, y, z) cartesian coords of the Sun's surface.
+            name (str): the name of the new dataset pointing to the Sun's surface indexes.
+        """
 
         # INFO sun indexes
         indexes = {
@@ -304,6 +335,7 @@ class CreateFakeData(BaseHDF5Protuberance):
         # todo need to think about what arguments to add to create differently positioned cubes
 
         # COORDs range
+        time_nb = 4  # todo need to make it depend on an instance attribute
         x_range = np.arange(0, 100 * self.volume.dx, self.volume.dx)
         y_range = np.arange(0, 100 * self.volume.dx, self.volume.dx)
         z_range = np.arange(0, 100 * self.volume.dx, self.volume.dx)
@@ -315,7 +347,15 @@ class CreateFakeData(BaseHDF5Protuberance):
 
         # FILL VOLUME
         X, Y, Z = np.meshgrid(x_positions, y_positions, z_positions, indexing='ij')
-        return np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=0)
+        coords = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=0)
+
+        # COORDs repeat N times
+        repeated_coords = np.tile(coords, (1, time_nb))
+        time_row = np.repeat(np.arange(time_nb), coords.shape[1])
+        print(f'max of time_row: {np.max(time_row)}')
+        result = np.vstack([time_row, repeated_coords])
+        print(f'max values for result are {np.max(result, axis=1)}')
+        return result
 
     def add_fake_cube(self, group: h5py.Group, coords: np.ndarray, name: str) -> None:
         """
@@ -352,6 +392,14 @@ class CreateFakeData(BaseHDF5Protuberance):
         self.add_group(group, cube, name) 
 
     def add_fake_cube_indexes(self, group: h5py.Group, coords: np.ndarray, name: str) -> None:
+        """
+        To add the indexes of the fake cube to the HDF5 file.
+
+        Args:
+            group (h5py.Group): the HDF5 group where the fake cube indexes need to be inserted.
+            coords (np.ndarray): the fake cube coords in cartesian reprojected Carrington.
+            name (str): the name of the new dataset pointing to the fake cube indexes.
+        """
 
         # INFO fake cube indexes
         indexes = {

@@ -27,9 +27,9 @@ class CubesConstants:
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
-class InterpolationData:
+class PolynomialData:
     """
-    Stores the interpolation results and some corresponding information.
+    Stores the polynomial results and some corresponding information.
     It is an immutable class without a __dict__ method (cf. dataclasses.dataclass).
     """
 
@@ -62,11 +62,11 @@ class CubeInfo:
 
     # DATA
     coo: sparse.COO
-    interpolations: list[InterpolationData] | None
+    polynomials: list[PolynomialData] | None
 
     def __getitem__(self, index: int | slice) -> list[sparse.COO]:
         """
-        To get a section of the protuberance and interpolations data.
+        To get a section of the protuberance and polynomials data.
 
         Args:
             index (int | slice): the time indexes needed to be fetched.
@@ -77,8 +77,8 @@ class CubeInfo:
         
         # ALL COORDs list
         result = [self.coo[index]]
-        if self.interpolations is not None:
-            result += [interpolation[index] for interpolation in self.interpolations]
+        if self.polynomials is not None:
+            result += [polynomial[index] for polynomial in self.polynomials]
         return result
 
 

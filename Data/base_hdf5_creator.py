@@ -151,19 +151,6 @@ class BaseHdf5Creator:
         }
         return metadata
 
-    def dataset_dict(
-            self,
-            data: np.ndarray,
-            name: str,
-            attrs: dict[str, str] | None = None,
-        ) -> dict[str, dict[str, np.ndarray] | dict[str, str | np.ndarray]]:
-        # ! most likely useless. Keeping it for now just to make sure.
-        data_dict = {'data': data}
-        if attrs is not None: data_dict |= attrs
-
-        dataset_dict = {name: data_dict}
-        return dataset_dict
-
 
 class BaseHDF5Protuberance(BaseHdf5Creator):
     """
@@ -171,6 +158,9 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
     """
 
     def __init__(self) -> None:
+        """
+        To initialise the instance attributes used when creating a default protuberance HDF5 file.
+        """
         
         super().__init__()
 
@@ -227,19 +217,31 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
         return info
     
     def to_index_pos(self, coords: np.ndarray) -> tuple[np.ndarray, dict]:
- 
+        """
+        Converts the coordinates from km to indexes and returns the indexes with the new borders.
+
+        Args:
+            coords (np.ndarray): the coordinates in km (can have shape (3, n) or (4, n)).
+
+        Returns:
+            tuple[np.ndarray, dict]: the coordinates in indexes and the new borders.
+        """
+        
         # BORDERs new
-        x_min, y_min, z_min = np.min(coords, axis=1)
+        if coords.shape[0] == 3:
+            x_min, y_min, z_min = np.min(coords, axis=1)
+        else:
+            _, x_min, y_min, z_min = np.min(coords, axis=1)
         x_min = x_min if x_min <= self.volume.xt_min else self.volume.xt_min
         y_min = y_min if y_min <= self.volume.yt_min else self.volume.yt_min
         z_min = z_min if z_min <= self.volume.zt_min else self.volume.zt_min
-        new_borders = self.create_borders((x_min, y_min, z_min)) # ? add it to parent class?
+        new_borders = self.create_borders((x_min, y_min, z_min))
 
         # COORDs indexes
-        coords[0, :] -= x_min
-        coords[1, :] -= y_min
-        coords[2, :] -= z_min
-        coords /= self.volume.dx
+        coords[-3, :] -= x_min
+        coords[-2, :] -= y_min
+        coords[-1, :] -= z_min
+        coords[-3:, :] /= self.volume.dx
         coords = np.round(coords).astype(int)
         return coords, new_borders     
     

@@ -20,11 +20,12 @@ import numpy as np
 from typing import Any
 
 # IMPORTs personal
-from common import Decorators, main_paths, Plot
 from Animation.animation_dataclasses import *
+from common import Decorators, main_paths, Plot
 
 # ANNOTATION alias
 VoxelType = Any
+JsLinkType = Any
 
 
 
@@ -51,10 +52,10 @@ class Setup:
             sdo_pov: bool = False,
             stereo_pov: bool = False,
             processes: int = 5,
-            interpolation: bool = False,
-            interpolation_order: int | list[int] = [5],
+            polynomial: bool = False,
+            polynomial_order: int | list[int] = [5],
             test_data: bool = False,
-            test_filename: str | None = None,
+            test_filename: str = 'testing.h5',
     ) -> None:
         """ # todo update docstring
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
@@ -86,10 +87,10 @@ class Setup:
                 the data. Defaults to False.
             processes (int, optional): the number of processes used in the multiprocessing.
                 Defaults to 5.
-            interpolation (bool, optional): choosing to visualise the polynomial data fits.
+            polynomial (bool, optional): choosing to visualise the polynomial data fits.
                 Defaults to False.
-            interpolation_order (int | list[int], optional): the polynomial orders that you want to
-                visualise (if interpolation is set to True). Defaults to [5].
+            polynomial_order (int | list[int], optional): the polynomial orders that you want to
+                visualise (if polynomial is set to True). Defaults to [5].
         """
 
         # FEET
@@ -109,18 +110,18 @@ class Setup:
         self.sdo_pov = sdo_pov
         self.stereo_pov = stereo_pov
         self.processes = processes
-        self.interpolation = interpolation
-        if isinstance(interpolation, list):
-            self.interpolation_data = interpolation_order
+        self.polynomial = polynomial
+        if isinstance(polynomial_order, list):
+            self.polynomial_order = polynomial_order
         else:
-            self.interpolation_order = [interpolation_order]  # ? what is the type annotation doing
+            self.polynomial_order = [polynomial_order]
         self.test_data = test_data
         self.test_filename = test_filename
 
         # ATTRIBUTES new
-        self.plot_interpolation_colours = [
+        self.plot_polynomial_colours = [
             next(Plot.random_hexadecimal_int_color_generator())
-            for _ in self.interpolation_order
+            for _ in self.polynomial_order
         ]
 
         # PLACEHOLDERs
@@ -209,10 +210,16 @@ class Setup:
             
         if self.test_data:
 
-            with h5py.File(self.paths['test data'], 'r') as HDF5File:
-                
-                # todo could add a 'safe' arg where it checks if the xt_min, yt_min are the same
-                cubes.fake_cube = self.get_cube_info(HDF5File, 'Test data/Fake cube')
+            with h5py.File(
+                os.path.join(self.paths['fake data'], self.test_filename),
+                'r',
+                ) as HDF5File:
+        
+                cubes.fake_cube = self.get_cube_info(
+                    HDF5File,
+                    'Test data/Fake cube',
+                    interpolate=False,
+                )
         return cubes
     
     def get_default_data(self, HDF5File: h5py.File) -> CubesConstants:
@@ -250,14 +257,13 @@ class Setup:
         Args:
             HDF5File (h5py.File): the HDF5 file where the data is stored.
             group_path (str): the HDF5 group absolute path (i.e. represents the cube 'type').
-            interpolate (bool, optional): If there exists interpolation data for that cube 'type'.
+            interpolate (bool, optional): If there exists polynomial data for that cube 'type'.
                 Defaults to True.
 
         Returns:
-            CubeInfo: the chosen cube 'type' information with the corresponding interpolations'.
+            CubeInfo: the chosen cube 'type' information with the corresponding polynomials'.
         """
 
-        print(f'group_path is {group_path}')
         # BORDERs as index
         xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx
         yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx
@@ -272,29 +278,29 @@ class Setup:
         ).astype('uint8')
 
         # INTERPOLATION data
-        if self.interpolation and interpolate:
-            interpolations: list[InterpolationData] = [None] * len(self.interpolation_order)
+        if self.polynomial and interpolate:
+            polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)
 
-            for i, order in enumerate(self.interpolation_order):
-                dataset_path = group_path + f'/{order}th order interpolation/coords'
+            for i, order in enumerate(self.polynomial_order):
+                dataset_path = group_path + f'/{order}th order polynomial/coords'
 
                 # DATA get
                 interp_coords: np.ndarray = HDF5File[dataset_path][...]
                 interp_coo = sparse.COO(
                     coords=interp_coords,
-                    data=np.ones(interp_coords.ravel()),
+                    data=np.ones(interp_coords.shape[1]),
                     shape=data_shape,
                 ).astype('uint8')
 
                 # DATA formatting
-                interpolations[i] = InterpolationData(
+                polynomials[i] = PolynomialData(
                     coo=interp_coo,
                     order=order,
                     name=f'{order}th ' + group_path.split('/')[1],
-                    color_hex=self.plot_interpolation_colours[i],
+                    color_hex=self.plot_polynomial_colours[i],
                 )
         else:
-            interpolations = None
+            polynomials = None
 
         # FORMATTING data
         cube_info = CubeInfo(
@@ -303,7 +309,7 @@ class Setup:
             yt_min_index=yt_min_index,
             zt_min_index=zt_min_index,
             coo=data_coo,
-            interpolations=interpolations,
+            polynomials=polynomials,
         )
         return cube_info
 
@@ -383,19 +389,19 @@ class K3dAnimation(Setup):
 
         # PLACEHOLDERs
         self.plot: k3d.plot.Plot  # plot object
-        # self.plot_alldata: VoxelType # voxels plot of the all data 
-        # self.plot_dupli_new: VoxelType  # same for the second method
-        # self.plot_interv_new: VoxelType  # same for the second method
-        # self.plot_interv_dupli_new: VoxelType  # same for the second method
-        # self.plot_fake_cube: VoxelType
+        self.plot_alldata: list[VoxelType] # voxels plot of the all data 
+        self.plot_dupli_new: list[VoxelType]  # same for the second method
+        self.plot_interv_new: list[VoxelType]  # same for the second method
+        self.plot_interv_dupli_new: list[VoxelType]  # same for the second method
+        self.plot_los_sdo: list[VoxelType]
+        self.plot_los_stereo: list[VoxelType]
+        self.plot_fake_cube: list[VoxelType]
         self.play_pause_button: ipywidgets.ToggleButton  # Play/Pause widget initialisation
         self.time_slider: ipywidgets.IntSlider # time slider widget
         self.date_dropdown: ipywidgets.Dropdown  # Date dropdown widget to show the date
-        self.time_link: ipywidgets.jslink  # JavaScript Link between the two widgets
+        self.time_link: JsLinkType  # JavaScript Link between the two widgets
 
         # RUN
-        if self.time_interval_all_data or self.time_interval_no_duplicates:
-            self.time_interval_string()
         self.animation()
 
     def animation(self) -> None:
@@ -433,49 +439,44 @@ class K3dAnimation(Setup):
         # ALL DATA add
         if self.cubes.all_data is not None:
             # VOXELS create
-            self.plot_alldata = self.create_voxels(self.cubes.all_data)
+            self.plot_alldata = self.create_voxels(self.cubes.all_data, **kwargs)
             for plot in self.plot_alldata: self.plot += plot     
         
         # NO DUPLICATES add
         if self.cubes.no_duplicate is not None:
             # VOXELs create
-            self.plot_dupli_new = self.create_voxels(self.cubes.no_duplicate)
+            self.plot_dupli_new = self.create_voxels(self.cubes.no_duplicate, **kwargs)
             for plot in self.plot_dupli_new: self.plot += plot
 
         # TIME INTEGRATION add
         if self.cubes.integration_all_data is not None:
             # VOXELs create
-            self.plot_interv_new = self.create_voxels(self.cubes.integration_all_data)
+            self.plot_interv_new = self.create_voxels(self.cubes.integration_all_data, **kwargs)
             for plot in self.plot_interv_new: self.plot += plot
        
         # TIME NO DUPLICATES add       
         if self.cubes.integration_no_duplicate is not None:
             # VOXELs create
-            self.plot_interv_dupli_new = self.create_voxels(self.cubes.integration_no_duplicate)
+            self.plot_interv_dupli_new = self.create_voxels(self.cubes.integration_no_duplicate, **kwargs)
             for plot in self.plot_interv_dupli_new: self.plot += plot  
 
         # SDO LINE OF SIGHT add
         if self.cubes.los_sdo is not None:
             # VOXELs create
-            self.plot_los_sdo = self.create_voxels(self.cubes.los_sdo)
+            self.plot_los_sdo = self.create_voxels(self.cubes.los_sdo, **kwargs)
             for plot in self.plot_los_sdo: self.plot += plot
 
         # STEREO LINE OF SIGHT add
         if self.cubes.los_stereo is not None:
             # VOXELs create
-            self.plot_los_stereo = self.create_voxels(self.cubes.los_stereo)
+            self.plot_los_stereo = self.create_voxels(self.cubes.los_stereo, **kwargs)
             for plot in self.plot_los_stereo: self.plot += plot
         
-        # CUBE fake # todo will need to change this
+        # CUBE fake
         if self.cubes.fake_cube is not None:
-            self.plot_fake_cube = k3d.voxels(
-                voxels=self.cubes.fake_cube.coo.todense().transpose(2, 1, 0),
-                color_map=[0xff6666],
-                opacity=1,
-                name=f'fake cube',
-                **kwargs,
-            )
-            self.plot += self.plot_fake_cube
+            # VOXELs create
+            self.plot_fake_cube = self.create_voxels(self.cubes.fake_cube, **kwargs)
+            for plot in self.plot_fake_cube: self.plot += plot
 
         # BUTTON play/pause
         self.play_pause_button = ipywidgets.ToggleButton(
@@ -530,11 +531,11 @@ class K3dAnimation(Setup):
 
         # PLACEHOLDER voxels
         plots: list[VoxelType] = [None] * (
-            1 + (len(cube.interpolations) if cube.interpolations is not None else 0)
+            1 + (len(cube.polynomials) if cube.polynomials is not None else 0)
         )
 
         # INDEX translation
-        translation = (cube.zt_min_index, cube.yt_min_index, cube.xt_min_index)
+        translation = (cube.xt_min_index, cube.yt_min_index, cube.zt_min_index)
 
         plots[0] = k3d.voxels(
             voxels=cube.coo[index].todense().transpose(2, 1, 0), #type: ignore
@@ -545,35 +546,70 @@ class K3dAnimation(Setup):
             **kwargs,
         )
         
-        if cube.interpolations is not None:
+        if cube.polynomials is not None:
             # INTERPOLATIONs setup
-            interpolations = cube.interpolations
+            polynomials = cube.polynomials
 
             # INTERPOLATION orders
-            for i, interpolation_data in enumerate(interpolations):
+            for i, polynomial_data in enumerate(polynomials):
                 plots[i + 1] = k3d.voxels(
-                    voxels=interpolation_data[index].todense().transpose(2, 1, 0),
-                    name=interpolation_data.name,
+                    voxels=polynomial_data[index].todense().transpose(2, 1, 0),
+                    name=polynomial_data.name,
                     opacity=opacity,
-                    color_map=[interpolation_data.color_hex],
+                    color_map=[polynomial_data.color_hex],
                     translation=translation,
                     **kwargs,
                 )
         return plots
 
+    def get_camera_reference(self) -> np.ndarray:
+        """
+        Gets the camera reference point.
+
+        Returns:
+            np.ndarray: the camera reference point.
+        """
+
+        # REFERENCE point
+        cube = self.find_first_cube()
+
+        if cube is not None:
+            reference = np.array([
+                (cube.coo.shape[1] / 2) + cube.xt_min_index,
+                (cube.coo.shape[2] / 2) + cube.yt_min_index,
+                (cube.coo.shape[3] / 2) + cube.zt_min_index,
+            ], dtype='float32')
+        else:
+            reference = np.array([0, 0, 0], dtype='float32')
+        return reference
+    
+    def find_first_cube(self) -> CubeInfo | None:
+        """
+        Finds the first cube that has data in it.
+
+        Returns:
+            CubeInfo | None: the first cube that has data in it. None if no data found.
+        """
+        
+        # FIND cube
+        for attr_name in self.cubes.__slots__:
+            if attr_name in ['sdo_pos', 'stereo_pos']: continue
+            if getattr(self.cubes, attr_name) is not None: return getattr(self.cubes, attr_name)
+
+        # NO DATA
+        return None
+
     def camera_params(self) -> None:
         """
         Camera visualisation parameters.
         """
-
+        
         # PARAMs constant
         self.plot.camera_auto_fit = False
         self.plot.camera_fov = self.camera_fov  # FOV in degrees
         self.plot.camera_zoom_speed = self.camera_zoom_speed  # zooming too quickly (default=1.2)
 
-        self._camera_reference = np.array([0, 0, 0])
-        # self._camera_reference = np.array([self.shape[3], self.shape[2], self.shape[1]]) / 2
-        # TODO: this is wrong but will do for now
+        self._camera_reference = self.get_camera_reference()
         
         # POV stereo
         if self.cubes.stereo_pos is not None:
@@ -581,15 +617,25 @@ class K3dAnimation(Setup):
                 self.cubes.stereo_pos[0, 0],
                 self.cubes.stereo_pos[0, 1],
                 self.cubes.stereo_pos[0, 2],
-                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                self.up_vector[0], self.up_vector[1], self.up_vector[2] # up vector
+                self._camera_reference[0],
+                self._camera_reference[1],
+                self._camera_reference[2],
+                self.up_vector[0],
+                self.up_vector[1],
+                self.up_vector[2],
             ] 
         # POV sdo
         elif self.cubes.sdo_pos is not None:
             self.plot.camera = [
-                self.cubes.sdo_pos[0, 0], self.cubes.sdo_pos[0, 1], self.cubes.sdo_pos[0, 2],
-                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                self.up_vector[0], self.up_vector[1], self.up_vector[2]
+                self.cubes.sdo_pos[0, 0],
+                self.cubes.sdo_pos[0, 1],
+                self.cubes.sdo_pos[0, 2],
+                self._camera_reference[0],
+                self._camera_reference[1],
+                self._camera_reference[2],
+                self.up_vector[0],
+                self.up_vector[1],
+                self.up_vector[2]
             ]  
         else:
             au_in_solar_r = 215  # 1 au in solar radii
@@ -603,8 +649,12 @@ class K3dAnimation(Setup):
                 self._camera_reference[0] + self.camera_pos[0], 
                 self._camera_reference[1] + self.camera_pos[1],
                 self._camera_reference[2] + self.camera_pos[2],
-                self._camera_reference[0], self._camera_reference[1], self._camera_reference[2],
-                self.up_vector[0], self.up_vector[1], self.up_vector[2]
+                self._camera_reference[0],
+                self._camera_reference[1],
+                self._camera_reference[2],
+                self.up_vector[0],
+                self.up_vector[1],
+                self.up_vector[2]
             ] 
 
     def add_sun(self):
@@ -668,32 +718,40 @@ class K3dAnimation(Setup):
             time.sleep(0.2)
         
         # ALL DATA
-        self.update_voxel(self.plot_alldata, self.cubes.all_data, change['new'])
+        if self.cubes.all_data is not None:
+            self.update_voxel(self.plot_alldata, self.cubes.all_data, change['new'])
         # NO DUPLICATES
-        self.update_voxel(self.plot_dupli_new, self.cubes.no_duplicate, change['new'])
+        if self.cubes.no_duplicate is not None:
+            self.update_voxel(self.plot_dupli_new, self.cubes.no_duplicate, change['new'])
         # TIME INTEGRATION
-        self.update_voxel(self.plot_interv_new, self.cubes.integration_all_data, change['new'])
-        # TIME NO DUPLICATES     
-        self.update_voxel(
-            self.plot_interv_dupli_new, self.cubes.integration_no_duplicate, change['new'],
-        )        
+        if self.cubes.integration_all_data is not None:
+            self.update_voxel(self.plot_interv_new, self.cubes.integration_all_data, change['new'])
+        # TIME NO DUPLICATES
+        if self.cubes.integration_no_duplicate is not None:     
+            self.update_voxel(
+                self.plot_interv_dupli_new, self.cubes.integration_no_duplicate, change['new'],
+            )        
         # SDO LINE OF SIGHT
-        self.update_voxel(self.plot_los_sdo, self.cubes.los_sdo, change['new'])
+        if self.cubes.los_sdo is not None:
+            self.update_voxel(self.plot_los_sdo, self.cubes.los_sdo, change['new'])
         # STEREO LINE OF SIGHT
-        self.update_voxel(self.plot_los_stereo, self.cubes.los_stereo, change['new'])
+        if self.cubes.los_stereo is not None:
+            self.update_voxel(self.plot_los_stereo, self.cubes.los_stereo, change['new'])
+        # FAKE CUBE
+        if self.cubes.fake_cube is not None:
+            self.update_voxel(self.plot_fake_cube, self.cubes.fake_cube, change['new'])
 
-    def update_voxel(self, plots: list[VoxelType], cube_info: CubeInfo | None, index: int) -> None:
+    def update_voxel(self, plots: list[VoxelType], cube_info: CubeInfo, index: int) -> None:
         """
-        Updates the k3d plot voxels for each cube and the corresponding interpolations.
+        Updates the k3d plot voxels for each cube and the corresponding polynomials.
 
         Args:
             plots (list[VoxelType]): the different voxel plots for each cube type.
-            cube_info (CubeInfo | None): each cube type. None if it wasn't created.
+            cube_info (CubeInfo): each cube type. None if it wasn't created.
             index (int): the index to plot.
         """
 
         # DATA get
-        if cube_info is None: return
         cubes = cube_info[index]
         
         # PLOTs add data
@@ -725,33 +783,3 @@ class K3dAnimation(Setup):
             self.play()
             self.play_pause_button.description = 'Pause'
             self.play_pause_button.icon = 'pause'
-
-    def time_interval_string(self) -> None:
-        """
-        To change self.time_interval to a string giving a value in day, hours or minutes.
-        """
-        # todo code looks ugly, will need to look for another (prettier) option
-
-        self.time_interval *= 3600
-        if self.time_interval < 60:
-            self.time_interval = f'{self.time_interval}s'
-        elif self.time_interval < 3600:
-            time_interval = f'{self.time_interval // 60}min'
-            if self.time_interval % 60 != 0:
-                self.time_interval = time_interval + f'{self.time_interval % 60}s'
-            else:
-                self.time_interval = time_interval
-        elif self.time_interval < 3600 * 24:
-            time_interval = f'{self.time_interval // 3600}h'
-            if self.time_interval % 3600 != 0:
-                self.time_interval = time_interval + f'{(self.time_interval % 3600) // 60}min'
-            else: 
-                self.time_interval = time_interval
-        elif self.time_interval < 3600 * 24 * 3.1:
-            time_interval = f'{self.time_interval // (3600 * 24)}days'
-            if self.time_interval % (3600 * 24) != 0:
-                self.time_interval = time_interval + f'{(self.time_interval % 3600 * 24) // 3600}h'
-            else:
-                self.time_interval = time_interval
-        else:
-            raise ValueError("Time interval is way too large")
