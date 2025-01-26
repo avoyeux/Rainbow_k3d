@@ -10,35 +10,82 @@ import scipy
 # IMPORTs sub
 import PIL.Image
 import scipy.interpolate
+from dataclasses import dataclass
 
 # IMPORTs alias
 import PIL as pil
 import numpy as np
 import matplotlib.pyplot as plt
 
+# IMPORTs personal
+from common import root_path
+from Projection.polynomial_projection_dataclasses import ImageBorders
+
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class EnvelopeMiddleInformation:
+    """
+    To store the middle path of the envelope created by Dr. Auchere.
+    """
+
+    x_t: np.ndarray = np.empty(0)
+    y_t: np.ndarray = np.empty(0)
+
+    def __getitem__(self, item):
+
+        if item == 0: return self.x_t
+        if item == 1: return self.y_t
+        raise IndexError("Index out of range.")
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class EnvelopeLimitInformation:
+    """
+    To store the upper and lower limits of the envelope created by Dr. Auchere.
+    """
+
+    x: np.ndarray = np.empty(0)
+    y: np.ndarray = np.empty(0)
+
+    def __getitem__(self, item):
+
+        if item == 0: return self.x
+        if item == 1: return self.y
+        raise IndexError("Index out of range.")
+
+
+@dataclass(slots=True, frozen=True, repr=False, eq=False)
+class EnvelopeInformation:
+    """
+    To store the envelope information created by Dr. Auchere.
+    """
+
+    upper: EnvelopeLimitInformation
+    lower: EnvelopeLimitInformation
+    middle: EnvelopeMiddleInformation
+
+    def __getitem__(self, item):
+
+        if item == 0: return self.upper
+        if item == 1: return self.lower
+        if item == 2: return self.middle
+        raise IndexError("Index out of range.")
 
 
 class Envelope:
     """
     To plot the envelope (and the corresponding middle path) created by Dr. Auchere and which was
     used in his Coronal Monsoon paper.
-    
-    Raises:
-        ValueError: if the main path to the code directories is not found.
     """
-
-    # Image information
-    borders = {
-        'polar angle': (245, 295),
-        'radial distance': (690, 870),
-        'image shape': (400, 1250)
-    }
 
     def __init__(
             self,
             polynomial_order: int,
             number_of_points: int,
-            plot: bool = False,
+            borders: ImageBorders,
+            image_shape: tuple[int, int],
+            plot: bool,
             verbose: int = 0,
         ) -> None:
         """
@@ -52,6 +99,9 @@ class Envelope:
                 (i.e. the envelope PNGs).
             number_of_points (int): the number of points used in the recreation of the envelopes
                 and hence the number of points in the middle path curve.
+            borders (ImageBorders): the radial distance and polar angle to borders consider for the
+                image.
+            image_shape (tuple[int, int]): the shape (in pixels) of the envelope image.
             plot (bool, optional): to decide to plot the paths and middle path. Defaults to False.
             verbose (int, optional): decides on the details in the prints. Defaults to 0.
         """
@@ -59,6 +109,8 @@ class Envelope:
         # ATTRIBUTES setup
         self.polynomial_order = polynomial_order
         self.number_of_points = number_of_points
+        self.borders = borders
+        self.image_shape = image_shape
         self.create_plot = plot        
         self.verbose = verbose
         
@@ -73,58 +125,60 @@ class Envelope:
             cls,
             polynomial_order: int,
             number_of_points: int,
-            plot: bool,
-        ) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
+            borders: ImageBorders,
+            image_shape: tuple[int, int] = (400, 1250),
+            plot: bool = False,
+            verbose: int = 0,
+        ) -> EnvelopeInformation:
         """
-        To get the results of the envelope processing by just class this classmethod function.
+        This classmethod directly gives the envelope and middle path positions in polar
+        coordinates.
 
         Args:
             polynomial_order (int): the order of the polynomial used to fit the envelope png
                 curves.
             number_of_points (int | float): the number of points used in the fitting result of the
                 envelope and the middle path.
-            plot (bool): to decide to plot the results of the envelope fitting and middle path
-                computation.
+            borders (ImageBorders): the radial distance and polar angle to borders consider for the
+                image.
+            image_shape (tuple[int, int]): the shape (in pixels) of the envelope image.
+                Defaults to (400, 1250).
+            plot (bool, optional): to decide to plot the results of the envelope fitting and middle
+                path computation. Defaults to False.
+            verbose (int, optional): decides on the details in the prints. Defaults to 0.
 
         Returns:
-            tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]: the first object in the
-                tuple is a list with the x_t values and y_t values of the middle path curve. The
-                second object in the tuple is a list for the upper and lower part of the envelope
-                and containing the x values and corresponding y_x values for those curves.
+            EnvelopeInformation: the envelope information in polar coordinates.
         """
 
         instance = cls(
             polynomial_order=polynomial_order,
             number_of_points=number_of_points,
+            borders=borders,
+            image_shape=image_shape,
             plot=plot,
+            verbose=verbose,
         )
-        instance.get_curves_results()
-        return instance.middle_t_curve, instance.envelope_y_x_curves
+        envelope = instance.get_envelope_in_polar()
+        return envelope
     
     def path_setup(self) -> dict[str, str]:
         """
         To get the paths to the needed directories and files.
 
-        Raises:
-            ValueError: if the main path is not found.
-
         Returns:
             dict[str, str]: the needed paths.
         """
 
-        # CHECK path
-        main_path = '/home/avoyeux/Documents/avoyeux/'
-        if not os.path.exists(main_path): main_path = '/home/avoyeux/old_project/avoyeux/'
-        if not os.path.exists(main_path):
-            raise ValueError(f"\033[1;31mThe main path {main_path} not found.")
-        code_path = os.path.join(main_path, 'python_codes')
+        # PATHs setup
+        code_path = os.path.join(root_path, 'python_codes')
 
         # PATHs save
         paths = {
-            'main': main_path,
+            'main': root_path,
             'codes': code_path,
-            'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
-            'results': os.path.join(main_path, 'Work_done', 'Envelope', 'Extract_envelope'),
+            'envelope': os.path.join(root_path, 'Work_done', 'Envelope'),
+            'results': os.path.join(root_path, 'Work_done', 'Envelope', 'Extract_envelope'),
         }
         if self.create_plot: os.makedirs(paths['results'], exist_ok=True)
         return paths
@@ -134,12 +188,19 @@ class Envelope:
         To process the two envelope images and get the corresponding middle curve.
         """
 
-        # INIT
-        masks = [None] * 2
-        x_t_curves = [None] * 2
-        y_t_curves = [None] * 2
-        y_x_curves = [None] * 2
-        for i, path in enumerate(glob.glob(os.path.join(self.paths['envelope'], '*.png'))):
+        # SETUP
+        masks: list[np.ndarray] = [None] * 2
+        lower_path = EnvelopeLimitInformation()
+        upper_path = EnvelopeLimitInformation()
+        limit_paths = [lower_path, upper_path]
+        envelope_filenames = ['rainbow_lower_path_v2.png', 'rainbow_upper_path_v2.png']
+
+        # MIDDLE path
+        x_t_curves: list[np.ndarray] = [None] * 2
+        y_t_curves: list[np.ndarray] = [None] * 2
+        for i, path in enumerate(os.path.join(
+            self.paths['envelope'], filename) for filename in envelope_filenames
+            ):
             # IMAGE open
             im = pil.Image.open(path)
             image = np.array(im)
@@ -151,71 +212,86 @@ class Envelope:
 
             # DATA save
             masks[i] = mask
-            y_x_curves[i] = (x, self.get_polynomial_array(y_x_coefs, x))
+            limit_paths[i].x = x
+            limit_paths[i].y = self.get_polynomial_array(y_x_coefs, x)
             x_t_curves[i] = x_t_function(x_normalised)
             y_t_curves[i] = self.get_polynomial_array(y_x_coefs, x_t_curves[i])
             im.close()
         # CURVE middle
-        middle_x_t_curve = (x_t_curves[0] + x_t_curves[1]) / 2
-        middle_y_t_curve = (y_t_curves[0] + y_t_curves[1]) / 2
+        middle_path = EnvelopeMiddleInformation(
+            x_t=(x_t_curves[0] + x_t_curves[1]) / 2,
+            y_t=(y_t_curves[0] + y_t_curves[1]) / 2,
+        )
 
         # RESULTs
-        mask += masks[0]
-        self.masks = mask
-        self.middle_t_curve = [middle_x_t_curve, middle_y_t_curve]
-        self.envelope_y_x_curves = y_x_curves 
+        self.masks = masks[1] + masks[0] 
+        self.envelope_information = EnvelopeInformation(
+            middle=middle_path,
+            upper=upper_path,
+            lower=lower_path,
+        )
 
         # PLOT
         if self.create_plot: self.plot(saving_name='extract_envelope_raw.png')
 
-    def get_curves_results(self) -> None:
+    def get_envelope_in_polar(self) -> EnvelopeInformation:
         """
         To get the change the envelope information from the image reference frame to polar
         coordinates.
+
+        Returns:
+            EnvelopeInformation: the envelope information in polar coordinates.
         """
 
         image_axis_curves = []
+        middle_path = EnvelopeMiddleInformation()
+
+        # MIDDLE path
+        x_t_curves: list[np.ndarray] = [None] * 2
+        y_t_curves: list[np.ndarray] = [None] * 2
         for axis in range(2):
 
-            # CONSTANTs
-            if axis==0:
-                borders = 'polar angle'
-                axis_opos = 1
-            else:
-                borders = 'radial distance'
-                axis_opos = 0
-
             # DATA re-order
-            axis_t_curve = self.middle_t_curve[axis]
-            image_axis_curve= []
-            for envelope in self.envelope_y_x_curves:
-                image_axis_curve.append(envelope[axis])
+            axis_t_curve = self.envelope_information.middle[axis]
+            image_axis_curve = [self.envelope_information[i][axis] for i in range(2)]
             
             # DATA new
             final_data = []
             for data in [axis_t_curve] + image_axis_curve:
                 final_data.append(self.polar_positions(
                     arr=data,
-                    max_index=self.borders['image shape'][axis_opos] - 1,
-                    borders=self.borders[borders],
+                    max_index=self.image_shape[axis - 1] - 1,
+                    borders=self.borders.polar_angle if axis==0 else self.borders.radial_distance,
                 ))
 
             # RESULTs save   
-            self.middle_t_curve[axis] = final_data[0]
+            middle_path[axis] = final_data[0]
             image_axis_curves.append([final_data[index] for index in [1, 2]])
-        self.envelope_y_x_curves = [
-            (image_axis_curves[0][image], image_axis_curves[1][image])
-            for image in range(2)
-        ]
+
+        # DATA formatting
+        upper_path = EnvelopeLimitInformation(
+            x=image_axis_curves[0][0],
+            y=image_axis_curves[1][0],
+        )
+        lower_path = EnvelopeLimitInformation(
+            x=image_axis_curves[0][1],
+            y=image_axis_curves[1][1],
+        )
+        envelope_information = EnvelopeInformation(
+            middle=middle_path,
+            upper=upper_path,
+            lower=lower_path,
+        )
 
         # PLOT
         if self.create_plot:
             self.plot(
                 saving_name='extract_envelope_final.png',
                 extent=(
-                    min(self.borders['polar angle']), max(self.borders['polar angle']),
-                    min(self.borders['radial distance']), max(self.borders['radial distance']),
+                    min(self.borders.polar_angle), max(self.borders.polar_angle),
+                    min(self.borders.radial_distance), max(self.borders.radial_distance),
                 ))
+        return envelope_information
 
     def polar_positions(
             self,
@@ -243,7 +319,7 @@ class Envelope:
     def get_image_coeffs(
             self,
             image: np.ndarray,
-        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float]]:
+        ) -> tuple[np.ndarray, scipy.interpolate.interp1d, np.ndarray, tuple[float, float]]:
         """
         To get the curve functions and coefficients of a given image of the envelope.
 
@@ -251,9 +327,10 @@ class Envelope:
             image (np.ndarray): the image of the top or bottom section of the envelope.
 
         Returns:
-            tuple[np.ndarray, np.ndarray, tuple[float, float]]: the mask gotten from the png file,
-                the x(t) interpolation function with the y(x) fit coefficients with the range of
-                the horizontal image indexes (i.e. the min and max of those values).
+            tuple[np.ndarray, scipy.interpolate.interp1d, np.ndarray, tuple[float, float]]: the
+                mask gotten from the png file, the x(t) interpolation function with the y(x) fit
+                coefficients with the range of the horizontal image indexes (i.e. the min and max
+                of those values).
         """
 
         # COORDs
