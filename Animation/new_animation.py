@@ -457,7 +457,10 @@ class K3dAnimation(Setup):
         # TIME NO DUPLICATES add       
         if self.cubes.integration_no_duplicate is not None:
             # VOXELs create
-            self.plot_interv_dupli_new = self.create_voxels(self.cubes.integration_no_duplicate, **kwargs)
+            self.plot_interv_dupli_new = self.create_voxels(
+                self.cubes.integration_no_duplicate,
+                **kwargs,
+            )
             for plot in self.plot_interv_dupli_new: self.plot += plot  
 
         # SDO LINE OF SIGHT add
