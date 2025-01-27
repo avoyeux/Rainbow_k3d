@@ -10,7 +10,6 @@ import scipy
 # IMPORTs sub
 import PIL.Image
 import scipy.interpolate
-from dataclasses import dataclass
 
 # IMPORTs alias
 import PIL as pil
@@ -19,58 +18,9 @@ import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import root_path
-from Projection.polynomial_projection_dataclasses import ImageBorders
-
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class EnvelopeMiddleInformation:
-    """
-    To store the middle path of the envelope created by Dr. Auchere.
-    """
-
-    x_t: np.ndarray = np.empty(0)
-    y_t: np.ndarray = np.empty(0)
-
-    def __getitem__(self, item):
-
-        if item == 0: return self.x_t
-        if item == 1: return self.y_t
-        raise IndexError("Index out of range.")
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class EnvelopeLimitInformation:
-    """
-    To store the upper and lower limits of the envelope created by Dr. Auchere.
-    """
-
-    x: np.ndarray = np.empty(0)
-    y: np.ndarray = np.empty(0)
-
-    def __getitem__(self, item):
-
-        if item == 0: return self.x
-        if item == 1: return self.y
-        raise IndexError("Index out of range.")
-
-
-@dataclass(slots=True, frozen=True, repr=False, eq=False)
-class EnvelopeInformation:
-    """
-    To store the envelope information created by Dr. Auchere.
-    """
-
-    upper: EnvelopeLimitInformation
-    lower: EnvelopeLimitInformation
-    middle: EnvelopeMiddleInformation
-
-    def __getitem__(self, item):
-
-        if item == 0: return self.upper
-        if item == 1: return self.lower
-        if item == 2: return self.middle
-        raise IndexError("Index out of range.")
+from Projection.projection_dataclasses import (
+    ImageBorders, EnvelopeInformation, EnvelopeLimitInformation, EnvelopeMiddleInformation
+)
 
 
 class Envelope:
@@ -171,14 +121,14 @@ class Envelope:
         """
 
         # PATHs setup
-        code_path = os.path.join(root_path, 'python_codes')
+        main_path = os.path.join(root_path, '..')
 
         # PATHs save
         paths = {
-            'main': root_path,
-            'codes': code_path,
-            'envelope': os.path.join(root_path, 'Work_done', 'Envelope'),
-            'results': os.path.join(root_path, 'Work_done', 'Envelope', 'Extract_envelope'),
+            'main': main_path,
+            'codes': root_path,
+            'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
+            'results': os.path.join(main_path, 'Work_done', 'Envelope', 'Extract_envelope'),
         }
         if self.create_plot: os.makedirs(paths['results'], exist_ok=True)
         return paths

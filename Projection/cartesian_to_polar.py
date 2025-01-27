@@ -21,56 +21,14 @@ import astropy.io.fits
 import skimage.transform
 import sunpy.coordinates
 from typing import Any
-from dataclasses import dataclass, field
 
 # IMPORTs personal
 from common import root_path
-from Projection.polynomial_projection_dataclasses import ImageBorders
+from Projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any
 
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class ImageInfo:
-    """
-    To store the information needed for the image processing.
-    """
-
-    # DATA
-    image: np.ndarray
-    sdo_pos: np.ndarray
-    sun_radius: float  # ? should I take solar_r or RSUN_REF from the header?
-
-    # IMAGE properties
-    image_borders: ImageBorders
-    sun_center: tuple[float, float]
-    resolution_km: float
-
-    # PLACEHOLDERs
-    resolution_angle: float = field(init=False)
-    max_index: float = field(init=False)
-
-    def __post_init__(self):
-        
-        self.resolution_angle = 360 / (2 * np.pi * self.sun_radius / (self.resolution_km * 1e3))
-        self.max_index = max(self.image_borders.radial_distance) * 1e3 / self.resolution_km
-
-
-@dataclass(slots=True, frozen=True, repr=False, eq=False)
-class PolarImageInfo:
-    """
-    To store the information gotten by creating the polar image.
-    """
-
-    # DATA
-    image: np.ndarray
-    sdo_pos: np.ndarray
-
-    # IMAGE properties
-    resolution_km: float
-    resolution_angle: float
 
 
 class CartesianToPolar:
@@ -179,7 +137,7 @@ class CartesianToPolar:
         """
 
         # PATHs formatting
-        paths = {'sdo': os.path.join(root_path, 'sdo')}
+        paths = {'sdo': os.path.join(root_path, '..', 'sdo')}
         return paths
     
     def _open_data(self) -> ImageInfo:

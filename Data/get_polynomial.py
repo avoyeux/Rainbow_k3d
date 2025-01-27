@@ -6,7 +6,6 @@ possible) and with a given number of points in the curve.
 """
 
 # IMPORTS
-import os
 import h5py
 import scipy
 import typing
@@ -17,7 +16,8 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs personal
-from common import Decorators, MultiProcessing
+from common import Decorators, MultiProcessing, root_path
+from Projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
 
 
 
@@ -365,7 +365,7 @@ class Polynomial:
             time_index: int,
             params_init: np.ndarray,
             shape: tuple[int, ...],
-            precision_nb: float,
+            precision_nb: int,
             nth_order_polynomial: typing.Callable[
                 [np.ndarray, tuple[int | float, ...]],
                 np.ndarray
@@ -542,7 +542,7 @@ class Polynomial:
             """
 
             # Initialisation
-            result = 0
+            result: np.ndarray = 0
 
             # Calculating the polynomial
             for i in range(self.poly_order + 1): result += coeffs[i] * t**i
@@ -587,10 +587,10 @@ class GetPolynomial:
         self.order = polynomial_order
         
         # POINTERs
-        self.file, self.data_reference = self.get_data_pointer()
+        self.file, self.polynomial_info = self.get_group_pointer()
 
-    def get_data_pointer(self) -> tuple[h5py.File, h5py.Dataset]:
-        """
+    def get_group_pointer(self) -> tuple[h5py.File, HDF5GroupPolynomialInformation]:
+        """ # todo update the docstring
         Opens the HDF5 file and returns the pointer to the file and the needed polynomial feet
         parameters.
 
@@ -599,25 +599,20 @@ class GetPolynomial:
                 parameters.
         """
 
-        # CHECK path
-        main_path = '/home/avoyeux/Documents/'
-        if not os.path.exists(main_path): main_path = '/home/avoyeux/old_project/'
-
         # PATHs file and dataset
-        filepath = main_path + 'avoyeux/python_codes/Data/sig1e20_leg20_lim0_03.h5'
-        dataset_path = (
+        filepath = root_path + '/Data/sig1e20_leg20_lim0_03.h5'
+        group_path = (
             'Time integrated/' + 
             self.data_type +
-            f'/Time integration of {self.integration_time}.0 hours' +
-            f'/{self.order}th order polynomial/parameters'
+            f'/Time integration of {self.integration_time}.0 hours'
         )
 
         # FILE read
         H5PYFile = h5py.File(filepath, 'r')
-        return H5PYFile, H5PYFile[dataset_path]
+        return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order)
 
     def get_params(self, cube_index: int) -> np.ndarray:
-        """
+        """ # todo update the docstring
         To filter the polynomial fit parameters to keep only the parameters for a given 'cube'
         (i.e. for a given time index).
 
@@ -630,8 +625,8 @@ class GetPolynomial:
             np.ndarray: the (x, y, z) parameters of the polynomial fit for a given time.
         """
 
-        mask = (self.data_reference[0, :] == cube_index)
-        return self.data_reference[1:4, mask].astype('float64')
+        mask = (self.polynomial_info.coords[0, :] == cube_index)
+        return self.polynomial_info.coords[1:4, mask].astype('float64')
 
     def nth_order_polynomial(self, t: np.ndarray, *coeffs: int | float) -> np.ndarray:
         """
@@ -648,7 +643,7 @@ class GetPolynomial:
         """
 
         # INIT
-        result = 0
+        result: np.ndarray = 0
 
         # POLYNOMIAL
         for i in range(self.order + 1): result += coeffs[i] * t**i
@@ -717,10 +712,10 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             polynomial_order: int,
             integration_time: int,
             number_of_points: int | float,
-            borders: dict[str, float],
+            dx: float,
             data_type: str = 'No duplicates new with feet',
         ) -> None:
-        """
+        """ # todo update docstring
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
@@ -747,8 +742,8 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
         self.t_fine = np.linspace(-0.2, 1.4, int(1e4))
 
         # ATTRIBUTEs
+        self.dx = dx
         self.solar_r = 6.96e5  # in km
-        self.borders = borders
         self.number_of_points = number_of_points
 
     def to_cartesian(self, data: np.ndarray) -> np.ndarray:
@@ -763,12 +758,12 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
         """
 
         # COORDs cartesian
-        data[0, :] = data[0, :] * self.borders['dx'] + self.borders['xmin']
-        data[1, :] = data[1, :] * self.borders['dx'] + self.borders['ymin']
-        data[2, :] = data[2, :] * self.borders['dx'] + self.borders['zmin']
+        data[0, :] = data[0, :] * self.dx + self.polynomial_info.xt_min
+        data[1, :] = data[1, :] * self.dx + self.polynomial_info.yt_min
+        data[2, :] = data[2, :] * self.dx + self.polynomial_info.zt_min
         return data
 
-    def reprocessed_polynomial(self, cube_index: int) -> np.ndarray:
+    def reprocessed_polynomial(self, cube_index: int) -> CubeInformation:
         """
         To create the polynomial fit to firstly find the polynomial fit limits to consider. From
         there the polynomial fit positions are recalculated keeping the new limits into
@@ -810,4 +805,13 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
 
         # COORDs new        
         coords = self.get_coords(t_fine, params)
-        return coords
+
+        # DATA reformatting
+        information = CubeInformation(
+            order=self.order,
+            xt_min=self.polynomial_info.xt_min,
+            yt_min=self.polynomial_info.yt_min,
+            zt_min=self.polynomial_info.zt_min,
+            coords=coords,
+        )
+        return information
