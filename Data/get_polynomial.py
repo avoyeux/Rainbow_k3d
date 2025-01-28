@@ -590,13 +590,13 @@ class GetPolynomial:
         self.file, self.polynomial_info = self.get_group_pointer()
 
     def get_group_pointer(self) -> tuple[h5py.File, HDF5GroupPolynomialInformation]:
-        """ # todo update the docstring
-        Opens the HDF5 file and returns the pointer to the file and the needed polynomial feet
-        parameters.
+        """
+        To get the HDF5 file pointer and the HDF5GroupPolynomialInformation containing the dataset
+        pointer.
 
         Returns:
-            tuple[h5py.File, h5py.Dataset]: the pointer to the HDF5 file and to the polynomial fit
-                parameters.
+            tuple[h5py.File, HDF5GroupPolynomialInformation]: the HDF5 file pointer and the pointer
+                to the dataset containing the polynomial fit parameters.
         """
 
         # PATHs file and dataset
@@ -612,7 +612,7 @@ class GetPolynomial:
         return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order)
 
     def get_params(self, cube_index: int) -> np.ndarray:
-        """ # todo update the docstring
+        """
         To filter the polynomial fit parameters to keep only the parameters for a given 'cube'
         (i.e. for a given time index).
 
