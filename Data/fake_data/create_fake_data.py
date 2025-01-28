@@ -15,11 +15,10 @@ import datetime
 import numpy as np
 
 # IMPORTs personal
-from common import main_paths, Decorators
+from common import Decorators, root_path
 from Data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 
 # todo need to think about how to do cubes one by one to save RAM.
-# todo add the choice between creating a new hdf5 file or add to the hdf5 containing the real data.
 
 
 
@@ -28,7 +27,13 @@ class CreateFakeData(BaseHDF5Protuberance):
     To create a fake data set for testing in an HDF5.
     """
 
-    def __init__(self, filename: str, sun_resolution: int, nb_of_cubes: int = 0) -> None:
+    def __init__(
+            self,
+            filename: str,
+            sun_resolution: int,
+            nb_of_cubes: int = 0,
+            create_new_hdf5: bool = True,
+        ) -> None:
 
         # PARENT
         super().__init__()
@@ -37,6 +42,7 @@ class CreateFakeData(BaseHDF5Protuberance):
         self.filename = filename
         self.sun_resolution = sun_resolution
         self.nb_of_cubes = nb_of_cubes
+        self.create_new_hdf5 = create_new_hdf5
 
         # ATTRIBUTEs setup
         self.paths = self.setup_path()
@@ -51,13 +57,16 @@ class CreateFakeData(BaseHDF5Protuberance):
             dict[str, str]: the directory paths.
         """
 
-        # CHECK
-        python_codes = main_paths.root_path
-
+        # PATHs setup
+        if self.create_new_hdf5:
+            save_path = os.path.join(root_path, 'Data', 'fake_data')
+        else:
+            save_path = os.path.join(root_path, 'Data')
+        
         # PATHs keep
         paths = {
-            'cubes': os.path.join(python_codes, '..', 'Cubes_karine'),
-            'save': os.path.join(python_codes, 'Data', 'fake_data'),
+            'cubes': os.path.join(root_path, '..', 'Cubes_karine'),
+            'save': save_path,
         }
         return paths
     
@@ -87,10 +96,12 @@ class CreateFakeData(BaseHDF5Protuberance):
         To create the HDF5 file with the fake data.
         """
 
-        with h5py.File(os.path.join(self.paths['save'], self.filename), 'w') as HDF5File:
+        with h5py.File(
+            os.path.join(self.paths['save'], self.filename),
+            'w' if self.create_new_hdf5 else 'a') as HDF5File:
             
             # FOUNDATION of file
-            self.file_foundation(HDF5File=HDF5File)
+            if self.create_new_hdf5: self.file_foundation(HDF5File=HDF5File)
 
             # TEST group
             test_group_name = 'Test data'
@@ -352,10 +363,7 @@ class CreateFakeData(BaseHDF5Protuberance):
         # COORDs repeat N times
         repeated_coords = np.tile(coords, (1, time_nb))
         time_row = np.repeat(np.arange(time_nb), coords.shape[1])
-        print(f'max of time_row: {np.max(time_row)}')
-        result = np.vstack([time_row, repeated_coords])
-        print(f'max values for result are {np.max(result, axis=1)}')
-        return result
+        return np.vstack([time_row, repeated_coords])
 
     def add_fake_cube(self, group: h5py.Group, coords: np.ndarray, name: str) -> None:
         """
@@ -420,5 +428,6 @@ if __name__=='__main__':
     instance = CreateFakeData(
         filename='testing.h5',
         sun_resolution=int(1e2),
+        create_new_hdf5=True,
     )
     instance.create_hdf5()
