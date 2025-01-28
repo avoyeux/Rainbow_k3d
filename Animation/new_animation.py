@@ -18,10 +18,11 @@ import numpy as np
 
 # IMPORTs sub
 from typing import Any
+from astropy.io import fits
 
 # IMPORTs personal
 from Animation.animation_dataclasses import *
-from common import Decorators, main_paths, Plot
+from common import Decorators, Plot, root_path
 
 # ANNOTATION alias
 VoxelType = Any
@@ -53,7 +54,7 @@ class Setup:
             stereo_pov: bool = False,
             processes: int = 5,
             polynomial: bool = False,
-            polynomial_order: int | list[int] = [5],
+            polynomial_order: int | list[int] = [4],
             test_data: bool = False,
             test_filename: str = 'testing.h5',
     ) -> None:
@@ -139,14 +140,12 @@ class Setup:
             dict[str, str]: the filepath dictionary.
         """
 
-        # PATHs setup
-        codes_path = main_paths.root_path
-
         # PATHs save
         paths = {
-            'codes': codes_path,
-            'data': os.path.join(codes_path, 'Data'),
-            'fake data': os.path.join(codes_path, 'Data', 'fake_data'),
+            'codes': root_path,
+            'data': os.path.join(root_path, 'Data'),
+            'sdo': os.path.join(root_path, '..', 'sdo'),
+            'fake data': os.path.join(root_path, 'Data', 'fake_data'),
             # todo need to add the option where the test data is in the real data file
         }
         return paths
@@ -198,13 +197,23 @@ class Setup:
             
             # POVs sdo, stereo
             if self.sdo_pov:
+                # SDO positions
+                time_indexes: np.ndarray = HDF5File['Time indexes'][...]
+                sdo_positions: np.ndarray = HDF5File['SDO positions'][...]
+
+                # DATA formatting
                 cubes.sdo_pos = (
-                    HDF5File['SDO positions'][...] / self.constants.dx #type: ignore
+                    sdo_positions[time_indexes] / self.constants.dx
                 ).astype('float32')
                 #TODO: need to add fov for sdo
             elif self.stereo_pov:
+                # STEREO positions
+                time_indexes: np.ndarray = HDF5File['Time indexes'][...]
+                stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
+
+                # DATA formatting
                 cubes.stereo_pos = (
-                    HDF5File['STEREO B positions'][...] / self.constants.dx  #type: ignore
+                    stereo_positions[time_indexes] / self.constants.dx  #type: ignore
                 ).astype('float32')
                 #TODO: will need to add the POV center
             
@@ -221,6 +230,21 @@ class Setup:
                     interpolate=False,
                 )
         return cubes
+
+    def get_sdo_fov(self) -> float:
+        """
+        Gets the field of view of SDO.
+
+        Returns:
+            float: the field of view of SDO.
+        """
+
+        # FOV get
+        hdul = fits.open(os.path.join(self.paths['sdo'], 'AIA_fullhead_000.fits.gz'))
+        image_shape = hdul[0].data.shape
+        fov_degrees = image_shape[0] * hdul[0].header['CDELT1'] / 3600
+        hdul.close()
+        return fov_degrees # ? in my old code I divide it by 3, no clue why
     
     def get_default_data(self, HDF5File: h5py.File) -> CubesConstants:
         """
@@ -325,16 +349,16 @@ class K3dAnimation(Setup):
             compression_level: int = 9,
             plot_height: int = 1260, 
             sleep_time: int | float = 2, 
-            camera_fov: int | float | str = 0.23, 
             camera_zoom_speed: int | float = 0.7, 
             camera_pos: tuple[int | float, int | float, int | float] | None = None,
+            camera_fov: float = 0.23,
             up_vector: tuple[int, int, int] = (0, 0, 1), 
             visible_grid: bool = False, 
             outlines: bool = False,
             texture_resolution: int = 960,  
             **kwargs,
         ) -> None:
-        """
+        """ # todo update docstring
         To visualise the data in k3d. The fetching and naming of the data is done in the parent
         class.
 
@@ -373,19 +397,12 @@ class K3dAnimation(Setup):
         self.sleep_time = sleep_time  # sets the time between each frames (in seconds)
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
+        self.camera_fov = self.get_sdo_fov() if self.sdo_pov else camera_fov  # fov in degrees
         self.up_vector = up_vector  # up vector for the camera
         self.visible_grid = visible_grid  # setting the grid to be visible or not
         self.texture_resolution = texture_resolution
         self.compression_level = compression_level
         self.outlines = outlines
-        
-        # CHECK fov
-        if camera_fov=='stereo':
-            self.camera_fov = 0.26
-        elif isinstance(camera_fov, (int, float)):
-            self.camera_fov = camera_fov
-        else:
-            raise ValueError('When "camera_fov" a string, needs to be `sdo` or `stereo`.')
 
         # PLACEHOLDERs
         self.plot: k3d.plot.Plot  # plot object
