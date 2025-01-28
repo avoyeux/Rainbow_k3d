@@ -136,6 +136,9 @@ class CubesInformation:
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
 class PolynomialInformation:
+    """
+    To store the polynomial information in polar coordinates and with the angle values.
+    """
 
     order: int
 
@@ -150,6 +153,9 @@ class PolynomialInformation:
 
 @dataclass(slots=True, repr=False, eq=False)
 class ProjectionData:
+    """
+    To store the data used in the polynomial projection module.
+    """
 
     ID: int
     sdo_image: PolarImageInfo | None = None
@@ -157,6 +163,7 @@ class ProjectionData:
     integration: np.ndarray | None = None  # ? should I add the xt_min, yt_min, ... values
     cube: np.ndarray | None = None
     fits: list[PolynomialInformation] | None = None
+    test_cube: np.ndarray | None = None
 
 
 
@@ -228,6 +235,9 @@ class EnvelopeInformation:
 
 @dataclass(slots=True, repr=False, eq=False)
 class HDF5GroupPolynomialInformation:
+    """
+    To store the polynomial information stored in the HDF5 file.
+    """
 
     HDF5Group: h5py.Group
     polynomial_order: int

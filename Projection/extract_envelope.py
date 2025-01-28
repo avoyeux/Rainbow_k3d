@@ -4,7 +4,6 @@ To extract the envelope created by Dr. Auchere and used in his Coronal Monsoon p
 
 # IMPORTs
 import os
-import glob
 import scipy
 
 # IMPORTs sub

@@ -27,6 +27,13 @@ from Data.get_polynomial import GetCartesianProcessedPolynomial
 # todo MINOR: need to update the code for when there is only one process used
 # (i.e. no multiprocessing)
 
+# todo need to save the projection from the test data seen from sdo and stereo and then recreate
+# fits files from there to recreate .save files from those new masks to test my re-projection code.
+
+# todo for the last todo, i first need to separate the plotting function from the projection code.
+# ? create a new dataclass to save the contours, masks and others if it exists.
+# ! need to get the mask before the polar re-projection.
+
 
 
 class OrthographicalProjection:
@@ -296,7 +303,6 @@ class OrthographicalProjection:
 
             # GLOBAL constants
             self.constants = self.get_global_constants(H5PYFile)
-            # ! sdo pos needs to be here at the end
 
             # DATA paths
             filtered_path = 'Filtered/' + self.data_type
@@ -309,18 +315,9 @@ class OrthographicalProjection:
             # DATA formatting
             cubes_info = self.get_cubes_information(H5PYFile, filtered_path)
             integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
-
-            # if self.plot_choices['test']:
-            #     # TEST data  # ! need to change this
-            #     test_path = 'TEST data/Sun index'
-            #     test_data = H5PYFile[test_path + '/coords']
-
-            #     test_info = {
-            #         'dx': dx,
-            #         'xmin': H5PYFile[test_path + '/xmin'][...].astype('float64'),
-            #         'ymin': H5PYFile[test_path + '/ymin'][...].astype('float64'),
-            #         'zmin': H5PYFile[test_path + '/zmin'][...].astype('float64'),
-            #     }
+            # TEST DATA formatting
+            test_path = 'Test data/Fake cube'
+            test_info = self.get_cubes_information(H5PYFile, test_path)
             
             while True:
                 # INFO process 
@@ -340,7 +337,6 @@ class OrthographicalProjection:
                 filepath: str = self.sdo_timestamps[process_constants.date[:-3]]
                 if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
                 sdo_image_info = self.sdo_image(filepath) 
-                # todo make the code more readable, right now I did too much random patching.
 
                 if self.plot_choices['sdo image']: projection_data.sdo_image = sdo_image_info
 
@@ -357,9 +353,7 @@ class OrthographicalProjection:
                     projection_data.sdo_mask = polar_mask_info
 
                 if self.plot_choices['integration']:
-    
-                    # ! this is wrong, need to get the integration data. as I create the integration
-                    #one by one I need to give a different dataclass to the integration data
+
                     integration = CubeInformation(
                         xt_min=integrated_info.xt_min,
                         yt_min=integrated_info.yt_min,
@@ -428,14 +422,20 @@ class OrthographicalProjection:
                         polynomial_instance.close()
                     projection_data.fits = polynomials_info
                 
-                # if self.plot_choices['test']:
-                #     test = self.filter_data(test_data, process)
-                #     data['test'] = self.get_polar_image(self.matrix_rotation(
-                #         data=self.cartesian_pos(test, test_info),
-                #         sdo_pos=sdo_image_info['sdo_pos'],
-                #     ))
-                # # print(f"d_theta and dx are {data['d_theta']}, {data['dx']}")
-                # self.plotting(data)
+                if self.plot_choices['test']:
+
+                    test_cube = CubeInformation(
+                        xt_min=test_info.xt_min,
+                        yt_min=test_info.yt_min,
+                        zt_min=test_info.zt_min,
+                        coords=test_info[0], # todo need to update this later
+                    )
+                    test_cube = self.cartesian_pos(test_cube)
+                    projection_data.test_cube = self.get_polar_image(self.matrix_rotation(
+                        data=test_cube.coords,
+                        sdo_pos=sdo_image_info.sdo_pos,
+                    )) 
+                    
                 self.plotting(process_constants, projection_data)
         if self.in_local: self.connection.close()
 
@@ -530,7 +530,7 @@ class OrthographicalProjection:
         theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
 
         # UNITs to km
-        rho_polar = np.tan(rho_polar) / z_norm
+        rho_polar = np.tan(rho_polar) / z_norm  # todo need to re-understand why I put this here
         return np.stack([rho_polar, theta_polar], axis=0)
     
     def get_angles(self, coords: np.ndarray) -> np.ndarray:
@@ -780,20 +780,21 @@ class OrthographicalProjection:
                             **self.plot_kwargs['fit envelope'],
                         )
 
-        # # TEST plot
-        # if self.plot_choices['test']:
-        #     # DATA (r, theta) fake
-        #     r_fake, theta_fake = data_info['test']
+        # TEST plot
+        if projection_data.test_cube is not None:
+            # DATA (r, theta) fake
+            r_fake, theta_fake = projection_data.test_cube
 
-        #     self.plot_contours(
-        #         rho=r_fake,
-        #         theta=theta_fake,
-        #         d_theta=data_info['d_theta'],
-        #         dx=data_info['dx'],
-        #         image_shape=image_shape,
-        #         color='white',
-        #         label='fake data',
-        #     )
+            self.plot_contours(
+                rho=r_fake,
+                theta=theta_fake,
+                d_theta=self.constants.d_theta,
+                dx=self.constants.dx,
+                image_shape=image_shape,
+                color='white',
+                label='fake data',
+            )
+
         # PLOT settings
         plt.xlim(
             min(self.projection_borders.polar_angle),
@@ -951,7 +952,7 @@ class OrthographicalProjection:
         lines = Plot.contours(image)
 
         # COORDs polar
-        nw_lines = [None] * len(lines)
+        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines)
         for i, line in enumerate(lines):
             nw_lines[i] = ((
                 [
