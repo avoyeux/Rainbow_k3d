@@ -254,4 +254,4 @@ class HDF5GroupPolynomialInformation:
         self.zt_min = self.HDF5Group['zt_min'][...]
         self.coords = self.HDF5Group[
             f'{self.polynomial_order}th order polynomial/parameters'
-        ]
+        ]#type: ignore

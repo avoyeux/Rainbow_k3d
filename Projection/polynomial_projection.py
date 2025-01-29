@@ -24,15 +24,14 @@ from Projection.cartesian_to_polar import CartesianToPolar
 from Projection.projection_dataclasses import *
 from Data.get_polynomial import GetCartesianProcessedPolynomial
 
-# todo MINOR: need to update the code for when there is only one process used
-# (i.e. no multiprocessing)
+# * testing when not multiprocessing has not been done.
 
-# todo need to save the projection from the test data seen from sdo and stereo and then recreate
-# fits files from there to recreate .save files from those new masks to test my re-projection code.
+# todo need to create a fake cube for which it is easy to tell if the re-projection is wrong
 
-# todo for the last todo, i first need to separate the plotting function from the projection code.
-# ? create a new dataclass to save the contours, masks and others if it exists.
-# ! need to get the mask before the polar re-projection.
+# ! recreating .save files, be it by using the re-projection results and then the IDL code on top
+# ! of it, or by using the hdf5 file data directly will not help. The first cannot tell what is
+# ! wrong and the second will only tell if the conversion from .save to hdf5 is correct (I doubt
+# ! the error is from there) - COULD BE WRONG
 
 
 
@@ -92,6 +91,7 @@ class OrthographicalProjection:
         feet = ' with feet' if with_feet else ''
         self.integration_time = integration_time_hours
         self.processes = processes if processes > 1 else 1
+        self.multiprocessing = True if self.processes > 1 else False
         self.filename = filename
         self.data_type = data_type + feet
         self.foldername = filename.split('.')[0] + ''.join(feet.split(' ')) + 'testing'
@@ -121,8 +121,6 @@ class OrthographicalProjection:
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
         # PATHS sdo image
         self.sdo_timestamps = self.sdo_image_finder()
-        # RUN code
-        self.multiprocessing_all()
 
     def path_setup(self) -> dict[str, str]:
         """
@@ -255,7 +253,7 @@ class OrthographicalProjection:
         return envelope_data, plot_kwargs
     
     @Decorators.running_time
-    def multiprocessing_all(self) -> None:
+    def run(self) -> None:
         """
         Setups the multiprocessing for the whole code.
         """
@@ -264,29 +262,36 @@ class OrthographicalProjection:
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
             indexes: np.ndarray = H5PYFile['Time indexes'][...]
 
-        # INFO multiprocessing
-        data_len = len(indexes)
-        nb_processes = min(self.processes, data_len)
-        # SETUP multiprocessing
-        processes: list[mp.Process] = [None] * nb_processes
-        manager = mp.Manager()
-        input_queue = manager.Queue()
-        for i in range(data_len): input_queue.put(i)
-        for _ in range(nb_processes): input_queue.put(None)
-        # RUN multiprocessing
-        for i in range(nb_processes):
-            p = mp.Process(
-                target=self.data_setup,
-                kwargs={'input_queue': input_queue},
-            )
-            p.start()
-            processes[i] = p
-        for p in processes: p.join()
+        if self.multiprocessing:
+            # INFO multiprocessing
+            data_len = len(indexes)
+            nb_processes = min(self.processes, data_len)
+            # SETUP multiprocessing
+            processes: list[mp.Process] = [None] * nb_processes
+            manager = mp.Manager()
+            input_queue = manager.Queue()
+            for i in range(data_len): input_queue.put(i)
+            for _ in range(nb_processes): input_queue.put(None)
+            # RUN multiprocessing
+            for i in range(nb_processes):
+                p = mp.Process(
+                    target=self.data_setup,
+                    kwargs={'input_queue': input_queue},
+                )
+                p.start()
+                processes[i] = p
+            for p in processes: p.join()
+        else:
+            self.data_setup(index_list=indexes)
 
         if self.in_local: self.SSHMirroredFilesystem.cleanup(verbose=self.verbose)
     
-    def data_setup(self, input_queue: mp.queues.Queue) -> None:
-        """ 
+    def data_setup(
+            self,
+            input_queue: mp.queues.Queue | None = None,
+            index_list: np.ndarray | None = None,
+        ) -> None:
+        """ # todo update docstring
         Open the HDF5 file and does the processing and final plotting for each cube.
         A while loop is used to decide which data section needs to be processed.
 
@@ -297,7 +302,10 @@ class OrthographicalProjection:
 
         # CONNECTION to server
         if self.in_local: self.connection = self.SSHMirroredFilesystem(verbose=self.verbose)
-        
+
+        # INIT no multiprocessing
+        process_id = 0
+
         # DATA open
         with h5py.File(self.paths['data'], 'r') as H5PYFile:
 
@@ -321,7 +329,12 @@ class OrthographicalProjection:
             
             while True:
                 # INFO process 
-                process: int = input_queue.get()
+                if input_queue is not None:
+                    process: int | None = input_queue.get()
+                else:
+                    process = index_list[process_id]
+                    process_id += 1
+                    process = None if process_id > len(index_list) else process
                 if process is None: break
                 
                 # DATA formatting
@@ -435,8 +448,11 @@ class OrthographicalProjection:
                         data=test_cube.coords,
                         sdo_pos=sdo_image_info.sdo_pos,
                     )) 
-                    
+
+                # CHILD CLASSes functionality 
                 self.plotting(process_constants, projection_data)
+                self.create_fake_fits(process_constants, projection_data)
+                
         if self.in_local: self.connection.close()
 
     def get_global_constants(self, H5PYFile: h5py.File) -> GlobalConstants:
@@ -621,6 +637,190 @@ class OrthographicalProjection:
         # DATA return
         coords = np.stack([new_x, new_y, new_z], axis=0)
         return coords, new_N_z
+
+    def sdo_image(self, filepath: str) -> PolarImageInfo:
+        """ 
+        To get the sdo image in polar coordinates and delimited by the final plot borders.
+        Furthermore, needed information are also saved in the output, e.g. dx and d_theta for the
+        created sdo image in polar coordinates.
+
+        Args:
+            filepath (str): the filepath to the corresponding sdo FITS file.
+
+        Returns:
+            PolarImageInfo: the polar SDO image information.
+        """
+
+        polar_image_info = CartesianToPolar.get_polar_image(
+            filepath=filepath,
+            borders=self.projection_borders,
+            direction='clockwise',
+            theta_offset=90,
+            channel_axis=None,
+        )
+        return polar_image_info
+    
+    def sdo_image_treatment(self, image: np.ndarray) -> np.ndarray:
+        """ 
+        Pre-treatment for the sdo image for better visualisation of the regions of interest.
+
+        Args:
+            image (np.ndarray): the SDO image to be treated.
+
+        Returns:
+            np.ndarray: the treated SDO image.
+        """
+        
+        # CLIP
+        lower_cut = np.nanpercentile(image, 2)
+        higher_cut = np.nanpercentile(image, 99.99)
+
+        # SATURATION
+        image[image < lower_cut] = lower_cut
+        image[image > higher_cut] = higher_cut
+        return np.log(image)
+    
+    def sdo_image_finder(self) -> dict[str, str]:
+        """ 
+        To find the SDO image given its header timestamp and a list of corresponding paths to the
+        corresponding fits file.
+
+        Returns:
+            dict[str, str]: the timestamps as keys with the item being the SDO image filepath.
+        """
+
+        # SETUP
+        filepath_end = '/S00000/image_lev1.fits'
+        with open(os.path.join(self.paths['codes'], 'SDO_timestamps.txt'), 'r') as files:
+            strings = files.read().splitlines()
+        tuple_list = [s.split(" ; ") for s in strings]
+    
+        timestamp_to_path = {}
+        for s in tuple_list:
+            path, timestamp = s
+            timestamp = timestamp.replace(':', '-')[:-6]
+
+            # EXCEPTION weird cases...
+            if timestamp == '2012-07-24T20-07': timestamp = '2012-07-24T20-06'
+            if timestamp == '2012-07-24T20-20': timestamp = '2012-07-24T20-16'
+
+            timestamp_to_path[timestamp] = path + filepath_end
+        return timestamp_to_path
+
+    def plotting(self, *args, **kwargs) -> None:
+
+        pass
+
+    def create_fake_fits(self , *args, **kwargs) -> None:
+
+        pass
+
+    def cube_contour(
+            self,
+            rho: np.ndarray,
+            theta: np.ndarray,
+            image_shape: tuple[int, int],
+            dx: float,
+            d_theta: float,
+        ) -> tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]:
+        """ 
+        To get the contours of the protuberances voxels if seen as an image from SDO's point of
+        view.
+
+        Args:
+            rho (np.ndarray): the distance positions of the voxels from the disk center seen by
+                SDO. The distances are in km. 
+            theta (np.ndarray): the theta polar angle position relative to the solar north pole and
+                centred on the disk center as seen from SDO.
+            image_shape (tuple[int, int]): the image shape needed for the image of the protuberance
+                as seen from SDO.
+            dx (float): the voxel resolution in km.
+            d_theta (float): the theta angle resolution (as a function of the disk's perimeter) in
+                degrees.
+
+        Returns:
+            tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]: the image
+                of the protuberance as seen by SDO with the corresponding contour lines positions
+                in polar coordinates.
+        """
+
+        # BORDER
+        rho -= min(self.projection_borders.radial_distance) * 1000
+        theta -= min(self.projection_borders.polar_angle)
+
+        # BINNING
+        rho //= dx
+        theta //= d_theta
+
+        # FILTERING duplicates
+        polar = np.stack([rho, theta], axis=0)
+        polar_indexes = np.unique(polar, axis=1).astype('int64')
+
+        # KEEP inside the image
+        rho_filter = (polar_indexes[0] > 0) & (polar_indexes[0] < image_shape[0])
+        theta_filter = (polar_indexes[1] > 0) & (polar_indexes[1] < image_shape[1])
+        full_filter = rho_filter & theta_filter
+
+        # INDEXES final image
+        rho = polar_indexes[0][full_filter]
+        theta = polar_indexes[1][full_filter]
+
+        # CHECK no data
+        if len(rho) == 0: return None, None
+
+        # CONTOURS get
+        image = np.zeros(image_shape, dtype='float16')
+        image[rho, theta] = 1
+        lines = self.image_contour(image, dx, d_theta)
+        return image, lines
+    
+    def image_contour(
+            self,
+            image: np.ndarray,
+            dx: float,
+            d_theta: float,
+        ) -> list[tuple[list[float], list[float]]]:
+        """ 
+        To get the contours in the final plot coordinates of a mask given the corresponding
+        information.
+
+        Args:
+            image (np.ndarray): the mask.
+            dx (float): the vertical pixel length in km.
+            d_theta (float): the horizontal pixel length in degrees.
+
+        Returns:
+            list[tuple[list[float], list[float]]]: the lines representing the mask contours.
+        """
+
+        # print(f'image contour dx is {dx} and d_theta {d_theta}', flush=True)
+
+        # CONTOURS get
+        lines = Plot.contours(image)
+
+        # COORDs polar
+        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines)
+        for i, line in enumerate(lines):
+            nw_lines[i] = ((
+                [
+                    min(self.projection_borders.radial_distance) + (value * dx) / 1e3
+                    for value in line[0]
+                ],
+                [
+                    min(self.projection_borders.polar_angle) + (value * d_theta)
+                    for value in line[1]
+                ],
+            ))
+        return nw_lines
+
+
+class Plotting(OrthographicalProjection):
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        # RUN code
+        self.run()
 
     @Decorators.running_time
     def plotting(
@@ -868,181 +1068,14 @@ class OrthographicalProjection:
             for line in lines:
                 plt.plot(line[1], line[0], color=color, **self.plot_kwargs['contour'])
 
-    def cube_contour(
-            self,
-            rho: np.ndarray,
-            theta: np.ndarray,
-            image_shape: tuple[int, int],
-            dx: float,
-            d_theta: float,
-        ) -> tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]:
-        """ 
-        To get the contours of the protuberances voxels if seen as an image from SDO's point of
-        view.
-
-        Args:
-            rho (np.ndarray): the distance positions of the voxels from the disk center seen by
-                SDO. The distances are in km. 
-            theta (np.ndarray): the theta polar angle position relative to the solar north pole and
-                centred on the disk center as seen from SDO.
-            image_shape (tuple[int, int]): the image shape needed for the image of the protuberance
-                as seen from SDO.
-            dx (float): the voxel resolution in km.
-            d_theta (float): the theta angle resolution (as a function of the disk's perimeter) in
-                degrees.
-
-        Returns:
-            tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]: the image
-                of the protuberance as seen by SDO with the corresponding contour lines positions
-                in polar coordinates.
-        """
-
-        # BORDER
-        rho -= min(self.projection_borders.radial_distance) * 1000
-        theta -= min(self.projection_borders.polar_angle)
-
-        # BINNING
-        rho //= dx
-        theta //= d_theta
-
-        # FILTERING duplicates
-        polar = np.stack([rho, theta], axis=0)
-        polar_indexes = np.unique(polar, axis=1).astype('int64')
-
-        # KEEP inside the image
-        rho_filter = (polar_indexes[0] > 0) & (polar_indexes[0] < image_shape[0])
-        theta_filter = (polar_indexes[1] > 0) & (polar_indexes[1] < image_shape[1])
-        full_filter = rho_filter & theta_filter
-
-        # INDEXES final image
-        rho = polar_indexes[0][full_filter]
-        theta = polar_indexes[1][full_filter]
-
-        # CHECK no data
-        if len(rho) == 0: return None, None
-
-        # CONTOURS get
-        image = np.zeros(image_shape, dtype='float16')
-        image[rho, theta] = 1
-        lines = self.image_contour(image, dx, d_theta)
-        return image, lines
-    
-    def image_contour(
-            self,
-            image: np.ndarray,
-            dx: float,
-            d_theta: float,
-        ) -> list[tuple[list[float], list[float]]]:
-        """ 
-        To get the contours in the final plot coordinates of a mask given the corresponding
-        information.
-
-        Args:
-            image (np.ndarray): the mask.
-            dx (float): the vertical pixel length in km.
-            d_theta (float): the horizontal pixel length in degrees.
-
-        Returns:
-            list[tuple[list[float], list[float]]]: the lines representing the mask contours.
-        """
-
-        # print(f'image contour dx is {dx} and d_theta {d_theta}', flush=True)
-
-        # CONTOURS get
-        lines = Plot.contours(image)
-
-        # COORDs polar
-        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines)
-        for i, line in enumerate(lines):
-            nw_lines[i] = ((
-                [
-                    min(self.projection_borders.radial_distance) + (value * dx) / 1e3
-                    for value in line[0]
-                ],
-                [
-                    min(self.projection_borders.polar_angle) + (value * d_theta)
-                    for value in line[1]
-                ],
-            ))
-        return nw_lines
-
-    def sdo_image(self, filepath: str) -> PolarImageInfo:
-        """ 
-        To get the sdo image in polar coordinates and delimited by the final plot borders.
-        Furthermore, needed information are also saved in the output, e.g. dx and d_theta for the
-        created sdo image in polar coordinates.
-
-        Args:
-            filepath (str): the filepath to the corresponding sdo FITS file.
-
-        Returns:
-            PolarImageInfo: the polar SDO image information.
-        """
-
-        polar_image_info = CartesianToPolar.get_polar_image(
-            filepath=filepath,
-            borders=self.projection_borders,
-            direction='clockwise',
-            theta_offset=90,
-            channel_axis=None,
-        )
-        return polar_image_info
-    
-    def sdo_image_treatment(self, image: np.ndarray) -> np.ndarray:
-        """ 
-        Pre-treatment for the sdo image for better visualisation of the regions of interest.
-
-        Args:
-            image (np.ndarray): the SDO image to be treated.
-
-        Returns:
-            np.ndarray: the treated SDO image.
-        """
-        
-        # CLIP
-        lower_cut = np.nanpercentile(image, 2)
-        higher_cut = np.nanpercentile(image, 99.99)
-
-        # SATURATION
-        image[image < lower_cut] = lower_cut
-        image[image > higher_cut] = higher_cut
-        return np.log(image)
-    
-    def sdo_image_finder(self) -> dict[str, str]:
-        """ 
-        To find the SDO image given its header timestamp and a list of corresponding paths to the
-        corresponding fits file.
-
-        Returns:
-            dict[str, str]: the timestamps as keys with the item being the SDO image filepath.
-        """
-
-        # SETUP
-        filepath_end = '/S00000/image_lev1.fits'
-        with open(os.path.join(self.paths['codes'], 'SDO_timestamps.txt'), 'r') as files:
-            strings = files.read().splitlines()
-        tuple_list = [s.split(" ; ") for s in strings]
-    
-        timestamp_to_path = {}
-        for s in tuple_list:
-            path, timestamp = s
-            timestamp = timestamp.replace(':', '-')[:-6]
-
-            # EXCEPTION weird cases...
-            if timestamp == '2012-07-24T20-07': timestamp = '2012-07-24T20-06'
-            if timestamp == '2012-07-24T20-20': timestamp = '2012-07-24T20-16'
-
-            timestamp_to_path[timestamp] = path + filepath_end
-        return timestamp_to_path
-
 
 
 if __name__ == '__main__':
-    OrthographicalProjection(
+    Plotting(
         filename='sig1e20_leg20_lim0_03.h5',
         with_feet=False,
         verbose=2,
-        processes=4,
+        processes=5,
         polynomial_order=[4],
         plot_choices=[
             'polar', 'no duplicate', 'sdo mask', 'sdo image', 'envelope', 'test', 'fit',
