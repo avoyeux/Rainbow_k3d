@@ -216,14 +216,8 @@ class Setup:
                     stereo_positions[time_indexes] / self.constants.dx  #type: ignore
                 ).astype('float32')
                 #TODO: will need to add the POV center
-            
-        if self.test_data:
 
-            with h5py.File(
-                os.path.join(self.paths['fake data'], self.test_filename),
-                'r',
-                ) as HDF5File:
-        
+            if self.test_data:
                 cubes.fake_cube = self.get_cube_info(
                     HDF5File,
                     'Test data/Fake cube',
