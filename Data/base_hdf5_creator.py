@@ -58,13 +58,13 @@ class BaseHdf5Creator:
         Args:
             parent_group (h5py.File | h5py.Group): the HDF5 file or group where to add the new
                 group.
-            info (dict[str, str | int | float | np.generic | np.ndarray | dict]):
-                the information and data to add in the group.
+            info (dict[str, str | int | float | np.generic | np.ndarray | dict]): the information
+                and data to add in the group.
             name (str): the name of the group to add.
         """
             
         # CHECK name
-        if name == '': return 
+        if name == '': return
 
         if any(isinstance(value, dict) for value in info.values()):
             # GROUP create
@@ -100,7 +100,7 @@ class BaseHdf5Creator:
             parent_group (h5py.File | h5py.Group): the HDF5 file or group where to add the dataset.
             info (dict[str, str | int | float | np.generic | np.ndarray]): the information to add
                 in the DataSet.
-            name (str, optional): the name of the DataSet to add.
+            name (str, optional): the name of the DataSet to add. Defaults to None.
         """
         
         # CHECK empty
@@ -181,8 +181,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             values (tuple[float, float, float]): the xmin, ymin, zmin value in km.
 
         Returns:
-            tuple[dict[str, any], dict[str, dict[str, any]]]: the data and metadata for the data
-                borders.
+            dict[str, dict[str, str | float]]: the border information.
         """
 
         info = {
@@ -216,12 +215,13 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
         }
         return info
     
-    def to_index_pos(self, coords: np.ndarray) -> tuple[np.ndarray, dict]:
+    def to_index_pos(self, coords: np.ndarray, unique: bool = False) -> tuple[np.ndarray, dict]:
         """
         Converts the coordinates from km to indexes and returns the indexes with the new borders.
 
         Args:
             coords (np.ndarray): the coordinates in km (can have shape (3, n) or (4, n)).
+            unique (bool, optional): if True, the unique indexes are returned. Defaults to False.
 
         Returns:
             tuple[np.ndarray, dict]: the coordinates in indexes and the new borders.
@@ -243,12 +243,19 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
         coords[-1, :] -= z_min
         coords[-3:, :] /= self.volume.dx
         coords = np.round(coords).astype(int)
+        if unique: coords = np.unique(coords, axis=1)
         return coords, new_borders     
     
     def dx_to_dict(self) -> dict[str, str | float]:
+        """
+        Returns the voxel resolution in a dictionary.
+
+        Returns:
+            dict[str, str | float]: the voxel resolution information.
+        """
 
         dx_dict = {
-            'data': self.volume.dx,
+            'data': self.volume.dx,  # ? maybe let dx be a method argument
             'unit': 'km',
             'description': "The voxel resolution in kilometres.",
         }
