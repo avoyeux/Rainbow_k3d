@@ -280,7 +280,7 @@ class DataSaver(BaseHDF5Protuberance):
 
             # Get borders
             cube = scipy.io.readsav(self.filepaths[0])
-            self.volume = VolumeInfo(  # ? dumb to be creating this but not using it
+            self.volume = VolumeInfo(
                 dx=float(cube.dx),
                 xt_min=float(cube.xt_min),
                 yt_min=float(cube.yt_min),
