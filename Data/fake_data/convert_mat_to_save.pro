@@ -2,8 +2,8 @@
 
 PRO ConvertMatToSave
     ; Define the input and output directories
-    input_dir = '/home/avoyeux/old_project/avoyeux/Data/fake_data/mat'
-    output_dir = '/home/avoyeux/old_project/avoyeux/Data/fake_data/save'
+    input_dir = '/home/avoyeux/old_project/avoyeux/python_codes/Data/fake_data/mat'
+    output_dir = '/home/avoyeux/old_project/avoyeux/python_codes/Data/fake_data/save'
 
     ; Get the list of .mat files in the input directory
     file_list = FILE_SEARCH(input_dir + '*.mat')
