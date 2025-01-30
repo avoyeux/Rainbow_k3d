@@ -5,6 +5,7 @@ Should be able to tell if there is any actual projection errors from the totalit
 
 # IMPORTs
 import os
+import h5py
 import scipy
 import sparse
 
@@ -103,11 +104,11 @@ class FakeData:
         paths = {
             'main': main_path,
             'cubes': os.path.join(main_path, 'Cubes_karine'),
-            'save mat': os.path.join(root_path, 'Data/fake_data/mat'),
+            'save h5': os.path.join(root_path, 'Data/fake_data/h5'),
         }
 
         # PATHs create
-        for key in ['save mat']: os.makedirs(paths[key], exist_ok=True)
+        for key in ['save h5']: os.makedirs(paths[key], exist_ok=True)
         return paths
 
     def get_defaults(self) -> CubeBorders:
@@ -191,40 +192,35 @@ class FakeData:
 
     @Decorators.running_time
     def create_fake_data(self) -> None:
-        """
-        To create the fake data and save it in .mat files.
-        """
-
-        # SPHERE surface
+        # 1) Create the coordinates
         sphere_surface = self.create_sphere_surface()
-
-        # COORDs to cube
         sphere_surface = self.to_index(sphere_surface)
 
-        # COORDs to 3D array
+        # 2) Build a sparse 3D array
         shape = np.max(sphere_surface, axis=1).astype(int) + 1
         array = sparse.COO(
             coords=sphere_surface,
             data=np.ones(sphere_surface.shape[1]),
             shape=shape,
         )
+        dense_array = array.todense()  # Convert to a NumPy array
 
-        # SAVE data
+        # 3) Save each cube to an HDF5 file
         for i in range(self.nb_of_cubes):
-            scipy.io.savemat(
-                os.path.join(self.paths['save mat'], f'cube{i:03d}.mat'),
-                {
-                    'cube': array.todense(),
-                    'dx': self.defaults.dx,
-                    'xt_min': self.defaults.xt_min,
-                    'yt_min': self.defaults.yt_min,
-                    'zt_min': self.defaults.zt_min,
-                    'xt_max': self.defaults.xt_max,
-                    'yt_max': self.defaults.yt_max,
-                    'zt_max': self.defaults.zt_max,
-                },
-            )
+            filename = os.path.join(self.paths['save h5'], f'cube{i:03d}.h5')
+            with h5py.File(filename, 'w') as f:
+                # Store the main 3D array
+                f.create_dataset('cube', data=dense_array, compression='gzip')
+                # Store scalars as separate datasets or attributes
+                f.create_dataset('dx', data=self.defaults.dx)
+                f.create_dataset('xt_min', data=self.defaults.xt_min)
+                f.create_dataset('yt_min', data=self.defaults.yt_min)
+                f.create_dataset('zt_min', data=self.defaults.zt_min)
+                f.create_dataset('xt_max', data=self.defaults.xt_max)
+                f.create_dataset('yt_max', data=self.defaults.yt_max)
+                f.create_dataset('zt_max', data=self.defaults.zt_max)
 
+            print(f"Saved {filename}")
 
 
 if __name__=='__main__':

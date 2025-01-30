@@ -1,38 +1,43 @@
-; To create the fake .save files from my .mat files
+PRO convert_h5_to_save
 
-PRO ConvertMatToSave
-    ; Define the input and output directories
-    input_dir = '/home/avoyeux/old_project/avoyeux/python_codes/Data/fake_data/mat'
-    output_dir = '/home/avoyeux/old_project/avoyeux/python_codes/Data/fake_data/save'
+  input_dir = '/home/avoyeux/python_codes/Data/fake_data/h5'
+  output_dir = '/home/avoyeux/python_codes/Data/fake_data/save'
+  ; Make sure the input_dir has trailing slash if needed
+  file_list = FILE_SEARCH(input_dir + '*.h5')
+  
+  IF N_ELEMENTS(file_list) EQ 0 THEN BEGIN
+    PRINT, 'No .h5 files found in ' + input_dir
+    RETURN
+  ENDIF
 
-    ; Get the list of .mat files in the input directory
-    file_list = FILE_SEARCH(input_dir + '*.mat')
+  ; Create output directory if needed
+  FILE_MKDIR, output_dir, /ALLOW_EXISTING
 
-    ; Loop over each .mat file and convert it to a .save file
-    FOR i = 0, N_ELEMENTS(file_list) - 1 DO BEGIN
-        ; Get the input file path
-        input_mat_file = file_list[i]
+  FOR i=0, N_ELEMENTS(file_list)-1 DO BEGIN
+    filename_h5 = file_list[i]
+    parts = FILE_BASENAME(filename_h5, '.h5')
+    out_save = output_dir + parts + '.save'
+    
+    PRINT, 'Reading ', filename_h5
+    h5_id = H5_OPEN(filename_h5)
+    
+    ; Read the datasets from HDF5
+    cube   = H5_READ(h5_id, 'cube')
+    dx     = H5_READ(h5_id, 'dx')
+    xt_min = H5_READ(h5_id, 'xt_min')
+    yt_min = H5_READ(h5_id, 'yt_min')
+    zt_min = H5_READ(h5_id, 'zt_min')
+    xt_max = H5_READ(h5_id, 'xt_max')
+    yt_max = H5_READ(h5_id, 'yt_max')
+    zt_max = H5_READ(h5_id, 'zt_max')
 
-        ; Extract the file name without extension
-        file_name = FILE_BASENAME(input_mat_file, '.mat')
+    ; Close the file
+    H5_CLOSE, h5_id
+    
+    ; Now save them in a .save file
+    SAVE, cube, dx, xt_min, yt_min, zt_min, xt_max, yt_max, zt_max, $
+          FILENAME=out_save
 
-        ; Define the output file path
-        output_save_file = output_dir + file_name + '.save'
-
-        ; Read the .mat file
-        data = READ_MAT(input_mat_file)
-
-        ; Extract the variables
-        cube = data.cube
-        dx = data.dx
-        xt_min = data.xt_min
-        yt_min = data.yt_min
-        zt_min = data.zt_min
-        xt_max = data.xt_max
-        yt_max = data.yt_max
-        zt_max = data.zt_max
-
-        ; Save the variables to a .save file
-        SAVE, cube, dx, xt_min, yt_min, zt_min, xt_max, yt_max, zt_max, FILENAME=output_save_file
-    ENDFOR
+    PRINT, 'Wrote: ', out_save
+  ENDFOR
 END
