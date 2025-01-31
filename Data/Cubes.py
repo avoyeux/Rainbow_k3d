@@ -26,7 +26,7 @@ from astropy import units as u
 # IMPORTs personal
 from Data.get_polynomial import Polynomial
 from Data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
-from common import Decorators, CustomDate, DatesUtils, MultiProcessing, main_paths
+from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_path
 
 # todo I could change the code so that one process runs only one cube at once (except for the time
 # integration part where I need to only take the data section needed). This will need to change the
@@ -56,7 +56,8 @@ class DataSaver(BaseHDF5Protuberance):
         south_leg_sigma: int | float = 5,
         leg_threshold: float = 0.03,
         only_feet: bool = True,
-        full: bool = False, 
+        full: bool = False,
+        fake_hdf5: bool = False, 
     ) -> None:
         """  #TODO: update docstring
         To create the cubes with and/or without feet in an HDF5 file.
@@ -100,6 +101,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.leg_threshold = leg_threshold
         self.feet_options = [' with feet'] if only_feet else ['', ' with feet']
         self.full = full  # deciding to add the heavy sky coords arrays.
+        self.fake_hdf5 = fake_hdf5
 
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
@@ -122,18 +124,25 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # SETUP
-        python_codes = main_paths.root_path
-        main = os.path.join(python_codes, '..')
+        main = os.path.join(root_path, '..')
 
         # PATHs keep
         paths = {
             'main': main,
-            'codes': python_codes,
+            'codes': root_path,
             'cubes': os.path.join(main, 'Cubes_karine'),
             'intensities': os.path.join(main, 'STEREO', 'int'),
             'sdo': os.path.join(main, 'sdo'),
-            'save': os.path.join(python_codes, 'Data'),
+            'save': os.path.join(root_path, 'Data'),
         }
+
+        # PATHS change
+        if self.fake_hdf5:
+            paths['cubes'] = os.path.join(root_path, 'Data', 'fake_data', 'save')
+            paths['save'] = os.path.join(root_path, 'Data', 'fake_data', 'h5')
+        
+        # PATHS check
+        for key in ['save']: os.makedirs(paths[key], exist_ok=True)
         return paths
     
     def setup_patterns(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -299,12 +308,13 @@ class DataSaver(BaseHDF5Protuberance):
             # Filtered data and metadata
             self.filtered_group(H5PYFile, init_borders)
 
-            # Integration data and metadata
-            self.integrated_group(H5PYFile, init_borders)
+            if not self.fake_hdf5:
+                # Integration data and metadata
+                self.integrated_group(H5PYFile, init_borders)
 
-            # Polynomial data and metadata
-            self.polynomial_group(H5PYFile)
-    
+                # Polynomial data and metadata
+                self.polynomial_group(H5PYFile)
+        
     def foundation(self, H5PYFile: h5py.File) -> None:
         """
         For the main file metadata before getting to the HDF5 datasets and groups.
@@ -430,14 +440,14 @@ class DataSaver(BaseHDF5Protuberance):
         for i in range(self.max_cube_numbers): input_queue.put((i, data[i]))
         for _ in range(nb_processes): input_queue.put(None)
         # Run
-        processes = [None] * nb_processes
+        processes: list[mp.Process] = [None] * nb_processes
         for i in range(nb_processes):
             p = mp.Process(target=function, args=(input_queue, output_queue))
             p.start()
             processes[i] = p
         for p in processes: p.join()
         # Get results
-        coordinates = [None] * self.max_cube_numbers
+        coordinates: list[np.ndarray] = [None] * self.max_cube_numbers
         while not output_queue.empty():
             identifier, result = output_queue.get()
             coordinates[identifier] = result
@@ -921,7 +931,7 @@ class DataSaver(BaseHDF5Protuberance):
         To get the initial raw cubes as a sparse.COO object.
 
         Returns:
-            tuple[sparse.COO, list[int]]: the raw data.
+            sparse.COO: the raw cubes.
         """
 
         # Setup multiprocessing
@@ -932,11 +942,11 @@ class DataSaver(BaseHDF5Protuberance):
         indexes = MultiProcessing.pool_indexes(filepaths_nb, processes_nb)
 
         # Multiprocessing
-        processes = [None] * processes_nb
+        processes: list[mp.Process] = [None] * processes_nb
         for i, index in enumerate(indexes): 
             process = mp.Process(
                 target=self.raw_cubes_sub,
-                args=(queue, i, self.filepaths[index[0]:index[1] + 1]),
+                args=(queue, i, self.filepaths[index[0]:index[1] + 1], self.fake_hdf5),
             )
             process.start()
             processes[i] = process
@@ -952,7 +962,12 @@ class DataSaver(BaseHDF5Protuberance):
         return rawCubes
     
     @staticmethod
-    def raw_cubes_sub(queue: mp.queues.Queue, queue_index: int, filepaths: list[str]) -> None:
+    def raw_cubes_sub(
+            queue: mp.queues.Queue,
+            queue_index: int,
+            filepaths: list[str],
+            fake_hdf5: bool,
+        ) -> None:
         """
         To import the cubes in sections as there is a lot of cubes.
 
@@ -960,17 +975,21 @@ class DataSaver(BaseHDF5Protuberance):
             queue (mp.queues.Queue): to store the results.
             queue_index (int): to keep the initial ordering
             filepaths (list[str]): the filepaths to open.
+            fake_hdf5 (bool): if the data used is the fake hdf5 data.
         """
 
         cubes = [None] * len(filepaths)
         for i, filepath in enumerate(filepaths):
             cube = scipy.io.readsav(filepath).cube
 
-            # Add line of sight data 
-            cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
-            cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
+            if not fake_hdf5:
+                # Add line of sight data 
+                cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
+                cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
 
-            cubes[i] = (cube + cube1 + cube2).astype('uint8')
+                cubes[i] = (cube + cube1 + cube2).astype('uint8')
+            else:
+                cubes[i] = cube.astype('uint8')
         cubes = np.stack(cubes, axis=0)
         cubes = np.transpose(cubes, (0, 3, 2, 1))
         cubes = DataSaver.sparse_data(cubes)
@@ -1289,20 +1308,25 @@ if __name__=='__main__':
 
     kwargs = dict(
         polynomial_order=[4, 5, 6, 8, 10],
-        processes=69,
+        processes=10,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
         only_feet=False,  #TODO: this option still isn't setup properly
         full=True,
+        fake_hdf5=True,
     )
     
     # Naming setup
     splitted = str(kwargs['feet_sigma']).split('.')
     feet_sig = '1' + 'e' + (str(len(splitted[1])) if len(splitted) > 1 else '')
     thresh = "_".join(string for string in str(kwargs['leg_threshold']).split('.'))
+    # instance = DataSaver(
+    #     f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_test.h5",
+    #     **kwargs,
+    # )
     instance = DataSaver(
-        f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_test.h5",
+        "fake.h5",
         **kwargs,
     )
     instance.create()
