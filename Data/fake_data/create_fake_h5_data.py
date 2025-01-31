@@ -1,5 +1,5 @@
 """
-To create fake .mat data to then be used by my code.
+To create fake .h5 data to then be converted to .save data to then be used by my code.
 Should be able to tell if there is any actual projection errors from the totality of my code.
 """
 
@@ -34,6 +34,7 @@ class CubeBorders:
     yt_max: float
     zt_min: float
     zt_max: float
+    shape: tuple[int, int, int]
     
     # BORDERs spherical
     r_min: float = field(init=False)
@@ -128,6 +129,7 @@ class FakeData:
             xt_max=float(first_cube.xt_max),
             yt_max=float(first_cube.yt_max),
             zt_max=float(first_cube.zt_max),
+            shape=first_cube.cube.shape,
         )
         return info
 
@@ -181,9 +183,9 @@ class FakeData:
         coords //= self.defaults.dx
 
         # FILTER values
-        x_filter = (coords[0] >= 0) & (coords[0] <= self.defaults.max_x_index + 3)
-        y_filter = (coords[1] >= 0) & (coords[1] <= self.defaults.max_y_index + 3)
-        z_filter = (coords[2] >= 0) & (coords[2] <= self.defaults.max_z_index + 3)
+        x_filter = (coords[0] >= 0) & (coords[0] < self.defaults.max_x_index)
+        y_filter = (coords[1] >= 0) & (coords[1] < self.defaults.max_y_index)
+        z_filter = (coords[2] >= 0) & (coords[2] < self.defaults.max_z_index)
         coords = coords[:, x_filter & y_filter & z_filter]
 
         # UNIQUE values
@@ -192,26 +194,29 @@ class FakeData:
 
     @Decorators.running_time
     def create_fake_data(self) -> None:
-        # 1) Create the coordinates
-        sphere_surface = self.create_sphere_surface()
-        sphere_surface = self.to_index(sphere_surface)
+        """
+        To create the fake mat data and save it to .h5 files.
+        """
 
-        # 2) Build a sparse 3D array
-        shape = np.max(sphere_surface, axis=1).astype(int) + 1
+        # COORDs
+        sphere_surface = self.create_sphere_surface()
+        sphere_surface = self.to_index(sphere_surface)[[2, 1, 0]]
+
+        # ARRAY 3d
         array = sparse.COO(
             coords=sphere_surface,
-            data=np.ones(sphere_surface.shape[1]),
-            shape=shape,
+            data=1,
+            shape=self.defaults.shape,
         )
-        dense_array = array.todense()  # Convert to a NumPy array
+        dense_array = array.todense()
 
-        # 3) Save each cube to an HDF5 file
+        # HDF5 save
         for i in range(self.nb_of_cubes):
             filename = os.path.join(self.paths['save h5'], f'cube{i:03d}.h5')
+
             with h5py.File(filename, 'w') as f:
-                # Store the main 3D array
+                # DATA formatting
                 f.create_dataset('cube', data=dense_array, compression='gzip')
-                # Store scalars as separate datasets or attributes
                 f.create_dataset('dx', data=self.defaults.dx)
                 f.create_dataset('xt_min', data=self.defaults.xt_min)
                 f.create_dataset('yt_min', data=self.defaults.yt_min)
