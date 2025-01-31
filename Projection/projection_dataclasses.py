@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 ### GLOBALS ###
 
+
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
 class ImageBorders:
     """

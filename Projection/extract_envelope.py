@@ -23,7 +23,7 @@ from Projection.projection_dataclasses import (
 
 
 
-class Envelope:
+class ExtractEnvelope:
     """
     To plot the envelope (and the corresponding middle path) created by Dr. Auchere and which was
     used in his Coronal Monsoon paper.

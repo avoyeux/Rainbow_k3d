@@ -19,10 +19,10 @@ import multiprocessing.queues
 
 # IMPORTS personal
 from common import Decorators, Plot, root_path
-from Projection.extract_envelope import Envelope, CreateFitEnvelope
+from Data.get_polynomial import GetCartesianProcessedPolynomial
+from Projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
 from Projection.cartesian_to_polar import CartesianToPolar
 from Projection.projection_dataclasses import *
-from Data.get_polynomial import GetCartesianProcessedPolynomial
 
 
 
@@ -192,8 +192,8 @@ class OrthographicalProjection:
         """
 
         # ENVELOPE get
-        envelope_data = Envelope.get(
-            polynomial_order=6,  # ? should I find the image shape from the image itself ?
+        envelope_data = ExtractEnvelope.get(
+            polynomial_order=6,
             number_of_points=int(1e5),
             borders=self.projection_borders,
             verbose=self.verbose,
