@@ -24,15 +24,6 @@ from Projection.cartesian_to_polar import CartesianToPolar
 from Projection.projection_dataclasses import *
 from Data.get_polynomial import GetCartesianProcessedPolynomial
 
-# * testing when not multiprocessing has not been done.
-
-# todo need to create a fake cube for which it is easy to tell if the re-projection is wrong
-
-# ! recreating .save files, be it by using the re-projection results and then the IDL code on top
-# ! of it, or by using the hdf5 file data directly will not help. The first cannot tell what is
-# ! wrong and the second will only tell if the conversion from .save to hdf5 is correct (I doubt
-# ! the error is from there) - COULD BE WRONG
-
 
 
 class OrthographicalProjection:
@@ -50,11 +41,12 @@ class OrthographicalProjection:
             integration_time_hours: int = 24,
             filename: str = 'sig1e20_leg20_lim0_03.h5',
             data_type : str = 'No duplicates new',
-            with_feet: bool = True,
-            polynomial_order: int | list[int] = [4, 5, 6],
+            with_feet: bool = False,
+            polynomial_order: int | list[int] = [4],
             plot_choices: str | list[str] = [
                 'polar', 'sdo image', 'no duplicate', 'envelope', 'polynomial',
             ], 
+            fake_hdf5: bool = False,
             verbose: int = 1,
             flush: bool = False
         ) -> None:
@@ -80,7 +72,9 @@ class OrthographicalProjection:
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
                 the reprojection. The possible choices are:
                 ['polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-                'envelope', 'fit', 'fit envelope', 'test']. 
+                'envelope', 'fit', 'fit envelope', 'test'].
+            fake_hdf5 (bool, optional): deciding to use the HDF5 file containing only the fake
+                data. Defaults to False.
             verbose (int, optional): gives the verbosity in the outputted prints. The higher the
                 value, the more prints. Starts at 0 for no prints. Defaults to 1.
             flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to
@@ -100,7 +94,8 @@ class OrthographicalProjection:
         else:
             self.polynomial_order = [polynomial_order]
         self.plot_choices = self.plot_choices_creation(plot_choices)
-        self.in_local = True
+        self.in_local = True if not 'old_project' in root_path else False
+        self.fake_hdf5 = fake_hdf5
         self.verbose = verbose
         self.flush = flush
 
@@ -113,10 +108,12 @@ class OrthographicalProjection:
 
         # SETUP paths
         self.paths = self.path_setup()
+
         # SERVER connection
         if self.in_local:
             from common.server_connection import SSHMirroredFilesystem
             self.SSHMirroredFilesystem = SSHMirroredFilesystem
+        
         # GLOBAL data
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
         # PATHS sdo image
@@ -125,9 +122,6 @@ class OrthographicalProjection:
     def path_setup(self) -> dict[str, str]:
         """
         To get the paths to the needed directories and files.
-
-        Raises:
-            ValueError: if the main path is not found.
 
         Returns:
             dict[str, str]: the needed paths.
@@ -140,11 +134,14 @@ class OrthographicalProjection:
         paths = {
             'main': main_path,
             'codes': root_path,
-            'data': os.path.join(root_path, 'Data', self.filename),
+            'data': os.path.join(root_path, 'Data'),
             'sdo': os.path.join(main_path, 'sdo'),
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
             'save': os.path.join(main_path, 'Work_done', self.foldername),
         }
+
+        # PATHs update
+        if self.fake_hdf5: paths['data'] = os.path.join(paths['data'], 'fake_data')
         os.makedirs(paths['save'], exist_ok=True)
         return paths
 
@@ -259,7 +256,7 @@ class OrthographicalProjection:
         """
 
         # STATS data
-        with h5py.File(self.paths['data'], 'r') as H5PYFile:
+        with h5py.File(os.path.join(self.paths['data'], self.filename), 'r') as H5PYFile:
             indexes: np.ndarray = H5PYFile['Time indexes'][...]
 
         if self.multiprocessing:
@@ -291,13 +288,15 @@ class OrthographicalProjection:
             input_queue: mp.queues.Queue | None = None,
             index_list: np.ndarray | None = None,
         ) -> None:
-        """ # todo update docstring
+        """
         Open the HDF5 file and does the processing and final plotting for each cube.
         A while loop is used to decide which data section needs to be processed.
 
         Args:
-            input_queue (mp.queues.Queue): contains the data cube indexes that still need
+            input_queue (mp.queues.Queue | None): contains the data cube indexes that still need
                 processing.
+            index_list (np.ndarray | None): the list of indexes of the data cubes that still need
+                processing. Only used when not multiprocessing.
         """
 
         # CONNECTION to server
@@ -307,7 +306,7 @@ class OrthographicalProjection:
         process_id = 0
 
         # DATA open
-        with h5py.File(self.paths['data'], 'r') as H5PYFile:
+        with h5py.File(os.path.join(self.paths['data'], self.filename), 'r') as H5PYFile:
 
             # GLOBAL constants
             self.constants = self.get_global_constants(H5PYFile)
@@ -322,10 +321,11 @@ class OrthographicalProjection:
 
             # DATA formatting
             cubes_info = self.get_cubes_information(H5PYFile, filtered_path)
-            integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
-            # TEST DATA formatting
-            test_path = 'Test data/Fake cube'
-            test_info = self.get_cubes_information(H5PYFile, test_path)
+            if not self.fake_hdf5:
+                integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
+                # TEST DATA formatting
+                test_path = 'Test data/Fake cube'
+                test_info = self.get_cubes_information(H5PYFile, test_path)
             
             while True:
                 # INFO process 
@@ -365,25 +365,7 @@ class OrthographicalProjection:
                     polar_mask_info.image = image
                     projection_data.sdo_mask = polar_mask_info
 
-                if self.plot_choices['integration']:
-
-                    integration = CubeInformation(
-                        xt_min=integrated_info.xt_min,
-                        yt_min=integrated_info.yt_min,
-                        zt_min=integrated_info.zt_min,
-                        coords=integrated_info[process],
-                    )
-                    integration = self.cartesian_pos(integration)
-
-                    # DATA formatting
-                    projection_data.integration = self.get_polar_image(self.matrix_rotation(
-                        data=integration.coords,
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                if self.plot_choices['no duplicate']: # ? should I change the argument names with
-                    #?self.data_type
-
+                if self.plot_choices['no duplicate']:
                     cube = CubeInformation(
                         xt_min=cubes_info.xt_min,
                         yt_min=cubes_info.yt_min,
@@ -396,58 +378,77 @@ class OrthographicalProjection:
                         sdo_pos=sdo_image_info.sdo_pos,
                     ))
 
-                if self.plot_choices['fit']:
+                # REAL DATA only
+                if not self.fake_hdf5:
 
-                    polynomials_info: list[PolynomialInformation] = (
-                        [None] * len(self.polynomial_order)
-                    )#type: ignore
+                    if self.plot_choices['integration']:
 
-                    for i, poly_order in enumerate(self.polynomial_order):
-
-                        polynomial_instance = GetCartesianProcessedPolynomial(
-                            polynomial_order=poly_order,
-                            integration_time=self.integration_time,
-                            number_of_points=250,
-                            dx=self.constants.dx,
-                            data_type=self.data_type,
+                        integration = CubeInformation(
+                            xt_min=integrated_info.xt_min,
+                            yt_min=integrated_info.yt_min,
+                            zt_min=integrated_info.zt_min,
+                            coords=integrated_info[process],
                         )
-                        initial_data = polynomial_instance.reprocessed_polynomial(process)
-
-                        polar_r, polar_theta, angles = self.get_polar_image_angles(
-                            self.matrix_rotation(
-                                data=self.cartesian_pos(initial_data).coords,
-                                sdo_pos=sdo_image_info.sdo_pos,
-                            ))
+                        integration = self.cartesian_pos(integration)
 
                         # DATA formatting
-                        polynomial_information = PolynomialInformation(
-                            order=poly_order,
-                            xt_min=initial_data.xt_min,
-                            yt_min=initial_data.yt_min,
-                            zt_min=initial_data.zt_min,
-                            polar_r=polar_r,
-                            polar_theta=polar_theta,
-                            angles=angles,
+                        projection_data.integration = self.get_polar_image(self.matrix_rotation(
+                            data=integration.coords,
+                            sdo_pos=sdo_image_info.sdo_pos,
+                        ))
+
+                    if self.plot_choices['fit']:
+
+                        polynomials_info: list[PolynomialInformation] = (
+                            [None] * len(self.polynomial_order)
+                        )#type: ignore
+
+                        for i, poly_order in enumerate(self.polynomial_order):
+
+                            polynomial_instance = GetCartesianProcessedPolynomial(
+                                polynomial_order=poly_order,
+                                integration_time=self.integration_time,
+                                number_of_points=250,
+                                dx=self.constants.dx,
+                                data_type=self.data_type,
+                            )
+                            initial_data = polynomial_instance.reprocessed_polynomial(process)
+
+                            polar_r, polar_theta, angles = self.get_polar_image_angles(
+                                self.matrix_rotation(
+                                    data=self.cartesian_pos(initial_data).coords,
+                                    sdo_pos=sdo_image_info.sdo_pos,
+                                ))
+
+                            # DATA formatting
+                            polynomial_information = PolynomialInformation(
+                                order=poly_order,
+                                xt_min=initial_data.xt_min,
+                                yt_min=initial_data.yt_min,
+                                zt_min=initial_data.zt_min,
+                                polar_r=polar_r,
+                                polar_theta=polar_theta,
+                                angles=angles,
+                            )
+                            polynomials_info[i] = polynomial_information
+
+                            # HDF5 close
+                            polynomial_instance.close()
+                        projection_data.fits = polynomials_info
+                    
+                    if self.plot_choices['test']:
+
+                        test_cube = CubeInformation(
+                            xt_min=test_info.xt_min,
+                            yt_min=test_info.yt_min,
+                            zt_min=test_info.zt_min,
+                            coords=test_info[0], # todo need to update this later
                         )
-                        polynomials_info[i] = polynomial_information
-
-                        # HDF5 close
-                        polynomial_instance.close()
-                    projection_data.fits = polynomials_info
-                
-                if self.plot_choices['test']:
-
-                    test_cube = CubeInformation(
-                        xt_min=test_info.xt_min,
-                        yt_min=test_info.yt_min,
-                        zt_min=test_info.zt_min,
-                        coords=test_info[0], # todo need to update this later
-                    )
-                    test_cube = self.cartesian_pos(test_cube)
-                    projection_data.test_cube = self.get_polar_image(self.matrix_rotation(
-                        data=test_cube.coords,
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    )) 
+                        test_cube = self.cartesian_pos(test_cube)
+                        projection_data.test_cube = self.get_polar_image(self.matrix_rotation(
+                            data=test_cube.coords,
+                            sdo_pos=sdo_image_info.sdo_pos,
+                        )) 
 
                 # CHILD CLASSes functionality 
                 self.plotting(process_constants, projection_data)
@@ -507,15 +508,14 @@ class OrthographicalProjection:
         return cube_info
 
     def cartesian_pos(self, data: CubeInformation) -> CubeInformation:
-        """ # todo update docstring
+        """
         To calculate the heliographic cartesian positions given a ndarray of index positions.
 
         Args:
-            data (np.ndarray): the index positions.
-            data_info (dict[str, np.ndarray]): the data information.
+            data (CubeInformation): the heliographic cartesian positions of the protuberance.
 
         Returns:
-            np.ndarray: the corresponding heliographic cartesian positions.
+            CubeInformation: the heliographic cartesian positions.
         """
 
         data.coords[0, :] = data.coords[0, :] * self.constants.dx + data.xt_min
@@ -708,10 +708,16 @@ class OrthographicalProjection:
         return timestamp_to_path
 
     def plotting(self, *args, **kwargs) -> None:
+        """
+        Placeholder for a child class to plot the data.
+        """
 
         pass
 
     def create_fake_fits(self , *args, **kwargs) -> None:
+        """
+        Placeholder for a child class to create fake fits files.
+        """
 
         pass
 
@@ -793,8 +799,6 @@ class OrthographicalProjection:
             list[tuple[list[float], list[float]]]: the lines representing the mask contours.
         """
 
-        # print(f'image contour dx is {dx} and d_theta {d_theta}', flush=True)
-
         # CONTOURS get
         lines = Plot.contours(image)
 
@@ -815,8 +819,16 @@ class OrthographicalProjection:
 
 
 class Plotting(OrthographicalProjection):
+    """
+    To plot the SDO's point of view image.
+    """
 
     def __init__(self, *args, **kwargs) -> None:
+        """
+        To plot the SDO's point of view image.
+        """
+
+        # PARENT CLASS initialisation
         super().__init__(*args, **kwargs)
 
         # RUN code
@@ -828,13 +840,13 @@ class Plotting(OrthographicalProjection):
             process_constants: ProcessConstants,
             projection_data: ProjectionData,
         ) -> None:
-        """   # todo update docstring
+        """
         To plot the SDO's point of view image.
         What is plotted is dependent on the chosen choices when running the class.
 
         Args:
-            data_info (dict[str, int  |  float  |  list  |  np.ndarray]): contains all the
-                processed data initially gotten from the HDF5 file (i.e. the 3D data).
+            process_constants (ProcessConstants): the constants for each cube..
+            projection_data (ProjectionData): the data for each cube.
         """
 
         # IMAGE shape
@@ -1072,14 +1084,14 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
-        filename='sig1e20_leg20_lim0_03.h5',
-        with_feet=False,
+        filename='fake.h5',
         verbose=2,
-        processes=5,
+        processes=6,
         polynomial_order=[4],
+        data_type='All data',
         plot_choices=[
-            'polar', 'no duplicate', 'sdo mask', 'sdo image', 'envelope', 'test', 'fit',
-            'fit envelope', 'integration',
+            'polar', 'no duplicate', 'sdo image', 'sdo mask', 'envelope',
         ],
+        fake_hdf5=True,
         flush=True,
     )

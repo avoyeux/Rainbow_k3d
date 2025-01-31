@@ -22,6 +22,7 @@ from Projection.projection_dataclasses import (
 )
 
 
+
 class Envelope:
     """
     To plot the envelope (and the corresponding middle path) created by Dr. Auchere and which was
@@ -405,6 +406,12 @@ class CreateFitEnvelope:
         return instance.get_envelope()
 
     def get_envelope(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        To get the upper and lower limits of the envelope.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the upper and lower limits of the envelope.
+        """
         
         # COORDs polar
         r, theta = self.coords
@@ -459,6 +466,16 @@ class CreateFitEnvelope:
         return up_array, down_array
     
     def envelope_setup(self, coords_cartesian: np.ndarray, solutions: np.ndarray) -> np.ndarray:
+        """
+        To get the envelope coordinates from the solutions.
+
+        Args:
+            coords_cartesian (np.ndarray): the cartesian coordinates of the polynomial fit.
+            solutions (np.ndarray): the solutions to the envelope problem.
+
+        Returns:
+            np.ndarray: the envelope coordinates.
+        """
         
         # COORDs cartesian
         x, y = coords_cartesian
@@ -482,18 +499,17 @@ class CreateFitEnvelope:
         envelope_coords = np.stack([envelope_r, envelope_theta], axis=0)
         return envelope_coords
 
-    def testing_filters(self):
-
-        vectors: np.ndarray = np.array([0])
-
-        a_0_filter = (vectors[0] == 0)
-        a_1_filter = (vectors[1] == 0)
-
-        vectors[~(a_0_filter | a_1_filter)]
-        pass
-
     def envelope_vectors(self, vector: np.ndarray) -> np.ndarray:
-        #TODO: can I just filter the values with a_0 or a_1 ==0 and then treat them separately?
+        """
+        To get the envelope vectors from the polynomial fit.
+
+        Args:
+            vector (np.ndarray): the vector representing the polynomial direction.
+
+        Returns:
+            np.ndarray: the envelope vectors.
+        """
+
         # COMPONENTs vector
         a_0, a_1 = vector
 

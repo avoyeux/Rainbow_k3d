@@ -21,8 +21,9 @@ class ImageBorders:
     Class to store the image borders used in the polynomial projection module.
     """
 
-    radial_distance: tuple[int, int]  # in km
+    # BORDERs polar
     polar_angle: tuple[int, int]
+    radial_distance: tuple[int, int]  # in km
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -31,13 +32,14 @@ class CubeInformation:
     To store the information of a single cube.
     """
 
+    # BORDERs
     xt_min : float
     yt_min : float
     zt_min : float
 
+    # VALUEs
     coords: np.ndarray
-
-    order: int | None = None  # for the polynomial
+    order: int | None = None 
 
 
 
@@ -95,11 +97,13 @@ class GlobalConstants:
     Class to store the global constants used in the polynomial projection module.
     """
 
+    # CONSTANTs
     dx: float
     solar_r: float
-    time_indexes: np.ndarray
     dates: np.ndarray
+    time_indexes: np.ndarray
 
+    # PLACEHOLDERs
     d_theta: float = field(init=False)
 
     def __post_init__(self):
@@ -112,9 +116,10 @@ class ProcessConstants:
     Class to store the constants for each processes used in the polynomial projection module.
     """
 
+    # CONSTANTs
     ID: int
-    time_index: int
     date: str
+    time_index: int
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -123,6 +128,7 @@ class CubesInformation:
     Class to store the pointer to the data cubes used in the polynomial projection module.
     """
 
+    # BORDERs
     xt_min : float
     yt_min : float
     zt_min : float

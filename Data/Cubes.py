@@ -139,7 +139,7 @@ class DataSaver(BaseHDF5Protuberance):
         # PATHS change
         if self.fake_hdf5:
             paths['cubes'] = os.path.join(root_path, 'Data', 'fake_data', 'save')
-            paths['save'] = os.path.join(root_path, 'Data', 'fake_data', 'h5')
+            paths['save'] = os.path.join(root_path, 'Data', 'fake_data')
         
         # PATHS check
         for key in ['save']: os.makedirs(paths[key], exist_ok=True)
@@ -1200,7 +1200,7 @@ class DataSaver(BaseHDF5Protuberance):
         #TODO: took away as type uint8 on data but it shouldn't change anything
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
         return data, new_borders
-        
+
     def carrington_skyCoords(
             self,
             data: sparse.COO,
@@ -1242,7 +1242,7 @@ class DataSaver(BaseHDF5Protuberance):
         for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
         for _ in range(processes_nb): input_queue.put(None)
         # Run
-        processes = [None] * processes_nb
+        processes: list[mp.Process] = [None] * processes_nb
         for i in range(processes_nb):
             process = mp.Process(
                 target=self.skyCoords_slice,
@@ -1312,7 +1312,7 @@ if __name__=='__main__':
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
-        only_feet=False,  #TODO: this option still isn't setup properly
+        only_feet=False,  # todo this option still isn't setup properly
         full=True,
         fake_hdf5=True,
     )

@@ -228,5 +228,6 @@ class FakeData:
             print(f"Saved {filename}")
 
 
+
 if __name__=='__main__':
     FakeData(radius=6.96e5, nb_of_points=int(1e3), nb_of_cubes=413)

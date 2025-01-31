@@ -126,14 +126,11 @@ class AddTestingData(DataSaver):
         sun_data = np.round(sun_data).astype('int32')
 
         # FUSION sun - cubes
-        print('yes')
         data = np.hstack([
             np.vstack((np.full((1, sun_data.shape[1]), time), sun_data))
             for time in time_indexes
         ])
-        print('tey')
         data = np.hstack([data_info['coords'], data]).astype('int32')
-        print('fail')
         # INDEXEs positive
         x_min, y_min, z_min = np.min(sun_data, axis=1).astype(int)
         if x_min < 0: data[1, :] -= x_min
@@ -141,11 +138,8 @@ class AddTestingData(DataSaver):
         if z_min < 0: data[3, :] -= z_min
 
         # COO data
-        print('no')
         shape = np.max(data, axis=1) + 1
-        print('yes')
         values = np.ones(data.shape[1], dtype='uint8')
-        print('what')
         data = sparse.COO(coords=data, data=values, shape=shape).astype('uint8')
         return data, new_borders
 
@@ -245,6 +239,7 @@ class AddTestingData(DataSaver):
         y = self.solar_r * np.sin(phi) * np.sin(theta)
         z = self.solar_r * np.cos(phi) 
         return np.stack([x.ravel(), y.ravel(), z.ravel()], axis=0)
+
 
 
 if __name__=='__main__':

@@ -3,9 +3,6 @@ To create fake FITS files based on the original data to see if Dr. Auchere's new
 works as intended.
 """
 
-# todo I also need to create fake .mat files to convert to .save files to make sure that the 
-# re-projection problem doesn't stem from my code.
-
 # IMPORTs
 import os
 
@@ -28,10 +25,13 @@ class SdoHeaderInformation:
     """
     To store the information from the SDO FITS header.
     """
-
-    sun_center: tuple[float, float]
-    resolution_arcsec: float
-    d_sun: float
+    
+    # CONSTANTs
+    d_sun: float  # distance to sun in m
+    resolution_arcsec: float  # pixel resolution in arcsec
+    sun_center: tuple[float, float]  # the center of the sun in the image in pixels
+    
+    # PLACEHOLDERs
     dx: float = field(init=False)
 
     def __post_init__(self) -> None:
@@ -39,7 +39,6 @@ class SdoHeaderInformation:
         self.dx = ((
             (np.tan(np.deg2rad(self.resolution_arcsec / 3600) / 2) * self.d_sun) * 2
         ) / 1e3)
-        print(f'dx: {self.dx}')
 
 
 class CreateFakeTotoInputs:
@@ -48,15 +47,22 @@ class CreateFakeTotoInputs:
     """
 
     def __init__(self, sphere_radius: float, fake_len: int = 413) -> None:
+        """
+        To create the fake data inputs for Dr. Auchere's new_toto.pro code.
 
-        self.sphere_radius = sphere_radius
+        Args:
+            sphere_radius (float): the radius of the sphere in km.
+            fake_len (int, optional): the number of fake data to create. Defaults to 413.
+        """
+
+        # ATTRIBUTEs
         self.fake_len = fake_len
-
+        self.sphere_radius = sphere_radius
+        
         # RUN
         self.paths = self.paths_setup()
         self.create_stereo_fake_data()
         self.create_sdo_fake_data()
-
 
     def paths_setup(self) -> dict[str, str]:
         """

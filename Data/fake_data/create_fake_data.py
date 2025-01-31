@@ -33,10 +33,25 @@ class CreateFakeData(BaseHDF5Protuberance):
             sun_resolution: int,
             torus_main_radius: float,
             torus_width_radius: float,
-            torus_plane: str = 'xy',
+            torus_plane: str = 'xy',  # todo need to implement this argument.
             nb_of_cubes: int = 4,
             create_new_hdf5: bool = True,
         ) -> None:
+        """
+        To initialise the class with the needed arguments.
+
+        Args:
+            filename (str): the filename for the HDF5. Should be the name for the HDF5 real data if
+                create_new_hdf5 is False.    
+            sun_resolution (int): the number of points in the theta direction for the Sun's
+                surface.
+            torus_main_radius (float): the main radius of the torus.
+            torus_width_radius (float): the width radius of the torus.
+            torus_plane (str, optional): the plane in which the torus is created. Defaults to 'xy'.
+            nb_of_cubes (int, optional): the number of cubes to be created. Defaults to 4.
+            create_new_hdf5 (bool, optional): if the HDF5 file is to be created anew. Defaults to
+                True.
+        """
 
         # PARENT
         super().__init__()
@@ -369,10 +384,10 @@ class CreateFakeData(BaseHDF5Protuberance):
         To add the time dimension to the cube data.
 
         Args:
-            cube (np.ndarray): _description_
+            cube (np.ndarray): the cube data in cartesian reprojected Carrington coordinates.
 
         Returns:
-            np.ndarray: _description_
+            np.ndarray: the cube data with the time dimension added.
         """
 
         # COORDs repeat N times

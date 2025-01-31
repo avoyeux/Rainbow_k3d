@@ -3,6 +3,3 @@ Contains functions to create the different filtered data with the corresponding 
 and the polynomial fits.
 Stores everything in an HDF5 file.
 """
-
-
-from . import *

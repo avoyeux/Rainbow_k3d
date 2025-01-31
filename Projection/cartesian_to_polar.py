@@ -129,9 +129,6 @@ class CartesianToPolar:
         """
         To get a dictionary with the needed directory paths.
 
-        Raises:
-            ValueError: if the main_path isn't recognised.
-
         Returns:
             dict[str, str]: contains all the needed directory or filepaths.
         """
