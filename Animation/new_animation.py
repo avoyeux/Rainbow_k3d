@@ -55,8 +55,8 @@ class Setup:
             processes: int = 5,
             polynomial: bool = False,
             polynomial_order: int | list[int] = [4],
+            only_fake_data: bool = False,
             test_data: bool = False,
-            test_filename: str = 'testing.h5',
     ) -> None:
         """ # todo update docstring
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
@@ -116,8 +116,9 @@ class Setup:
             self.polynomial_order = polynomial_order
         else:
             self.polynomial_order = [polynomial_order]
+
+        self.only_fake_data = only_fake_data
         self.test_data = test_data
-        self.test_filename = test_filename
 
         # ATTRIBUTES new
         self.plot_polynomial_colours = [
@@ -145,9 +146,10 @@ class Setup:
             'codes': root_path,
             'data': os.path.join(root_path, 'Data'),
             'sdo': os.path.join(root_path, '..', 'sdo'),
-            'fake data': os.path.join(root_path, 'Data', 'fake_data'),
-            # todo need to add the option where the test data is in the real data file
         }
+
+        # PATHs update
+        if self.only_fake_data: paths['data'] = os.path.join(paths['data'], 'fake_data')
         return paths
 
     @Decorators.running_time
