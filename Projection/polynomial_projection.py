@@ -728,7 +728,7 @@ class OrthographicalProjection:
             image_shape: tuple[int, int],
             dx: float,
             d_theta: float,
-        ) -> tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]:
+        ) -> tuple[np.ndarray, list[tuple[list[float], list[float]]] | None]:
         """ 
         To get the contours of the protuberances voxels if seen as an image from SDO's point of
         view.
@@ -745,9 +745,8 @@ class OrthographicalProjection:
                 degrees.
 
         Returns:
-            tuple[np.ndarray, list[tuple[list[float], list[float]]]] | tuple[None, None]: the image
-                of the protuberance as seen by SDO with the corresponding contour lines positions
-                in polar coordinates.
+            tuple[np.ndarray, list[tuple[list[float], list[float]]] | None]: the image of the
+                protuberance as seen from SDO and the contours of the protuberance.
         """
 
         # BORDER
@@ -771,9 +770,6 @@ class OrthographicalProjection:
         rho = polar_indexes[0][full_filter]
         theta = polar_indexes[1][full_filter]
 
-        # CHECK no data
-        if len(rho) == 0: return None, None
-
         # CONTOURS get
         image = np.zeros(image_shape, dtype='float16')
         image[rho, theta] = 1
@@ -785,7 +781,7 @@ class OrthographicalProjection:
             image: np.ndarray,
             dx: float,
             d_theta: float,
-        ) -> list[tuple[list[float], list[float]]]:
+        ) -> list[tuple[list[float], list[float]]] | None:
         """ 
         To get the contours in the final plot coordinates of a mask given the corresponding
         information.
@@ -796,11 +792,15 @@ class OrthographicalProjection:
             d_theta (float): the horizontal pixel length in degrees.
 
         Returns:
-            list[tuple[list[float], list[float]]]: the lines representing the mask contours.
+            list[tuple[list[float], list[float]]] | None: the lines representing the mask contours.
+                None if no data in the image.
         """
 
         # CONTOURS get
         lines = Plot.contours(image)
+
+        # CHECK no data
+        if lines == []: return None
 
         # COORDs polar
         nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines)
@@ -901,21 +901,22 @@ class Plotting(OrthographicalProjection):
             )
 
             # CONTOURS plot
-            line = lines[0]
-            plt.plot(
-                line[1],
-                line[0],
-                color='green',
-                label='SDO mask contours',
-                **self.plot_kwargs['contour'],
-            )
-            for line in lines[1:]:
+            if lines is not None:
+                line = lines[0]
                 plt.plot(
                     line[1],
                     line[0],
                     color='green',
+                    label='SDO mask contours',
                     **self.plot_kwargs['contour'],
                 )
+                for line in lines[1:]:
+                    plt.plot(
+                        line[1],
+                        line[0],
+                        color='green',
+                        **self.plot_kwargs['contour'],
+                    )
 
         if projection_data.sdo_image is not None:
 

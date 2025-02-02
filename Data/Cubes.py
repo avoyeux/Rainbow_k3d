@@ -34,8 +34,6 @@ from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_pat
 
 # todo need to change 'Coords' to 'Coords indexes' when I decide to re-run this code.
 
-# ! clearly the code is really badly optimised. really need to use one process per cube
-
 
 
 class DataSaver(BaseHDF5Protuberance):
@@ -1307,13 +1305,13 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     kwargs = dict(
-        polynomial_order=[4, 5, 6, 8, 10],
-        processes=10,
+        polynomial_order=[4, 5],
+        processes=4,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
         only_feet=False,  # todo this option still isn't setup properly
-        full=True,
+        full=False,
         fake_hdf5=True,
     )
     
