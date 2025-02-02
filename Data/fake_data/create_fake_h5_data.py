@@ -100,7 +100,8 @@ class FakeData:
 
     def __init__(
             self,
-            radius: float,
+            max_radius: float,
+            min_radius: float,
             nb_of_points: int,
             nb_of_cubes: int,
             increase_factor: float,
@@ -109,7 +110,7 @@ class FakeData:
         """
         To create the fake sun surface data indexes in mat files.
 
-        Args:
+        Args: # todo update docstring
             radius (float): the radius of the sphere in km.
             nb_of_points (int): the initial resolution in spherical coordinates of the sphere.
             nb_of_cubes (int): the number of cubes to create.
@@ -118,7 +119,8 @@ class FakeData:
         """
 
         # ATTRIBUTEs
-        self.radius = radius
+        self.max_radius = max_radius
+        self.min_radius = min_radius
         self.nb_of_cubes = nb_of_cubes
         self.nb_of_points = nb_of_points
         self.increase_factor = increase_factor
@@ -183,14 +185,15 @@ class FakeData:
         """
         
         # COORDs spherical
+        radius = np.arange(self.min_radius, self.max_radius, self.defaults.dx)
         phi = np.linspace(self.defaults.phi_min, self.defaults.phi_max, self.nb_of_points * 2)
         theta = np.linspace(self.defaults.theta_min, self.defaults.theta_max, self.nb_of_points)
-        phi, theta = np.meshgrid(phi, theta)
+        radius, phi, theta = np.meshgrid(radius, phi, theta)
 
         # COORDs cartesian
-        x = self.radius * np.sin(theta) * np.cos(phi)
-        y = self.radius * np.sin(theta) * np.sin(phi)
-        z = self.radius * np.cos(theta)
+        x = radius * np.sin(theta) * np.cos(phi)
+        y = radius * np.sin(theta) * np.sin(phi)
+        z = radius * np.cos(theta)
         return np.stack((x.ravel(), y.ravel(), z.ravel()), axis=0)
 
     @Decorators.running_time
@@ -307,4 +310,11 @@ class FakeData:
 
 
 if __name__=='__main__':
-    FakeData(radius=7e5, nb_of_points=int(1e3), nb_of_cubes=413, increase_factor=1.2, processes=12)
+    FakeData(
+        max_radius=8e5,
+        min_radius=7.6e5,
+        nb_of_points=int(1e3),
+        nb_of_cubes=413,
+        increase_factor=1.3,
+        processes=12,
+    )
