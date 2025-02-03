@@ -4,10 +4,12 @@ This was created to make it easier to swap between the real and fake protuberanc
 """
 
 # IMPORTs
+import h5py
 import sparse
 
 # IMPORTs alias
 import numpy as np
+from typing import Self
 
 # IMPORTs sub
 from dataclasses import dataclass
@@ -39,9 +41,28 @@ class PolynomialData:
     color_hex: int
 
     # DATA
-    coo: sparse.COO
+    dataset: h5py.Dataset
 
-    def __getitem__(self, index: int | slice) -> sparse.COO: return self.coo[index]
+    def __getitem__(self, index: int) -> np.ndarray:
+        """
+        To get a single cube from the polynomial data.
+
+        Args:
+            index (int): the time index needed to be fetched.
+
+        Returns:
+            np.ndarray: the polynomial data.
+        """
+                    
+        # FILTER
+        cube_filter = self.dataset[:, 0] == index
+        cube_coords = self.dataset[1:, cube_filter]
+
+        # 3D array
+        cube_shape = np.max(cube_coords, axis=1) + 1
+        cube = np.zeros(cube_shape, dtype='uint8')
+        cube[tuple(cube_coords)[1:]] = 1
+        return cube
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -61,22 +82,38 @@ class CubeInfo:
     zt_min_index: float
 
     # DATA
-    coo: sparse.COO
+    dataset_coords: h5py.Dataset
+    dataset_values: h5py.Dataset
     polynomials: list[PolynomialData] | None
 
-    def __getitem__(self, index: int | slice) -> list[sparse.COO]:
+    def __getitem__(self, index: int) -> list[np.ndarray]:
         """
-        To get a section of the protuberance and polynomials data.
+        To get a single cube from each the protuberance and polynomials data.
 
         Args:
             index (int | slice): the time indexes needed to be fetched.
 
         Returns:
-            list[sparse.COO]: list of the different data sections.
+            list[np.ndarray]: the protuberance and polynomials data.
         """
-        
-        # ALL COORDs list
-        result = [self.coo[index]]
+
+        # FILTER
+        cube_filter = self.dataset_coords[0, :] == index
+        cube_coords = self.dataset_coords[1:, cube_filter]
+        if self.dataset_values.shape == ():
+            values = self.dataset_values[...]
+        else:
+            values = self.dataset_values[cube_filter.ravel()]
+
+        # 3D array
+        print('cubes_coords shape = ', cube_coords.shape)
+        cube_shape = np.max(cube_coords, axis=1) + 1
+        cube = np.zeros(cube_shape, dtype=self.dataset_values.dtype)
+        print('cube shape = ', cube.shape)
+        cube[tuple(cube_coords)] = values
+        result = [cube]
+
+        # POLYNOMIALs
         if self.polynomials is not None:
             result += [polynomial[index] for polynomial in self.polynomials]
         return result
@@ -90,9 +127,11 @@ class CubesData:
     This class doesn't have a __dict__() method (cf. dataclasses.dataclass).
     """
 
+    hdf5File: h5py.File
+
     # POS satellites
-    sdo_pos: np.ndarray | None = None
-    stereo_pos: np.ndarray | None = None
+    sdo_pos: h5py.Dataset | None = None
+    stereo_pos: h5py.Dataset | None = None
 
     # CUBES data
     all_data: CubeInfo | None = None
@@ -105,3 +144,14 @@ class CubesData:
     # FAKE data
     sun_surface: CubeInfo | None = None
     fake_cube: CubeInfo | None = None
+
+    def __enter__(self) -> Self: return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None: self.hdf5File.close()
+
+    def close(self):
+        """
+        To close the hdf5 file.
+        """
+
+        self.hdf5File.close()
