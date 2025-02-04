@@ -12,7 +12,7 @@ import sparse
 import numpy as np
 
 # IMPORTs personal
-from Data.Cubes import DataSaver
+from data.cubes import DataSaver
 from common import Decorators
 
 # ! the initial cubes coordinates are in carrington reprojected coordinates and I think that I am 

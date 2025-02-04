@@ -19,10 +19,10 @@ import multiprocessing.queues
 
 # IMPORTS personal
 from common import Decorators, Plot, root_path
-from Data.get_polynomial import GetCartesianProcessedPolynomial
-from Projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
-from Projection.cartesian_to_polar import CartesianToPolar
-from Projection.projection_dataclasses import *
+from data.get_polynomial import GetCartesianProcessedPolynomial
+from projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
+from projection.cartesian_to_polar import CartesianToPolar
+from projection.projection_dataclasses import *
 
 
 
@@ -134,7 +134,7 @@ class OrthographicalProjection:
         paths = {
             'main': main_path,
             'codes': root_path,
-            'data': os.path.join(root_path, 'Data'),
+            'data': os.path.join(root_path, 'data'),
             'sdo': os.path.join(main_path, 'sdo'),
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
             'save': os.path.join(main_path, 'Work_done', self.foldername),

@@ -24,8 +24,8 @@ from astropy import units as u
 from typing import Any, Callable
 
 # IMPORTs personal
-from Data.get_polynomial import Polynomial
-from Data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
+from data.get_polynomial import Polynomial
+from data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_path
 
 # todo I could change the code so that one process runs only one cube at once (except for the time

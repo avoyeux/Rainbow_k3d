@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import root_path
-from Projection.projection_dataclasses import (
+from projection.projection_dataclasses import (
     ImageBorders, EnvelopeInformation, EnvelopeLimitInformation, EnvelopeMiddleInformation
 )
 

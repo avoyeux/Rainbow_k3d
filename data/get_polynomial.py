@@ -17,7 +17,7 @@ import multiprocessing as mp
 
 # IMPORTs personal
 from common import Decorators, MultiProcessing, root_path
-from Projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
+from projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
 
 
 
@@ -600,7 +600,7 @@ class GetPolynomial:
         """
 
         # PATHs file and dataset
-        filepath = root_path + '/Data/sig1e20_leg20_lim0_03.h5'
+        filepath = root_path + '/data/sig1e20_leg20_lim0_03.h5'
         group_path = (
             'Time integrated/' + 
             self.data_type +

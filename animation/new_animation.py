@@ -21,7 +21,7 @@ from typing import Any
 from astropy.io import fits
 
 # IMPORTs personal
-from Animation.animation_dataclasses import *
+from animation.animation_dataclasses import *
 from common import Decorators, Plot, root_path
 
 # ANNOTATION alias

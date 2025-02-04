@@ -24,7 +24,7 @@ from typing import Any
 
 # IMPORTs personal
 from common import root_path
-from Projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
+from projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any

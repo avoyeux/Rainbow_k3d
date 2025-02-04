@@ -16,7 +16,7 @@ import numpy as np
 
 # IMPORTs personal
 from common import Decorators, root_path
-from Data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
+from data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 
 # todo need to think about how to do cubes one by one to save RAM.
 
