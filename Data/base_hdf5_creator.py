@@ -173,7 +173,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
     def create_borders(
             self,
             values: tuple[float, float, float],
-        ) -> dict[str, dict[str, str | float]]:
+        ) -> dict[str, dict[str, str | np.ndarray]]:
         """
         Gives the border information for the data.
 

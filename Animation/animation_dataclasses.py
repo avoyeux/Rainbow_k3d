@@ -155,3 +155,4 @@ class CubesData:
         """
 
         self.hdf5File.close()
+

@@ -10,7 +10,6 @@ import re
 import h5py
 import scipy
 import sunpy
-import typing
 import sparse
 import astropy
 
@@ -22,6 +21,7 @@ import multiprocessing as mp
 import sunpy.coordinates
 import multiprocessing.queues
 from astropy import units as u
+from typing import Any, Callable
 
 # IMPORTs personal
 from Data.get_polynomial import Polynomial
@@ -278,6 +278,7 @@ class DataSaver(BaseHDF5Protuberance):
         }
         return information
     
+    @Decorators.running_time
     def create(self) -> None:
         """
         Main function that encapsulates the file creation and closing with a with statement.
@@ -285,7 +286,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'w') as H5PYFile:
 
-            # Get borders
+            # BORDERs
             cube = scipy.io.readsav(self.filepaths[0])
             self.volume = VolumeInfo(
                 dx=float(cube.dx),
@@ -336,12 +337,12 @@ class DataSaver(BaseHDF5Protuberance):
         metadata = self.main_metadata()
         metadata['description'] += description
 
-        # Get more metadata
+        # METADATA
         meta_info = self.get_cube_dates_info()
         sdo_info = self.get_pos_sdo_info()
         stereo_info = self.get_pos_stereo_info()
 
-        # Update file
+        # FILE update
         self.add_dataset(H5PYFile, metadata)
         self.add_dataset(H5PYFile, self.dx, 'dx')
         for key in meta_info.keys(): self.add_dataset(H5PYFile, meta_info[key], key)
@@ -416,7 +417,7 @@ class DataSaver(BaseHDF5Protuberance):
     def get_pos_code(
             self,
             data: np.recarray | list[str],
-            function: typing.Callable[[], np.ndarray]
+            function: Callable[[], np.ndarray]
         ) -> np.ndarray:
         """
         To multiprocess the getting of the positions of the SDO and STEREO B satellites.
@@ -887,10 +888,11 @@ class DataSaver(BaseHDF5Protuberance):
             sparse.COO: the corresponding sparse data.
         """
 
-        data_coords = H5PYFile[group_path + '/coords'][...]
-        data_data = H5PYFile[group_path + '/values'][...]
+        data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]
+        print(f'group is {group_path}', flush=True)
+        data_data: np.ndarray = H5PYFile[group_path + '/values'][...]
         data_shape = np.max(data_coords, axis=1) + 1
-        return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
+        return sparse.COO(coords=data_coords, data=1, shape=data_shape)
     
     @Decorators.running_time
     def polynomial_group(self, H5PYFile: h5py.File):
@@ -1050,8 +1052,9 @@ class DataSaver(BaseHDF5Protuberance):
             },
         }
         # Add border info
-        if borders is not None: raw |= borders
-        
+        if borders is not None:
+            raw |= borders
+            print(f'raw is {raw}', flush=True)
         self.add_group(group, raw, data_name)
         return group
     
@@ -1140,14 +1143,14 @@ class DataSaver(BaseHDF5Protuberance):
     def with_feet(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, any]],
-        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
+            borders: dict[str, dict[str, Any]],
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | np.ndarray]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
 
         Args:
             data (sparse.COO): the data to add feet to.
-            borders (dict[str, dict[str, any]]): the initial data borders.
+            borders (dict[str, dict[str, Any]]): the initial data borders.
 
         Returns:
             tuple[sparse.COO, dict[str, dict[str, str | float]]]: the new_data with feet and the
@@ -1168,9 +1171,9 @@ class DataSaver(BaseHDF5Protuberance):
         new_borders = self.create_borders((x_min, y_min, z_min))
 
         # Feet pos inside init data
-        positions[0, :] = positions[0, :] - borders['xt_min']['data'] # todo do -= 
-        positions[1, :] = positions[1, :] - borders['yt_min']['data']
-        positions[2, :] = positions[2, :] - borders['zt_min']['data']
+        positions[0, :] -= borders['xt_min']['data']
+        positions[1, :] -= borders['yt_min']['data']
+        positions[2, :] -= borders['zt_min']['data']
         positions /= self.dx['data']
         positions = np.round(positions).astype('int32')
 
@@ -1184,7 +1187,6 @@ class DataSaver(BaseHDF5Protuberance):
 
         # Add feet 
         init_coords = np.hstack([init_coords, feet]).astype('int32')
-        #TODO: will change it to uint16 when I am sure that it is working as intended
 
         # Indexes to positive values
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
@@ -1196,14 +1198,13 @@ class DataSaver(BaseHDF5Protuberance):
         shape = np.max(init_coords, axis=1) + 1
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
         values = np.concatenate([data.data, feet_values], axis=0)
-        #TODO: took away as type uint8 on data but it shouldn't change anything
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
         return data, new_borders
 
     def carrington_skyCoords(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, any]],
+            borders: dict[str, dict[str, Any]],
         ) -> list[astropy.coordinates.SkyCoord]:
         """
         Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord
@@ -1211,7 +1212,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         Args:
             data (sparse.COO): the cube index data to be converted.
-            borders (dict[str, dict[str, any]]): the input data border information.
+            borders (dict[str, dict[str, Any]]): the input data border information.
 
         Returns:
             list[coordinates.SkyCoord]: corresponding list of the coordinates for the cube index
@@ -1260,7 +1261,7 @@ class DataSaver(BaseHDF5Protuberance):
     
     @staticmethod
     def skyCoords_slice(
-            coords: dict[str, any],
+            coords: dict[str, Any],
             input_queue: mp.queues.Queue,
             output_queue: mp.queues.Queue,
         ) -> None:
@@ -1269,7 +1270,7 @@ class DataSaver(BaseHDF5Protuberance):
         time index).
 
         Args:
-            coords (dict[str, any]): information to find the sparse.COO(data).coords
+            coords (dict[str, Any]): information to find the sparse.COO(data).coords
                 multiprocessing.shared_memory.SharedMemory object.
             input_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used for the
                 function inputs.
