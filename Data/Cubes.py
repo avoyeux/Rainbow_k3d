@@ -136,7 +136,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # PATHS change
         if self.fake_hdf5:
-            paths['cubes'] = os.path.join(root_path, 'Data', 'fake_data', 'save')
+            paths['cubes'] = os.path.join(root_path, 'Data', 'fake_data', 'cubes_fake')
             paths['save'] = os.path.join(root_path, 'Data', 'fake_data')
         
         # PATHS check
@@ -954,7 +954,7 @@ class DataSaver(BaseHDF5Protuberance):
         while not queue.empty():
             identifier, result = queue.get()
             rawCubes[identifier] = result
-        rawCubes = sparse.concatenate(rawCubes, axis=0)
+        rawCubes: sparse.COO = sparse.concatenate(rawCubes, axis=0)
 
         self.time_indexes = list(set(rawCubes.coords[0, :])) 
         return rawCubes
@@ -1015,9 +1015,10 @@ class DataSaver(BaseHDF5Protuberance):
             group: h5py.File | h5py.Group,
             data: sparse.COO,
             data_name: str,
+            values: int | None = None,
             borders: dict[str, dict[str, str | float]] | None = None
         ) -> h5py.File | h5py.Group:
-        """
+        """ # todo update docstring
         To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes
         also into account the border information.
 
@@ -1043,7 +1044,7 @@ class DataSaver(BaseHDF5Protuberance):
                 ),
             },
             'values': {
-                'data': data.data, 
+                'data': data.data if values is None else values, 
                 'unit': 'none',
                 'description': "The values for each voxel.",
             },
@@ -1324,7 +1325,7 @@ if __name__=='__main__':
     #     **kwargs,
     # )
     instance = DataSaver(
-        "fake.h5",
+        "new_fake.h5",
         **kwargs,
     )
     instance.create()
