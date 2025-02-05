@@ -131,13 +131,13 @@ class DataSaver(BaseHDF5Protuberance):
             'cubes': os.path.join(main, 'Cubes_karine'),
             'intensities': os.path.join(main, 'STEREO', 'int'),
             'sdo': os.path.join(main, 'sdo'),
-            'save': os.path.join(root_path, 'Data'),
+            'save': os.path.join(root_path, 'data'),
         }
 
         # PATHS change
         if self.fake_hdf5:
-            paths['cubes'] = os.path.join(root_path, 'Data', 'fake_data', 'cubes_fake')
-            paths['save'] = os.path.join(root_path, 'Data', 'fake_data')
+            paths['cubes'] = os.path.join(root_path, 'data', 'fake_data', 'cubes_fake')
+            paths['save'] = os.path.join(root_path, 'data', 'fake_data')
         
         # PATHS check
         for key in ['save']: os.makedirs(paths[key], exist_ok=True)
@@ -554,7 +554,7 @@ class DataSaver(BaseHDF5Protuberance):
         )
 
         # Add raw cubes group
-        group = self.add_cube(group, data, 'Raw cubes', borders)
+        group = self.add_cube(group, data, 'Raw cubes', borders=borders)
         group['Raw cubes'].attrs['description'] = (
             "The initial voxel data in COO format without the feet for the polynomial."
         )
@@ -593,7 +593,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # Add raw feet
         data, borders = self.with_feet(data, borders)
-        group = self.add_cube(group, data, 'Raw cubes with feet', borders)
+        group = self.add_cube(group, data, 'Raw cubes with feet', borders=borders)
         group['Raw cubes with feet'].attrs['description'] = (
             'The initial raw data in COO format with the feet positions added.'
         )
@@ -635,7 +635,13 @@ class DataSaver(BaseHDF5Protuberance):
             new_borders = borders.copy()
             filtered_data = (data & 0b00000001).astype('uint8')
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
-            group = self.add_cube(group, filtered_data, f'All data{option}', new_borders)
+            group = self.add_cube(
+                group=group,
+                data=filtered_data,
+                data_name=f'All data{option}',
+                values=1 if option=='' else None,
+                borders=new_borders,
+            )
             group[f'All data{option}'].attrs['description'] = (
                 f"All data, i.e. the 0b00000001 filtered data{option}. Hence, the data represents "
                 "the intersection between the STEREO and SDO point of views.\n"
@@ -649,7 +655,13 @@ class DataSaver(BaseHDF5Protuberance):
             filtered_data = ((data & 0b00000110) == 0b00000110).astype('uint8')
             #TODO: the shape of the resulting data is weird, no clue why.
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
-            group = self.add_cube(group, data, f'No duplicates init{option}', new_borders)
+            group = self.add_cube(
+                group=group,
+                data=data,
+                data_name=f'No duplicates init{option}',
+                values=1 if option=='' else None,
+                borders=new_borders,
+            )
             group[f'No duplicates init{option}'].attrs['description'] = (
                 f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. "
                 "Hence, the data represents all the data without the duplicates, without taking "
@@ -664,7 +676,13 @@ class DataSaver(BaseHDF5Protuberance):
             # Add no duplicates new
             filtered_data = ((data & 0b00011000) == 0b00011000).astype('uint8')
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
-            group = self.add_cube(group, filtered_data, f'No duplicates new{option}', new_borders)
+            group = self.add_cube(
+                group=group,
+                data=filtered_data,
+                data_name=f'No duplicates new{option}',
+                values=1 if option=='' else None,
+                borders=new_borders,
+            )
             group[f'No duplicates new{option}'].attrs['description'] = (
                 f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, "
                 "the data represents all the data without any of the duplicates. Even the "
@@ -679,7 +697,7 @@ class DataSaver(BaseHDF5Protuberance):
             # Add line of sight data
             filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
             if option != '': continue
-            group = self.add_cube(group, filtered_data, f'SDO line of sight', new_borders)
+            group = self.add_cube(group, filtered_data, f'SDO line of sight', borders=new_borders)
             group[f'SDO line of sight'].attrs['description'] = (
                 "The SDO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data "
                 "represents what is seen by SDO if represented in 3D inside the space of the "
@@ -687,7 +705,7 @@ class DataSaver(BaseHDF5Protuberance):
                 "named new_toto.pro created by Dr. Frederic Auchere."
             )
             filtered_data = ((data & 0b01000000) == 0b01000000).astype('uint8')
-            group = self.add_cube(group, filtered_data, f'STEREO line of sight', new_borders)
+            group = self.add_cube(group, filtered_data, f'STEREO line of sight', borders=new_borders)
             group[f'STEREO line of sight'].attrs['description'] = (
                 "The STEREO line of sight data, i.e. the 0b01000000 filtered data. Hence, this "
                 "data represents what is seen by STEREO if represented in 3D inside the space of "
@@ -889,7 +907,6 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]
-        print(f'group is {group_path}', flush=True)
         data_data: np.ndarray = H5PYFile[group_path + '/values'][...]
         data_shape = np.max(data_coords, axis=1) + 1
         return sparse.COO(coords=data_coords, data=1, shape=data_shape)
@@ -1052,9 +1069,8 @@ class DataSaver(BaseHDF5Protuberance):
             },
         }
         # Add border info
-        if borders is not None:
-            raw |= borders
-            print(f'raw is {raw}', flush=True)
+        if borders is not None: raw |= borders
+        
         self.add_group(group, raw, data_name)
         return group
     
