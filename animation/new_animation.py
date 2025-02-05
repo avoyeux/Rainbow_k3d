@@ -145,7 +145,7 @@ class Setup:
         # PATHs save
         paths = {
             'codes': root_path,
-            'data': os.path.join(root_path, 'Data'),
+            'data': os.path.join(root_path, 'data'),
             'sdo': os.path.join(root_path, '..', 'sdo'),
         }
 
@@ -442,83 +442,83 @@ class K3dAnimation(Setup):
             )
             self.plot += points
 
-        with self.cubes as cubes:
-            # ALL DATA add
-            if cubes.all_data is not None:
-                # VOXELS create
-                self.plot_alldata = self.create_voxels(cubes.all_data, **kwargs)
-                for plot in self.plot_alldata: self.plot += plot     
-            
-            # NO DUPLICATES add
-            if cubes.no_duplicate is not None:
-                # VOXELs create
-                self.plot_dupli_new = self.create_voxels(cubes.no_duplicate, **kwargs)
-                for plot in self.plot_dupli_new: self.plot += plot
-
-            # TIME INTEGRATION add
-            if cubes.integration_all_data is not None:
-                # VOXELs create
-                self.plot_interv_new = self.create_voxels(cubes.integration_all_data, **kwargs)
-                for plot in self.plot_interv_new: self.plot += plot
+        cubes = self.cubes
+        # ALL DATA add
+        if cubes.all_data is not None:
+            # VOXELS create
+            self.plot_alldata = self.create_voxels(cubes.all_data, **kwargs)
+            for plot in self.plot_alldata: self.plot += plot     
         
-            # TIME NO DUPLICATES add       
-            if cubes.integration_no_duplicate is not None:
-                # VOXELs create
-                self.plot_interv_dupli_new = self.create_voxels(
-                    cubes.integration_no_duplicate,
-                    **kwargs,
-                )
-                for plot in self.plot_interv_dupli_new: self.plot += plot  
+        # NO DUPLICATES add
+        if cubes.no_duplicate is not None:
+            # VOXELs create
+            self.plot_dupli_new = self.create_voxels(cubes.no_duplicate, **kwargs)
+            for plot in self.plot_dupli_new: self.plot += plot
 
-            # SDO LINE OF SIGHT add
-            if cubes.los_sdo is not None:
-                # VOXELs create
-                self.plot_los_sdo = self.create_voxels(cubes.los_sdo, **kwargs)
-                for plot in self.plot_los_sdo: self.plot += plot
+        # TIME INTEGRATION add
+        if cubes.integration_all_data is not None:
+            # VOXELs create
+            self.plot_interv_new = self.create_voxels(cubes.integration_all_data, **kwargs)
+            for plot in self.plot_interv_new: self.plot += plot
+    
+        # TIME NO DUPLICATES add       
+        if cubes.integration_no_duplicate is not None:
+            # VOXELs create
+            self.plot_interv_dupli_new = self.create_voxels(
+                cubes.integration_no_duplicate,
+                **kwargs,
+            )
+            for plot in self.plot_interv_dupli_new: self.plot += plot  
 
-            # STEREO LINE OF SIGHT add
-            if cubes.los_stereo is not None:
-                # VOXELs create
-                self.plot_los_stereo = self.create_voxels(cubes.los_stereo, **kwargs)
-                for plot in self.plot_los_stereo: self.plot += plot
-            
-            # CUBE fake
-            if cubes.fake_cube is not None:
-                # VOXELs create
-                self.plot_fake_cube = self.create_voxels(cubes.fake_cube, **kwargs)
-                for plot in self.plot_fake_cube: self.plot += plot
+        # SDO LINE OF SIGHT add
+        if cubes.los_sdo is not None:
+            # VOXELs create
+            self.plot_los_sdo = self.create_voxels(cubes.los_sdo, **kwargs)
+            for plot in self.plot_los_sdo: self.plot += plot
 
-            # BUTTON play/pause
-            self.play_pause_button = ipywidgets.ToggleButton(
-                value=False,
-                description='Play',
-                icon='play',
-            )
+        # STEREO LINE OF SIGHT add
+        if cubes.los_stereo is not None:
+            # VOXELs create
+            self.plot_los_stereo = self.create_voxels(cubes.los_stereo, **kwargs)
+            for plot in self.plot_los_stereo: self.plot += plot
+        
+        # CUBE fake
+        if cubes.fake_cube is not None:
+            # VOXELs create
+            self.plot_fake_cube = self.create_voxels(cubes.fake_cube, **kwargs)
+            for plot in self.plot_fake_cube: self.plot += plot
 
-            # SETUP time-slider and play/pause
-            self.time_slider = ipywidgets.IntSlider(
-                min=0,
-                max=len(self.constants.dates)-1,
-                description='Frame:',
-            )
-            self.date_dropdown = ipywidgets.Dropdown(
-                options=self.constants.dates,
-                description='Date:',
-            )
-            self.time_slider.observe(self.update_plot, names='value')
-            self.time_link = ipywidgets.jslink(
-                (self.time_slider,'value'),
-                (self.date_dropdown, 'index'),
-            )
-            self.play_pause_button.observe(self.play_pause_handler, names='value')
+        # BUTTON play/pause
+        self.play_pause_button = ipywidgets.ToggleButton(
+            value=False,
+            description='Play',
+            icon='play',
+        )
 
-            # DISPLAY
-            IPython.display.display(
-                self.plot,
-                self.time_slider,
-                self.date_dropdown,
-                self.play_pause_button,
-            )
+        # SETUP time-slider and play/pause
+        self.time_slider = ipywidgets.IntSlider(
+            min=0,
+            max=len(self.constants.dates)-1,
+            description='Frame:',
+        )
+        self.date_dropdown = ipywidgets.Dropdown(
+            options=self.constants.dates,
+            description='Date:',
+        )
+        self.time_slider.observe(self.update_plot, names='value')
+        self.time_link = ipywidgets.jslink(
+            (self.time_slider,'value'),
+            (self.date_dropdown, 'index'),
+        )
+        self.play_pause_button.observe(self.play_pause_handler, names='value')
+
+        # DISPLAY
+        IPython.display.display(
+            self.plot,
+            self.time_slider,
+            self.date_dropdown,
+            self.play_pause_button,
+        )
 
     def create_voxels(
             self,
