@@ -98,7 +98,7 @@ class CubeInfo:
         """
 
         # FILTER
-        cube_filter = self.dataset_coords[0, :] == index
+        cube_filter = self.dataset_coords[0] == index
         cube_coords = self.dataset_coords[1:, cube_filter]
         if self.dataset_values.shape == ():
             values = self.dataset_values[...]
@@ -106,10 +106,8 @@ class CubeInfo:
             values = self.dataset_values[cube_filter.ravel()]
 
         # 3D array
-        print('cubes_coords shape = ', cube_coords.shape)
         cube_shape = np.max(cube_coords, axis=1) + 1
         cube = np.zeros(cube_shape, dtype=self.dataset_values.dtype)
-        print('cube shape = ', cube.shape)
         cube[tuple(cube_coords)] = values
         result = [cube]
 

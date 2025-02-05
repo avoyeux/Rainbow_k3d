@@ -173,7 +173,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
     def create_borders(
             self,
             values: tuple[float, float, float],
-        ) -> dict[str, dict[str, str | np.ndarray]]:
+        ) -> dict[str, dict[str, str | float]]:
         """
         Gives the border information for the data.
 
@@ -186,7 +186,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
 
         info = {
             'xt_min': {
-                'data': np.array(values[0], dtype='float32'),
+                'data': values[0],
                 'unit': 'km',
                 'description': (
                     "The minimum X-axis Carrington Heliographic Coordinates value for each data "
@@ -195,7 +195,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
                 ),
             }, 
             'yt_min': {
-                'data': np.array(values[1], dtype='float32'),
+                'data': values[1],
                 'unit': 'km',
                 'description': (
                     "The minimum Y-axis Carrington Heliographic Coordinates value for each data "
@@ -204,7 +204,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
                 ),
             },
             'zt_min': {
-                'data': np.array(values[2], dtype='float32'),
+                'data': values[2],
                 'unit': 'km',
                 'description': (
                     "The minimum Z-axis Carrington Heliographic Coordinates value for each data "

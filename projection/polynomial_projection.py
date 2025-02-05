@@ -1085,9 +1085,9 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
-        filename='fake.h5',
+        filename='fake_from_toto.h5',
         verbose=2,
-        processes=6,
+        processes=4,
         polynomial_order=[4],
         data_type='All data',
         plot_choices=[

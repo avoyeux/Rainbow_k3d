@@ -697,7 +697,12 @@ class DataSaver(BaseHDF5Protuberance):
             # Add line of sight data
             filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
             if option != '': continue
-            group = self.add_cube(group, filtered_data, f'SDO line of sight', borders=new_borders)
+            group = self.add_cube(
+                group=group,
+                data=filtered_data,
+                data_name=f'SDO line of sight',
+                borders=new_borders,
+            )
             group[f'SDO line of sight'].attrs['description'] = (
                 "The SDO line of sight data, i.e. the 0b01000000 filtered data. Hence, this data "
                 "represents what is seen by SDO if represented in 3D inside the space of the "
@@ -705,7 +710,12 @@ class DataSaver(BaseHDF5Protuberance):
                 "named new_toto.pro created by Dr. Frederic Auchere."
             )
             filtered_data = ((data & 0b01000000) == 0b01000000).astype('uint8')
-            group = self.add_cube(group, filtered_data, f'STEREO line of sight', borders=new_borders)
+            group = self.add_cube(
+                group=group,
+                data=filtered_data,
+                data_name=f'STEREO line of sight',
+                borders=new_borders,
+            )
             group[f'STEREO line of sight'].attrs['description'] = (
                 "The STEREO line of sight data, i.e. the 0b01000000 filtered data. Hence, this "
                 "data represents what is seen by STEREO if represented in 3D inside the space of "
@@ -1160,7 +1170,7 @@ class DataSaver(BaseHDF5Protuberance):
             self,
             data: sparse.COO,
             borders: dict[str, dict[str, Any]],
-        ) -> tuple[sparse.COO, dict[str, dict[str, str | np.ndarray]]]:
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
 
