@@ -1,0 +1,26 @@
+# ALL blacklisted
+*
+
+# DIRs whitelisted
+!/archive/
+!/archive/from_idl/
+!/archive/deprecated/
+!/animation/
+!/animation/personal_test_visualisation.txt
+!/Common/
+!/data/
+!/data/fake_data/
+!/data/fusion_data/
+!/projection/
+
+# TYPEs whitelisted
+!**/*.pro
+!**/*.py
+!**/*.ipynb
+!**/*.md
+
+# FILEs whitelisted
+!README.md
+!requirements.txt
+!SDO_timestamps.txt
+!.gitignore
