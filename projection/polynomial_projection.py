@@ -1087,7 +1087,7 @@ if __name__ == '__main__':
     Plotting(
         filename='fake_from_toto.h5',
         verbose=2,
-        processes=4,
+        processes=48,
         polynomial_order=[4],
         data_type='All data',
         plot_choices=[
