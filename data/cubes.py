@@ -136,7 +136,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # PATHS change
         if self.fake_hdf5:
-            paths['cubes'] = os.path.join(root_path, 'data', 'fake_data', 'cubes_fake')
+            paths['cubes'] = os.path.join(root_path, 'data', 'fake_data', 'save_from_toto')
             paths['save'] = os.path.join(root_path, 'data', 'fake_data')
         
         # PATHS check
@@ -1334,7 +1334,7 @@ if __name__=='__main__':
 
     kwargs = dict(
         polynomial_order=[4, 5],
-        processes=4,
+        processes=48,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
@@ -1352,7 +1352,7 @@ if __name__=='__main__':
     #     **kwargs,
     # )
     instance = DataSaver(
-        "new_fake.h5",
+        "fake_from_toto.h5",
         **kwargs,
     )
     instance.create()

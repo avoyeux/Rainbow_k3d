@@ -87,8 +87,8 @@ class CreateFakeTotoInputs:
             'main': main_path,
             'stereo files': os.path.join(main_path, 'STEREO', 'masque_karine'),
             'sdo files': os.path.join(main_path, 'sdo'),
-            'save fits': os.path.join(root_path, 'Data/fake_data/fits'),
-            'save png': os.path.join(root_path, 'Data/fake_data/png'),
+            'save fits': os.path.join(root_path, 'data/fake_data/fits'),
+            'save png': os.path.join(root_path, 'data/fake_data/png'),
         }
 
         # PATHs create
@@ -199,6 +199,7 @@ class CreateFakeTotoInputs:
 
         # SAVE hdul
         fake_hdul.writeto(os.path.join(self.paths['save fits'], sdo_file_name), overwrite=True)
+        print(f'SAVED - {sdo_file_name}', flush=True)
 
     def plot(self, image: np.ndarray) -> None:
         """
@@ -239,4 +240,4 @@ class CreateFakeTotoInputs:
 
 if __name__=='__main__':
 
-    CreateFakeTotoInputs(sphere_radius=6.96e5, processes=6)
+    CreateFakeTotoInputs(sphere_radius=6.96e5, processes=10)
