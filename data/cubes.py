@@ -32,7 +32,7 @@ from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_pat
 # integration part where I need to only take the data section needed). This will need to change the
 # whole fetching, cube creating and saved data structure, so holding it off for now
 
-# todo need to change 'Coords' to 'Coords indexes' when I decide to re-run this code.
+# todo add the file information like feet sigma and stuff directly inside the hdf5 file.
 
 
 
@@ -47,17 +47,16 @@ class DataSaver(BaseHDF5Protuberance):
         filename: str,
         processes: int, 
         integration_time: int | list[int] = [24],
-        polynomial_points: float = 10**6, 
-        polynomial_order: int | list[int] = [2, 3, 4],
+        polynomial_points: int = int(1e6), 
+        polynomial_order: int | list[int] = [3, 4, 5],
         feet_lonlat: tuple[tuple[int | float, int | float], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: int | float = 1e-4,
         south_leg_sigma: int | float = 5,
         leg_threshold: float = 0.03,
-        only_feet: bool = True,
         full: bool = False,
         fake_hdf5: bool = False, 
     ) -> None:
-        """  #TODO: update docstring
+        """
         To create the cubes with and/or without feet in an HDF5 file.
 
         Args:
@@ -65,24 +64,35 @@ class DataSaver(BaseHDF5Protuberance):
             processes (int): the number of processes used in the multiprocessed parts
             integration_time (int | list[int], optional): the time or times in hours used in the
                 time integration of the data. Defaults to [24].
-            polynomial_points (float, optional): the number of points used when recreating the
-                polynomial gotten from the curve fitting of the data. Defaults to 10**6.
+            polynomial_points (int, optional): the number of points used when recreating the
+                polynomial gotten from the curve fitting of the data. Defaults to int(1e6).
             polynomial_order (int | list[int], optional): the order or orders used for the
-                polynomial that fits the data. Defaults to [4, 5, 6].
-            feet_lonlat (tuple[tuple[int, int], ...], optional): the positions of the feet in
-                Heliographic Carrington. Defaults to ((-177, 15), (-163, -16)).
-            feet_sigma (float, optional): the sigma uncertainty in the feet used during the curve
-                fitting of the data points. Defaults to 1e-4.
+                polynomial that fits the data. Defaults to [3, 4, 5].
+            feet_lonlat (tuple[tuple[int | float, int | float], ...], optional): the positions of
+                the feet in re-projected Heliographic Carrington coordinates.
+                Defaults to ((-177, 14.5), (-163.5, -16.5)).
+            feet_sigma (int | float, optional): the sigma uncertainty in the feet used during the
+                curve fitting of the data points. Defaults to 1e-4.
+            south_leg_sigma (int | float, optional): the sigma uncertainty in the south leg used
+                during the curve fitting of the data points. Defaults to 5.
+            leg_threshold (float, optional): the threshold used to filter the data in the feet
+                curve fitting. Defaults to 0.03.
             full (bool, optional): deciding to save all the data. In the case when 'full' is True,
                 the raw coordinates of the polynomial curve are also saved, where as only the
                 indexes that can be directly used as coords in a sparse.COO object.
+                Defaults to False.
+            fake_hdf5 (bool, optional): deciding to use the fake data to create the HDF5 file.
                 Defaults to False.
         """
 
         # PARENT
         super().__init__()
 
-        # Initial attributes
+        # CONSTANTs
+        self.max_cube_numbers = 413  # ? kind of weird I hard coded this
+        self.feet_options = ['', ' with feet']
+
+        # ARGUMENTs
         self.filename = filename
         self.processes = processes
         if isinstance(integration_time, int):
@@ -97,21 +107,23 @@ class DataSaver(BaseHDF5Protuberance):
         self.feet_sigma = feet_sigma
         self.south_leg_sigma = south_leg_sigma
         self.leg_threshold = leg_threshold
-        self.feet_options = [' with feet'] if only_feet else ['', ' with feet']
         self.full = full  # deciding to add the heavy sky coords arrays.
         self.fake_hdf5 = fake_hdf5
 
-        # CONSTANTs
-        self.max_cube_numbers = 413  # ? kind of weird I hard coded this
-
-        # Attributes setup
-        self.feet = self.setup_feet(feet_lonlat)
-        self.cube_pattern, self.date_pattern = self.setup_patterns()
+        # PLACEHOLDERs
         self.dx: dict[str, str | float]  # information and value of the spatial resolution
         self.time_indexes: list[int]  # the time indexes with values inside the cubes
+        self.paths: dict[str, str]  # the paths to the different directories
+        self.filepaths: list[str] # the filepaths to the .save files
+        self.cube_numbers: list[int] # the cube numbers
+        self.dates: list[str]  # the dates of the STEREO B 30.4nm acquisitions
+        self.dates_seconds: list[int]  # the dates in seconds
+        self.feet: astropy.coordinates.SkyCoord  # the feet positions
+        self.cube_pattern: re.Pattern[str]  # the pattern for the .save cubes
+        self.date_pattern: re.Pattern[str]  # the pattern for the STEREO B 30.4nm dates
 
-        # Created attributes
-        self.setup_attributes()
+        # SETUP attributes
+        self.setup_attributes(feet_lonlat)
 
     def setup_path(self) -> dict[str, str]:
         """
@@ -139,7 +151,7 @@ class DataSaver(BaseHDF5Protuberance):
             paths['cubes'] = os.path.join(root_path, 'data', 'fake_data', 'save_from_toto')
             paths['save'] = os.path.join(root_path, 'data', 'fake_data')
         
-        # PATHS check
+        # PATHS create
         for key in ['save']: os.makedirs(paths[key], exist_ok=True)
         return paths
     
@@ -152,36 +164,44 @@ class DataSaver(BaseHDF5Protuberance):
                 cubes and the intensities STEREO B 30.4nm.
         """
 
-        # Patterns
+        # PATTERNs
         cube_pattern = re.compile(r'cube(\d{3})\.save')
         date_pattern = re.compile(
             r'(?P<number>\d{4})_(?P<date>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.\d{3}\.png'
         )
         return cube_pattern, date_pattern
     
-    def setup_attributes(self):
+    def setup_attributes(self, feet_lonlat: tuple[tuple[int | float, int | float], ...]) -> None:
         """
         Multiple instance attributes are defined here. Function is only here to not flood the
         __init__ method.
+
+        Args:
+            feet_lonlat (tuple[tuple[int | float, int | float], ...]): the longitude and latitude
+                positions for the added feet (i.e. ((lon1, lat1), (lon2, lat2))).
         """
+
+        # FEET and PATTERNs
+        self.feet = self.setup_feet(feet_lonlat)
+        self.cube_pattern, self.date_pattern = self.setup_patterns()
         
-        # Paths
+        # PATHs create
         self.paths = self.setup_path()
 
-        # Get cubes filepaths
+        # FILEPATHs cubes
         self.filepaths = sorted([
             os.path.join(self.paths['cubes'], name)
             for name in os.listdir(self.paths['cubes'])
             if self.cube_pattern.match(name)
         ])
 
-        # Get cube numbers
+        # NUMBERs cubes
         self.cube_numbers = [
             int(self.cube_pattern.match(os.path.basename(filepath)).group(1))
             for filepath in self.filepaths
         ]
 
-        # Get dates
+        # DATEs
         date_filenames = sorted(os.listdir(self.paths['intensities']))
         dates: list[str] = [None] * self.max_cube_numbers
         for i, number in enumerate(range(self.max_cube_numbers)):
@@ -193,7 +213,7 @@ class DataSaver(BaseHDF5Protuberance):
                         break
         self.dates = dates
 
-        # Get pretreated dates
+        # DATEs in seconds
         treated_dates = [CustomDate(self.dates[number]) for number in self.cube_numbers]
         year = treated_dates[0].year
         days_per_month = DatesUtils.days_per_month(year)
@@ -213,20 +233,20 @@ class DataSaver(BaseHDF5Protuberance):
         Heliographic Coordinates. 
 
         Args:
-            lonlat (tuple[tuple[int, int], ...]): the longitude and latitude positions for the
-                added feet (i.e. ((lon1, lat1), (lon2, lat2))).
+            lonlat (tuple[tuple[int | float, int | float], ...]): the longitude and latitude
+                positions for the added feet (i.e. ((lon1, lat1), (lon2, lat2))).
 
         Returns:
             coordinates.SkyCoord: the SkyCoord for the feet.
         """
 
-        # Setup feet ndarray
+        # FEET setup
         feet_pos = np.empty((3, 2), dtype='float64')
         feet_pos[0, :] = np.array([lonlat[0][0], lonlat[1][0]])
         feet_pos[1, :] = np.array([lonlat[0][1], lonlat[1][1]])
         feet_pos[2, :] = self.solar_r
 
-        # Creating the feet
+        # FEET create
         feet = astropy.coordinates.SkyCoord(
             feet_pos[0, :] * u.deg,
             feet_pos[1, :] * u.deg,
@@ -250,7 +270,7 @@ class DataSaver(BaseHDF5Protuberance):
                 dates.
         """
 
-        # Add metadata
+        # METADATA
         cube_numbers_info = {
             'data': np.array(self.cube_numbers).astype('uint16'),
             'unit': 'none',
@@ -271,7 +291,7 @@ class DataSaver(BaseHDF5Protuberance):
             ),
         }
         
-        # Reformat for ease of use
+        # SAVE reformat
         information = {
             'Time indexes': cube_numbers_info,
             'Dates': cube_dates_info,
@@ -298,20 +318,20 @@ class DataSaver(BaseHDF5Protuberance):
             values = (cube.xt_min, cube.yt_min, cube.zt_min)
             init_borders = self.create_borders(values)
 
-            # Main metadata
+            # METADATA global
             self.foundation(H5PYFile)
 
-            # Raw data and metadata
+            # DATA raw
             self.raw_group(H5PYFile, init_borders)
 
-            # Filtered data and metadata
+            # DATA filtered
             self.filtered_group(H5PYFile, init_borders)
 
             if not self.fake_hdf5:
-                # Integration data and metadata
+                # DATA integrated
                 self.integrated_group(H5PYFile, init_borders)
 
-                # Polynomial data and metadata
+                # DATA polynomial
                 self.polynomial_group(H5PYFile)
         
     def foundation(self, H5PYFile: h5py.File) -> None:
@@ -319,7 +339,7 @@ class DataSaver(BaseHDF5Protuberance):
         For the main file metadata before getting to the HDF5 datasets and groups.
 
         Args:
-            H5PYFile (h5py.File): the file.
+            H5PYFile (h5py.File): the HDF5 file.
         """
 
         description = (
@@ -333,7 +353,6 @@ class DataSaver(BaseHDF5Protuberance):
             "masks.\nExplanation on what each HDF5 group or dataset represent is given in the "
             "corresponding 'description' attribute."
         )
-        #TODO: finish explanation here explain that the data is saved as sparse arrays.
         metadata = self.main_metadata()
         metadata['description'] += description
 
@@ -358,16 +377,16 @@ class DataSaver(BaseHDF5Protuberance):
             dict[str, str | np.ndarray]: the data and metadata for the SDO satellite position
         """
 
-        # Get data
+        # DATA filepaths
         SDO_fits_names = [
             os.path.join(self.paths['sdo'], f'AIA_fullhead_{number:03d}.fits.gz')
             for number in range(self.max_cube_numbers)
         ]
 
-        # Get results
-        coordinates = self.get_pos_code(SDO_fits_names, self.get_pos_sdo_sub)
+        # COORDs
+        coordinates = self.get_pos_code(SDO_fits_names, self.get_pos_sdo_sub)  # ! type annotations
 
-        # Add metadata
+        # DATA formatting
         information = {
             'data': coordinates.astype('float32'),
             'unit': 'km',
@@ -391,15 +410,15 @@ class DataSaver(BaseHDF5Protuberance):
             dict[str, str | np.ndarray]: the data and metadata for the STEREO B satellite position
         """
 
-        # Get data
+        # DATA
         stereo_information = scipy.io.readsav(
             os.path.join(self.paths['main'], 'rainbow_stereob_304.save')
         ).datainfos
 
-        # Get results
+        # COORDs
         coordinates = self.get_pos_code(stereo_information, self.get_pos_stereo_sub)
 
-        # Add metadata
+        # DATA formatting
         information = {
             'data': coordinates.astype('float32'),
             'unit': 'km',
@@ -417,7 +436,7 @@ class DataSaver(BaseHDF5Protuberance):
     def get_pos_code(
             self,
             data: np.recarray | list[str],
-            function: Callable[[], np.ndarray]
+            function: Callable[[], np.ndarray],
         ) -> np.ndarray:
         """
         To multiprocess the getting of the positions of the SDO and STEREO B satellites.
@@ -431,21 +450,23 @@ class DataSaver(BaseHDF5Protuberance):
             np.ndarray: the position of the satellite in cartesian heliocentric coordinates.
         """
 
-        # Setup
+        # SETUP multiprocessing
         nb_processes = min(self.processes, self.max_cube_numbers)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
         for i in range(self.max_cube_numbers): input_queue.put((i, data[i]))
         for _ in range(nb_processes): input_queue.put(None)
-        # Run
+
+        # RUN processes
         processes: list[mp.Process] = [None] * nb_processes
         for i in range(nb_processes):
             p = mp.Process(target=function, args=(input_queue, output_queue))
             p.start()
             processes[i] = p
         for p in processes: p.join()
-        # Get results
+
+        # RESULTs formatting
         coordinates: list[np.ndarray] = [None] * self.max_cube_numbers
         while not output_queue.empty():
             identifier, result = output_queue.get()
@@ -465,14 +486,13 @@ class DataSaver(BaseHDF5Protuberance):
         """
         
         while True:
-            # Get args
+            # CHECK queue
             arguments = input_queue.get()
             if arguments is None: return
             identification, filepath = arguments
 
-            # Get file header
+            # DATA hdu
             header = astropy.io.fits.getheader(filepath)
-            # Get positions
             coords = sunpy.coordinates.frames.HeliographicCarrington(
                 header['CRLN_OBS'] * u.deg,
                 header['CRLT_OBS'] * u.deg,
@@ -482,7 +502,7 @@ class DataSaver(BaseHDF5Protuberance):
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
-            # In km
+            # CONVERSION to km
             result = np.array([
                 coords.x.to(u.km).value,
                 coords.y.to(u.km).value,
@@ -502,12 +522,12 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         while True:
-            # Get args
+            # CHECK queue
             arguments = input_queue.get()
             if arguments is None: return
             identification, information_recarray = arguments
             
-            # Get positions
+            # DATA
             date = CustomDate(information_recarray.strdate)
             stereo_date = (
                 f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
@@ -521,7 +541,7 @@ class DataSaver(BaseHDF5Protuberance):
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
 
-            # In km
+            # CONVERSION to km
             result = np.array([
                 coords.x.to(u.km).value,
                 coords.y.to(u.km).value,
@@ -530,7 +550,7 @@ class DataSaver(BaseHDF5Protuberance):
             output_queue.put((identification, result))
     
     @Decorators.running_time
-    def raw_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
+    def raw_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]) -> None:
         """
         To create the initial h5py.Group object; where the raw data (with/without feet and/or in
         Carrington Heliographic Coordinates).
@@ -541,10 +561,10 @@ class DataSaver(BaseHDF5Protuberance):
                 given data.
         """
 
-        # Get data
+        # DATA
         data = self.raw_cubes()
 
-        # Setup group
+        # GROUP create
         group = H5PYFile.create_group('Raw')
         group.attrs['description'] = (
             "The filament voxels in sparse COO format (i.e. with a coords and values arrays) of "
@@ -553,7 +573,7 @@ class DataSaver(BaseHDF5Protuberance):
             "available. Both cubes, with or without feet, are inside this group."
         )
 
-        # Add raw cubes group
+        # GROUP raw cubes
         group = self.add_cube(group, data, 'Raw cubes', borders=borders)
         group['Raw cubes'].attrs['description'] = (
             "The initial voxel data in COO format without the feet for the polynomial."
@@ -585,13 +605,13 @@ class DataSaver(BaseHDF5Protuberance):
         )
 
         if self.full:
-            # Add raw skycoords group
+            # GROUP raw skycoords
             group = self.add_skycoords(group, data, 'Raw coordinates', borders)
             group['Raw coordinates'].attrs['description'] = (
                 'The initial data saved as Carrington Heliographic Coordinates in km.'
             )
 
-        # Add raw feet
+        # GROUP raw cubes with feet
         data, borders = self.with_feet(data, borders)
         group = self.add_cube(group, data, 'Raw cubes with feet', borders=borders)
         group['Raw cubes with feet'].attrs['description'] = (
@@ -602,7 +622,7 @@ class DataSaver(BaseHDF5Protuberance):
         )
 
         if self.full:
-            # Add raw skycoords with feet
+            # GROUP raw skycoords with feet
             group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
             group['Raw coordinates with feet'].attrs['description'] = (
                 "The initial data with the feet positions added saved as Carrington Heliographic "
@@ -610,7 +630,11 @@ class DataSaver(BaseHDF5Protuberance):
             )
     
     @Decorators.running_time
-    def filtered_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
+    def filtered_group(
+            self,
+            H5PYFile: h5py.File,
+            borders: dict[str, dict[str, str | float]],
+        ) -> None:
         """
         To filter the data and save it with feet.
 
@@ -619,7 +643,7 @@ class DataSaver(BaseHDF5Protuberance):
             borders (dict[str, dict[str, str | float]]): the border information.
         """
 
-        # Setup group
+        # GROUP create
         group = H5PYFile.create_group('Filtered')
         group.attrs['description'] = (
             "This group is based on the data from the 'Raw' HDF5 group. It is made up of already "
@@ -627,11 +651,11 @@ class DataSaver(BaseHDF5Protuberance):
             "Hence, the polynomial data for each filtered data group is also available."
         )
 
-        # Get data
+        # DATA
         data = self.get_COO(H5PYFile, f'Raw/Raw cubes').astype('uint8')
 
         for option in self.feet_options:
-            # Add all data
+            # ADD all data
             new_borders = borders.copy()
             filtered_data = (data & 0b00000001).astype('uint8')
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
@@ -651,39 +675,17 @@ class DataSaver(BaseHDF5Protuberance):
                 )
             )
 
-            # Add no duplicates init
-            filtered_data = ((data & 0b00000110) == 0b00000110).astype('uint8')
-            #TODO: the shape of the resulting data is weird, no clue why.
-            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
-            group = self.add_cube(
-                group=group,
-                data=data,
-                data_name=f'No duplicates init{option}',
-                values=1 if option=='' else None,
-                borders=new_borders,
-            )
-            group[f'No duplicates init{option}'].attrs['description'] = (
-                f"The initial no duplicates data, i.e. the 0b00000110 filtered data{option}. "
-                "Hence, the data represents all the data without the duplicates, without taking "
-                "into account if there are bifurcations in some of the regions. Therefore, some "
-                "duplicates might still exist using this filtering.\n"
-                + (
-                    f"The feet are saved with a value corresponding to 0b00100000."
-                    if option != '' else ''
-                )
-            )
-
-            # Add no duplicates new
+            # ADD no duplicates
             filtered_data = ((data & 0b00011000) == 0b00011000).astype('uint8')
             if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
-                data_name=f'No duplicates new{option}',
+                data_name=f'No duplicates {option}',
                 values=1 if option=='' else None,
                 borders=new_borders,
             )
-            group[f'No duplicates new{option}'].attrs['description'] = (
+            group[f'No duplicates {option}'].attrs['description'] = (
                 f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, "
                 "the data represents all the data without any of the duplicates. Even the "
                 "bifurcations are taken into account. No duplicates should exist in this "
@@ -694,13 +696,14 @@ class DataSaver(BaseHDF5Protuberance):
                 )
             )
 
-            # Add line of sight data
+            # ADD SDO los data
             filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
             if option != '': continue
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
                 data_name=f'SDO line of sight',
+                values=1,
                 borders=new_borders,
             )
             group[f'SDO line of sight'].attrs['description'] = (
@@ -709,11 +712,14 @@ class DataSaver(BaseHDF5Protuberance):
                 "rainbow cube data. The limits of the borders are defined in the .save IDL code "
                 "named new_toto.pro created by Dr. Frederic Auchere."
             )
+
+            # ADD STEREO los data
             filtered_data = ((data & 0b01000000) == 0b01000000).astype('uint8')
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
                 data_name=f'STEREO line of sight',
+                values=1,
                 borders=new_borders,
             )
             group[f'STEREO line of sight'].attrs['description'] = (
@@ -724,7 +730,11 @@ class DataSaver(BaseHDF5Protuberance):
             )
     
     @Decorators.running_time
-    def integrated_group(self, H5PYFile: h5py.File, borders: dict[str, dict[str, str | float]]):
+    def integrated_group(
+            self,
+            H5PYFile: h5py.File,
+            borders: dict[str, dict[str, str | float]],
+        ) -> None:
         """
         To integrate the data and save it inside a specific HDF5 group.
 
@@ -733,22 +743,22 @@ class DataSaver(BaseHDF5Protuberance):
             borders (dict[str, dict[str, str | float]]): the border information.
         """
 
-        # Setup group
+        # GROUP setup
         group = H5PYFile.create_group('Time integrated')
         group.attrs['description'] = (
             "This group has already time integrated data for some of the main data filtering.\n"
             "This was created for ease of use when further analysing the structures."
         )
 
-        # Data options with or without feet
+        # OPTIONs
         data_options = [
             f'{data_type}{feet}'
-            for data_type in ['All data', 'No duplicates new']
+            for data_type in ['All data', 'No duplicates']
             for feet in self.feet_options
         ]
 
         for option in data_options:
-            # Setup group
+            # GROUP create
             inside_group = group.create_group(option)
             inside_group.attrs['description'] = (
                 f"This group only contains {option.lower()} time integrated data.\n"
@@ -759,13 +769,12 @@ class DataSaver(BaseHDF5Protuberance):
                 )
             )
 
-            # For each integration time
             for integration_time in self.integration_time:
-                # Setup
+                # INTEGRATION setup
                 time_hours = round(integration_time / 3600, 1)
                 group_name = f'Time integration of {time_hours} hours'
 
-                # Get data
+                # DATA
                 data, new_borders = self.time_integration(
                     H5PYFile=H5PYFile,
                     datapath=f'Filtered/{option}',
@@ -773,11 +782,12 @@ class DataSaver(BaseHDF5Protuberance):
                     borders=borders, 
                 )
 
-                # Setup group
+                # ADD data
                 inside_group = self.add_cube(
                     group=inside_group,
                     data=data,
                     data_name=group_name,
+                    values=1 if 'with feet' in option else None,
                     borders=new_borders,
                 )
                 inside_group[group_name].attrs['description'] = (
@@ -791,7 +801,7 @@ class DataSaver(BaseHDF5Protuberance):
             H5PYFile: h5py.File,
             datapath: str,
             time: int,
-            borders: dict[str, dict[str, str | float]]
+            borders: dict[str, dict[str, str | float]],
         ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Gives the time integration of all the data for a given time interval in seconds.
@@ -807,11 +817,10 @@ class DataSaver(BaseHDF5Protuberance):
                 corresponding data borders.
         """
 
-        # Get data
+        # DATA
         data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))
-        #TODO: will need to make a shared memory object later
 
-        # Setup multiprocessing
+        # MULTIPROCESSING setup
         dates_len = len(self.dates_seconds)
         nb_processes = min(self.processes, dates_len)
         manager = mp.Manager()
@@ -820,21 +829,23 @@ class DataSaver(BaseHDF5Protuberance):
         for i, date in enumerate(self.dates_seconds):
             input_queue.put((i, data, date, self.dates_seconds, time))
         for _ in range(nb_processes): input_queue.put(None)
-        # Run
-        processes = [None] * nb_processes
+
+        # RUN processes
+        processes: list[mp.Process] = [None] * nb_processes
         for i in range(nb_processes):
             p = mp.Process(target=self.time_integration_sub, args=(input_queue, output_queue))
             p.start()
             processes[i] = p
         for p in processes: p.join()
-        # Results
+        
+        # RESULTs formatting 
         data = [None] * dates_len
         while not output_queue.empty():
             identification, result = output_queue.get()
             data[identification] = result
         data = sparse.stack(data, axis=0).astype('uint8')
 
-        # If feet
+        # BORDERs update
         if 'with feet' in datapath:
             data, new_borders = self.with_feet(data, borders)
         else: 
@@ -852,15 +863,16 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         while True:
+            # CHECK queue
             arguments = input_queue.get()
             if arguments is None: return
-
             index, data, date, dates, integration_time = arguments
+
             date_min = date - integration_time / 2
             #TODO: need to change this so that I can do the same for multiple integration times
             date_max = date + integration_time / 2
 
-            # Result
+            # RESULTs save
             chunk = DataSaver.cube_integration(data, date_max, date_min, dates)
             output_queue.put((index, chunk))
 
@@ -895,7 +907,7 @@ class DataSaver(BaseHDF5Protuberance):
             else:
                 break
 
-        # Nothing found
+        # CHECK if empty
         if chunk == []:
             return sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint8')
         elif len(chunk) == 1:
@@ -919,7 +931,7 @@ class DataSaver(BaseHDF5Protuberance):
         data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]
         data_data: np.ndarray = H5PYFile[group_path + '/values'][...]
         data_shape = np.max(data_coords, axis=1) + 1
-        return sparse.COO(coords=data_coords, data=1, shape=data_shape)
+        return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
     @Decorators.running_time
     def polynomial_group(self, H5PYFile: h5py.File):
@@ -930,26 +942,26 @@ class DataSaver(BaseHDF5Protuberance):
             H5PYFile (h5py.File): the file object.
         """
         
-        # Data options with or without feet
+        # OPTIONs
         data_options = [
             f'{data_type}{feet}'
-            for data_type in ['All data', 'No duplicates new']
+            for data_type in ['All data', 'No duplicates']
             for feet in self.feet_options
         ]
 
-        # main_options = ['All data with feet', 'No duplicates new with feet']
-        # #TODO: need to add the new duplicates init when I understand the error
         sub_options = [
             f'/Time integration of {round(time / 3600, 1)} hours'
             for time in self.integration_time
         ]
         
-        # Time integration group
+        # INTEGRATED data
         main_path_2 = 'Time integrated/'
         for main_option in data_options:
             for sub_option in sub_options:
                 group_path = main_path_2 + main_option + sub_option
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
+
+                # ADD polynomial
                 self.add_polynomial(H5PYFile[group_path], data)
 
     @Decorators.running_time
@@ -961,14 +973,14 @@ class DataSaver(BaseHDF5Protuberance):
             sparse.COO: the raw cubes.
         """
 
-        # Setup multiprocessing
+        # SETUP multiprocessing
         manager = mp.Manager()
         queue = manager.Queue()
         filepaths_nb = len(self.filepaths)
         processes_nb = min(self.processes, filepaths_nb)
         indexes = MultiProcessing.pool_indexes(filepaths_nb, processes_nb)
 
-        # Multiprocessing
+        # RUN processes
         processes: list[mp.Process] = [None] * processes_nb
         for i, index in enumerate(indexes): 
             process = mp.Process(
@@ -978,7 +990,8 @@ class DataSaver(BaseHDF5Protuberance):
             process.start()
             processes[i] = process
         for p in processes: p.join()
-        # Results
+
+        # RESULTs formatting
         rawCubes = [None] * processes_nb 
         while not queue.empty():
             identifier, result = queue.get()
@@ -1010,7 +1023,7 @@ class DataSaver(BaseHDF5Protuberance):
             cube = scipy.io.readsav(filepath).cube
 
             if not fake_hdf5:
-                # Add line of sight data 
+                # LOS data
                 cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
                 cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
 
@@ -1045,9 +1058,9 @@ class DataSaver(BaseHDF5Protuberance):
             data: sparse.COO,
             data_name: str,
             values: int | None = None,
-            borders: dict[str, dict[str, str | float]] | None = None
+            borders: dict[str, dict[str, str | float]] | None = None,
         ) -> h5py.File | h5py.Group:
-        """ # todo update docstring
+        """
         To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes
         also into account the border information.
 
@@ -1055,10 +1068,14 @@ class DataSaver(BaseHDF5Protuberance):
             group (h5py.File | h5py.Group): the Group where to add the data information.
             data (sparse.COO): the data that needs to be included in the file.
             data_name (str): the group name to be used in the file.
-            borders (dict[str, dict[str, str  |  float]]): the data border information.
+            values (int | None): the value for the voxels. Set to None when all the voxels don't
+                have the same value. Default to None.
+            borders (dict[str, dict[str, str | float]] | None): the data border information. Set to
+                None if you don't want to add the border information in the created group.
+                Default to None.
 
         Returns:
-            h5py.File | h5py.Group: the updated group.
+            h5py.File | h5py.Group: the updated file or group.
         """
         
         raw = {
@@ -1078,17 +1095,19 @@ class DataSaver(BaseHDF5Protuberance):
                 'description': "The values for each voxel.",
             },
         }
-        # Add border info
+        # BORDERs add
         if borders is not None: raw |= borders
         
+        # ADD group
         self.add_group(group, raw, data_name)
         return group
     
     def add_skycoords(
             self,
             group: h5py.File | h5py.Group,
-            data: sparse.COO, data_name: str,
-            borders: dict[str, dict[str, str | float]]
+            data: sparse.COO,
+            data_name: str,
+            borders: dict[str, dict[str, str | float]],
         ) -> h5py.File | h5py.Group:
         """
         To add to an h5py.Group, the data and metadata of the Carrington Heliographic Coordinates
@@ -1099,14 +1118,13 @@ class DataSaver(BaseHDF5Protuberance):
             group (h5py.File | h5py.Group): the Group where to add the data information.
             data (sparse.COO): the data that needs to be included in the file.
             data_name (str): the group name to be used in the file.
-            borders (dict[str, dict[str, str  |  float]] | None, optional): the data border
-                information.
+            borders (dict[str, dict[str, str | float]]): the data border information.
 
         Returns:
             h5py.File | h5py.Group: the updated group.
         """
         
-        # Setup skycoords ndarray
+        # SKYCOORDs setup
         skycoords = self.carrington_skyCoords(data, borders)
         data = [None] * len(skycoords)
         for i, skycoord in enumerate(skycoords):
@@ -1120,6 +1138,7 @@ class DataSaver(BaseHDF5Protuberance):
             data[i] = np.vstack([time_row, cube])
         data = np.hstack(data).astype('float32')
 
+        # DATA formatting
         raw = {
             'description': "Default",
             'coords': {
@@ -1133,8 +1152,11 @@ class DataSaver(BaseHDF5Protuberance):
                 ),
             },
         }
-        # Add border info
+        
+        # BORDERs add
         raw |= borders
+
+        # ADD group
         self.add_group(group, raw, data_name)
         return group
     
@@ -1159,7 +1181,8 @@ class DataSaver(BaseHDF5Protuberance):
             'precision_nb': self.polynomial_points,
             'full': self.full,
         }
-        # Loop n-orders
+
+        # N-ORDERs 
         for n_order in self.polynomial_order:
             instance = Polynomial(order=n_order, **polynomial_kwargs)
 
@@ -1169,41 +1192,41 @@ class DataSaver(BaseHDF5Protuberance):
     def with_feet(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, Any]],
+            borders: dict[str, dict[str, float]],
         ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
 
         Args:
             data (sparse.COO): the data to add feet to.
-            borders (dict[str, dict[str, Any]]): the initial data borders.
+            borders (dict[str, dict[str, float]]): the initial data borders.
 
         Returns:
             tuple[sparse.COO, dict[str, dict[str, str | float]]]: the new_data with feet and the
                 corresponding borders data and metadata.
         """
 
-        # Getting the positions
+        # COORDs feet
         x = self.feet.cartesian.x.to(u.km).value
         y = self.feet.cartesian.y.to(u.km).value
         z = self.feet.cartesian.z.to(u.km).value
         positions = np.stack([x, y, z], axis=0)
 
-        # Getting the new borders
+        # BORDERs update
         x_min, y_min, z_min = np.min(positions, axis=1) 
         x_min = x_min if x_min <= borders['xt_min']['data'] else borders['xt_min']['data']
         y_min = y_min if y_min <= borders['yt_min']['data'] else borders['yt_min']['data']
         z_min = z_min if z_min <= borders['zt_min']['data'] else borders['zt_min']['data']
         new_borders = self.create_borders((x_min, y_min, z_min))
 
-        # Feet pos inside init data
+        # COORDs feet indexes
         positions[0, :] -= borders['xt_min']['data']
         positions[1, :] -= borders['yt_min']['data']
         positions[2, :] -= borders['zt_min']['data']
         positions /= self.dx['data']
         positions = np.round(positions).astype('int32')
 
-        # Setup cubes with feet
+        # CUBEs setup
         init_coords = data.coords
         # (x, y, z) -> (t, x, y, z)
         feet = np.hstack([
@@ -1211,16 +1234,16 @@ class DataSaver(BaseHDF5Protuberance):
             for time in self.time_indexes
         ])
 
-        # Add feet 
+        # ADD feet
         init_coords = np.hstack([init_coords, feet]).astype('int32')
 
-        # Indexes to positive values
+        # INDEXEs positive
         x_min, y_min, z_min = np.min(positions, axis=1).astype(int)  
         if x_min < 0: init_coords[1, :] -= x_min
         if y_min < 0: init_coords[2, :] -= y_min  # ? not sure what I meant there
         if z_min < 0: init_coords[3, :] -= z_min
 
-        # Changing to COO 
+        # COO
         shape = np.max(init_coords, axis=1) + 1
         feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
         values = np.concatenate([data.data, feet_values], axis=0)
@@ -1230,7 +1253,7 @@ class DataSaver(BaseHDF5Protuberance):
     def carrington_skyCoords(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, Any]],
+            borders: dict[str, dict[str, float]],
         ) -> list[astropy.coordinates.SkyCoord]:
         """
         Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord
@@ -1238,36 +1261,32 @@ class DataSaver(BaseHDF5Protuberance):
 
         Args:
             data (sparse.COO): the cube index data to be converted.
-            borders (dict[str, dict[str, Any]]): the input data border information.
+            borders (dict[str, dict[str, float]]): the input data border information.
 
         Returns:
             list[coordinates.SkyCoord]: corresponding list of the coordinates for the cube index
                 data. They are in Carrington Heliographic Coordinates. 
         """
         
-        # Get coordinates
+        # COORDs
         coords = data.coords.astype('float64')
 
-        # Heliocentric kilometre conversion
+        # CONVERSION heliocentric in km
         coords[1, :] = coords[1, :] * self.dx['data'] + borders['xt_min']['data']
         coords[2, :] = coords[2, :] * self.dx['data'] + borders['yt_min']['data']
         coords[3, :] = coords[3, :] * self.dx['data'] + borders['zt_min']['data']
 
-        # SharedMemory
-        shm, coords = MultiProcessing.create_shared_memory(coords)
-        
-        # Multiprocessing
-        # Constants
-        time_nb = len(self.time_indexes)
-        processes_nb = min(self.processes, time_nb)
-        # Queues
+        # SETUP multiprocessing
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        # Setup
+        time_nb = len(self.time_indexes)
+        processes_nb = min(self.processes, time_nb)
+        shm, coords = MultiProcessing.create_shared_memory(coords)
         for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
         for _ in range(processes_nb): input_queue.put(None)
-        # Run
+
+        # RUN processes
         processes: list[mp.Process] = [None] * processes_nb
         for i in range(processes_nb):
             process = mp.Process(
@@ -1278,7 +1297,8 @@ class DataSaver(BaseHDF5Protuberance):
             processes[i] = process
         for p in processes: p.join()
         shm.unlink()
-        # Results
+
+        # RESULTs formatting
         all_SkyCoords = [None] * time_nb
         while not output_queue.empty():
             identifier, result = output_queue.get()
@@ -1304,19 +1324,20 @@ class DataSaver(BaseHDF5Protuberance):
                 the function results.
         """
         
+        # DATA open
         shm, coords = MultiProcessing.open_shared_memory(coords)
 
         while True:
-            # Setup input
+            # CHECK queue
             argument = input_queue.get()
             if argument is None: break
             index, time = argument
 
-            # Data slicing
+            # DATA section
             slice_filter = coords[0, :] == time
             cube = coords[:, slice_filter]
             
-            # Carrington Heliographic Coordinates
+            # COORDs reprojected carrington
             skyCoord = astropy.coordinates.SkyCoord(
                 cube[1, :], cube[2, :], cube[3, :], 
                 unit=u.km,
@@ -1324,7 +1345,7 @@ class DataSaver(BaseHDF5Protuberance):
                 representation_type='cartesian'
             )
             
-            # Saving result
+            # SAVE
             output_queue.put((index, skyCoord))
         shm.close()
 
@@ -1333,12 +1354,11 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     kwargs = dict(
-        polynomial_order=[4, 5],
+        polynomial_order=[3, 4, 5],
         processes=48,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
-        only_feet=False,  # todo this option still isn't setup properly
         full=False,
         fake_hdf5=True,
     )
