@@ -32,8 +32,6 @@ from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_pat
 # integration part where I need to only take the data section needed). This will need to change the
 # whole fetching, cube creating and saved data structure, so holding it off for now
 
-# todo add the file information like feet sigma and stuff directly inside the hdf5 file.
-
 
 
 class DataSaver(BaseHDF5Protuberance):
@@ -1409,6 +1407,6 @@ if __name__=='__main__':
         south_leg_sigma=20,
         leg_threshold=0.03,
         full=False,
-        fake_hdf5=True,
+        fake_hdf5=False,
     )
     instance.create()
