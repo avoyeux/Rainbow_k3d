@@ -11,10 +11,8 @@ from typing import Self
 from dataclasses import dataclass, field
 
 # IMPPORTs personal
-from common import root_path
+from common import root_path, Decorators
 from data.base_hdf5_creator import BaseHdf5Creator
-
-# todo need to add both the real and fake time indexes in the final HDF5 file
 
 
 
@@ -75,9 +73,9 @@ class FileFusionOpener:
             h5py.File: the corresponding HDF5 file.
         """
 
-        if key=='real':
+        if key=='Real':
             return self.real_hdf5
-        elif key=='fake':
+        elif key=='Fake':
             return self.fake_hdf5
         else:
             raise ValueError(f"Key '{key}' not recognized.")
@@ -88,6 +86,7 @@ class FusionHdf5(BaseHdf5Creator):
     To add the fake and real data together in the same HDF5 file.
     """
 
+    @Decorators.running_time
     def __init__(self, filename: str, filename_real: str, filename_fake: str) -> None:
         """
         To add both the real and fake data together in the same HDF5 file.
@@ -144,7 +143,7 @@ class FusionHdf5(BaseHdf5Creator):
             'main': ['Time indexes'],
             'group': {
                 'Filtered': real_sub_group_choices,
-                'Time integrated': real_sub_group_choices,
+                'Time integrated': ['All data', 'No duplicates new'],
             },
         }
         fake_paths = {
@@ -157,11 +156,12 @@ class FusionHdf5(BaseHdf5Creator):
         # PATHs formatting
         paths = {
             'global': global_choices,
-            'real': real_paths,
-            'fake': fake_paths,
+            'Real': real_paths,
+            'Fake': fake_paths,
         }
         return paths
 
+    @Decorators.running_time
     def create(self) -> None:
         """
         Creates the new HDF5 file containing both the real and fake data.
@@ -177,7 +177,6 @@ class FusionHdf5(BaseHdf5Creator):
 
         # OPEN hdf5
         with file_opener as data:
-
             # METADATA add
             metadata = self.main_metadata()
             metadata['description'] = (
@@ -193,7 +192,7 @@ class FusionHdf5(BaseHdf5Creator):
                 data.new_hdf5.copy(dataset, dataset_path)
 
             # DATA specific
-            for key in ['real', 'fake']:
+            for key in ['Real', 'Fake']:
                 
                 # CREATE 2 main group
                 data.new_hdf5.create_group(key)
@@ -218,18 +217,15 @@ class FusionHdf5(BaseHdf5Creator):
                     # CREATE sub group
                     data.new_hdf5.create_group(base_path + sub_path)
                     
-                    sub_sub_paths: list[str]
-                    for sub_sub_paths in self.group_paths[key]['group'][sub_path]:
+                    sub_sub_path: str
+                    for sub_sub_path in self.group_paths[key]['group'][sub_path]:
 
-                        for path in sub_sub_paths:
+                        # DATA get
+                        data_path = f'{sub_path}/{sub_sub_path}'
+                        group = data_file[data_path]
 
-                            # DATA get
-                            data_path = f'{sub_path}/{path}'
-                            group = data_file[data_path]
-
-                            # SAVE choice
-                            data.new_hdf5.create_group(base_path + data_path)
-                            data.new_hdf5.copy(group, base_path + data_path)
+                        # SAVE choice
+                        data.new_hdf5.copy(group, base_path + data_path)
 
 
 
