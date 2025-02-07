@@ -361,12 +361,60 @@ class DataSaver(BaseHDF5Protuberance):
         sdo_info = self.get_pos_sdo_info()
         stereo_info = self.get_pos_stereo_info()
 
+        # RUN information
+        run_info = self.get_run_information()
+
         # FILE update
         self.add_dataset(H5PYFile, metadata)
         self.add_dataset(H5PYFile, self.dx, 'dx')
         for key in meta_info.keys(): self.add_dataset(H5PYFile, meta_info[key], key)
         self.add_dataset(H5PYFile, sdo_info, 'SDO positions')
         self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
+        self.add_group(H5PYFile, run_info, 'Specific information')
+
+    def get_run_information(self) -> dict[str, dict[str, str | int | float]]:
+        """
+        Gives information on the thresholds and weights used for the data creation.
+
+        Returns:
+            dict[str, dict[str, str | int | float]]: the data and metadata for the run information.
+        """
+
+        # RUN information
+        feet_sigma = {
+            'value': self.feet_sigma,
+            'unit': 'none',
+            'description': (
+                "The sigma uncertainty in the feet used during the curve fitting of the data "
+                "points. The lower the value, the higher the weight given to the feet positions."
+            ),
+        }
+        leg_threshold = {
+            'value': self.leg_threshold,
+            'unit': 'none',
+            'description': (
+                "The threshold used to filter the data in the feet curve fitting. The lower the "
+                "value, the less data is considered to be part of the 'left' leg. Information "
+                "used with the leg sigma (as a the weight for the leg can be different than for "
+                "the two unique voxel representing the feet)."
+            ),
+        }
+        leg_sigma = {
+            'value': self.south_leg_sigma,
+            'unit': 'none',
+            'description': (
+                "The sigma uncertainty in the south leg used during the curve fitting of the data "
+                "points. The lower the value, the higher the weight given to the south leg."
+            ),
+        }
+
+        # INFORMATION formatting
+        information = {
+            'Feet sigma': feet_sigma,
+            'Leg threshold': leg_threshold,
+            'Leg sigma': leg_sigma,
+        }
+        return information
     
     @Decorators.running_time
     def get_pos_sdo_info(self) -> dict[str, str | np.ndarray]:
@@ -1353,7 +1401,8 @@ class DataSaver(BaseHDF5Protuberance):
 
 if __name__=='__main__':
 
-    kwargs = dict(
+    instance = DataSaver(
+        filename='data.h5',
         polynomial_order=[3, 4, 5],
         processes=48,
         feet_sigma=20,
@@ -1361,18 +1410,5 @@ if __name__=='__main__':
         leg_threshold=0.03,
         full=False,
         fake_hdf5=True,
-    )
-    
-    # Naming setup
-    splitted = str(kwargs['feet_sigma']).split('.')
-    feet_sig = '1' + 'e' + (str(len(splitted[1])) if len(splitted) > 1 else '')
-    thresh = "_".join(string for string in str(kwargs['leg_threshold']).split('.'))
-    # instance = DataSaver(
-    #     f"sig{feet_sig}_leg{kwargs['south_leg_sigma']}_lim{thresh}_test.h5",
-    #     **kwargs,
-    # )
-    instance = DataSaver(
-        "fake_from_toto.h5",
-        **kwargs,
     )
     instance.create()

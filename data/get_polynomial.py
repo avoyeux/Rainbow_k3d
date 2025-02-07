@@ -8,12 +8,14 @@ possible) and with a given number of points in the curve.
 # IMPORTS
 import h5py
 import scipy
-import typing
 import sparse
 
 # IMPORTs alias
 import numpy as np
 import multiprocessing as mp
+
+# IMPORTs sub
+from typing import Any, Callable
 
 # IMPORTs personal
 from common import Decorators, MultiProcessing, root_path
@@ -36,7 +38,7 @@ class Polynomial:
             south_sigma: int | float,
             leg_threshold: float,
             processes: int, 
-            precision_nb: int | float = 10**6, 
+            precision_nb: int = int(1e6), 
             full: bool = False,
         ) -> None:
         """ #TODO:update docstring
@@ -50,8 +52,8 @@ class Polynomial:
             feet_sigma (float): the sigma uncertainty value used for the feet when fitting the
                 data.
             processes (int): the number of processes for multiprocessing.
-            precision_nb (int | float, optional): the number of points used in the fitting.
-                Defaults to 10**6.
+            precision_nb (int, optional): the number of points used in the fitting.
+                Defaults to int(1e6).
         """
 
         # Arguments 
@@ -181,7 +183,7 @@ class Polynomial:
 
     @staticmethod
     def no_duplicates_data_sub(
-            data: dict[str, any],
+            data: dict[str, Any],
             queue: mp.queues.Queue,
             index: tuple[int, int],
             position: int,
@@ -190,7 +192,7 @@ class Polynomial:
         To multiprocess the no duplicates uint16 voxel positions treatment.
 
         Args:
-            data (dict[str, any]): the information to get the data from a
+            data (dict[str, Any]): the information to get the data from a
                 multiprocessing.shared_memory.SharedMemory() object.
             queue (mp.queues.Queue): the output queue.
             index (tuple[int, int]): the indexes to slice the data properly.
@@ -287,23 +289,23 @@ class Polynomial:
 
     @staticmethod
     def get_data_sub(
-            coords: dict[str, any],
-            sigma: dict[str, any],
+            coords: dict[str, Any],
+            sigma: dict[str, Any],
             input_queue: mp.queues.Queue,
             output_queue: mp.queues.Queue,
-            kwargs_sub: dict[str, any],
+            kwargs_sub: dict[str, Any],
         ) -> None:
         """
         Static method to multiprocess the curve fitting creation.
 
         Args:
-            coords (dict[str, any]): the coordinates information to access the
+            coords (dict[str, Any]): the coordinates information to access the
                 multiprocessing.shared_memory.SharedMemory() object.
-            sigma (dict[str, any]): the weights (here sigma) information to access the
+            sigma (dict[str, Any]): the weights (here sigma) information to access the
                 multiprocessing.shared_memory.SharedMemory() object.
             input_queue (mp.queues.Queue): the input_queue for each process.
             output_queue (mp.queues.Queue): the output_queue to save the results.
-            kwargs_sub (dict[str, any]): the kwargs for the polynomial_fit function.
+            kwargs_sub (dict[str, Any]): the kwargs for the polynomial_fit function.
         """
         
         # Open shared memories
@@ -366,7 +368,7 @@ class Polynomial:
             params_init: np.ndarray,
             shape: tuple[int, ...],
             precision_nb: int,
-            nth_order_polynomial: typing.Callable[
+            nth_order_polynomial: Callable[
                 [np.ndarray, tuple[int | float, ...]],
                 np.ndarray
             ],
@@ -450,7 +452,7 @@ class Polynomial:
 
     @staticmethod
     def scipy_curve_fit(
-            polynomial: typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
+            polynomial: Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray],
             t: np.ndarray,
             t_mask: np.ndarray,
             coords: np.ndarray,
@@ -520,7 +522,7 @@ class Polynomial:
 
     def generate_nth_order_polynomial(
             self,
-        ) -> typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
+        ) -> Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
         """
         To generate a polynomial function given a polynomial order.
 
@@ -561,7 +563,7 @@ class GetPolynomial:
             self,
             polynomial_order: int,
             integration_time: int,
-            number_of_points: int | float,
+            number_of_points: int,
             data_type: str = 'No duplicates new with feet',
         ) -> None:
         """
@@ -581,7 +583,7 @@ class GetPolynomial:
         """
 
         # ATTRIBUTES
-        self.t_fine = np.linspace(0, 1, int(number_of_points)) 
+        self.t_fine = np.linspace(0, 1, number_of_points) 
         self.data_type = data_type
         self.integration_time = integration_time
         self.order = polynomial_order
@@ -801,7 +803,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
         new_t = self.t_fine[~to_filter]
 
         # RANGE filtered polynomial
-        t_fine = np.linspace(np.min(new_t), np.max(new_t), int(self.number_of_points))
+        t_fine = np.linspace(np.min(new_t), np.max(new_t), self.number_of_points)
 
         # COORDs new        
         coords = self.get_coords(t_fine, params)
