@@ -727,11 +727,11 @@ class DataSaver(BaseHDF5Protuberance):
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
-                data_name=f'No duplicates {option}',
+                data_name=f'No duplicates{option}',
                 values=1 if option=='' else None,
                 borders=new_borders,
             )
-            group[f'No duplicates {option}'].attrs['description'] = (
+            group[f'No duplicates{option}'].attrs['description'] = (
                 f"The new no duplicates data, i.e. the 0b00011000 filtered data{option}. Hence, "
                 "the data represents all the data without any of the duplicates. Even the "
                 "bifurcations are taken into account. No duplicates should exist in this "

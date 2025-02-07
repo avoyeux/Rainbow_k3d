@@ -41,7 +41,7 @@ class Polynomial:
             precision_nb: int = int(1e6), 
             full: bool = False,
         ) -> None:
-        """ #TODO:update docstring
+        """
         Initialisation of the Polynomial class. Using the get_information() instance method, you
         can get the curve position voxels and the corresponding n-th order polynomial parameters
         with their explanations inside a dict[str, str | dict[str, str | np.ndarray]].
@@ -49,14 +49,17 @@ class Polynomial:
         Args:
             data (sparse.COO): the data for which a fit is needed.
             order (int): the polynomial order for the fit.
-            feet_sigma (float): the sigma uncertainty value used for the feet when fitting the
-                data.
+            feet_sigma (int | float): the sigma uncertainty value used for the feet when fitting
+                the data.
+            south_sigma (int | float): the sigma uncertainty value used for the leg when fitting
+                the data.
             processes (int): the number of processes for multiprocessing.
             precision_nb (int, optional): the number of points used in the fitting.
                 Defaults to int(1e6).
+            full (bool, optional): choosing to save the cartesian positions of the polynomial fit.
         """
 
-        # Arguments 
+        # ARGUMENTs 
         self.data = self.reorder_data(data)
         self.poly_order = order
         self.feet_sigma = feet_sigma
@@ -66,7 +69,7 @@ class Polynomial:
         self.precision_nb = precision_nb
         self.full = full
 
-        # New attributes
+        # ATTRIBUTEs new
         self.params_init = np.random.rand(order + 1)  # initial (random) polynomial coefficients
     
     def reorder_data(self, data: sparse.COO) -> sparse.COO:
@@ -96,13 +99,13 @@ class Polynomial:
                 polynomial and corresponding polynomial coefficients.
         """
 
-        # Get data
+        # DATA
         polynomials, parameters = self.get_data()
 
-        # No duplicates uint16
+        # NO DUPLICATEs
         treated_polynomials = self.no_duplicates_data(polynomials)
         
-        # Save information
+        # DATA formatting
         information = {
             'description': (
                 "The polynomial curve with the corresponding parameters of the "
@@ -159,21 +162,23 @@ class Polynomial:
             np.ndarray: the corresponding treated data.
         """
 
-        # Setup multiprocessing
+        # MULTIPROCESSING setup
         manager = mp.Manager()
         output_queue = manager.Queue()
         processes_nb = min(self.processes, self.time_len)
         indexes = MultiProcessing.pool_indexes(self.time_len, processes_nb)
         shm, data = MultiProcessing.create_shared_memory(data)
-        # Run
-        processes = [None] * processes_nb
+
+        # RUN processes
+        processes: list[mp.Process] = [None] * processes_nb
         for i, index in enumerate(indexes):
             p = mp.Process(target=self.no_duplicates_data_sub, args=(data, output_queue, index, i))
             p.start()
             processes[i] = p
         for p in processes: p.join()
         shm.unlink()
-        # Results
+
+        # RESULTs formatting
         polynomials = [None] * processes_nb
         while not output_queue.empty():
             identifier, result = output_queue.get()
@@ -200,17 +205,17 @@ class Polynomial:
                 order.
         """
         
-        # Open SharedMemory
-        shm, data = MultiProcessing.open_shared_memory(data)
+        # DATA open
+        shm, array = MultiProcessing.open_shared_memory(data)
 
-        # Select data
-        data_filters = (data[0, :] >= index[0]) & (data[0, :] <= index[1])
-        data = np.copy(data[:, data_filters])
+        # DATA filtering
+        data_filters = (array[0, :] >= index[0]) & (array[0, :] <= index[1])
+        data = np.copy(array[:, data_filters])
         shm.close()
 
-        # No duplicates indexes
+        # INDEXEs no duplicates
         data = np.rint(np.abs(data.T))
-        data = np.unique(data, axis=0).T.astype('uint16')
+        data = np.unique(array, axis=0).T.astype('uint16')
         queue.put((position, data))
         
     @Decorators.running_time
@@ -225,7 +230,7 @@ class Polynomial:
                 (4, N) (not the same value for N of course).
         """
 
-        # CONSTANTS
+        # CONSTANTs
         self.time_indexes = list(set(self.data.coords[0, :]))
         #TODO: might get this from outside the class so that it is not computed twice or more
         self.time_len = len(self.time_indexes)
@@ -233,26 +238,19 @@ class Polynomial:
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
         sigma = self.data.data.astype('float64')
-        print(
-            f'The maximum value found even before the filtering and everything is {np.max(sigma)}'
-        )
-        print(f'The number of non 1 values are {np.sum(sigma > 2)}', flush=True)
 
-        # Shared memory
+        # MULTIPROCESSING setup
         shm_coords, coords = MultiProcessing.create_shared_memory(
             data=self.data.coords.astype('float64'),
         )
         shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
-
-        # Multiprocessing
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        # QUEUE input
         for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
         for _ in range(process_nb): input_queue.put(None)
-        # Run
-        processes = [None] * process_nb
+        
+        # INPUTs
         kwargs = {
             'coords': coords,
             'sigma': sigma,
@@ -268,15 +266,18 @@ class Polynomial:
             'south_sigma': self.south_sigma,
             'leg_threshold': self.leg_threshold,
         }
+
+        # RUN processes
+        processes: list[mp.Process] = [None] * process_nb
         for i in range(process_nb):
             p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
             p.start()
             processes[i] = p
         for p in processes: p.join()
-        # Unlink shared memories
         shm_coords.unlink()
         shm_sigma.unlink()
-        # Results
+
+        # RESULTs formatting
         parameters: list[np.ndarray] = [None] * self.time_len
         polynomials: list[np.ndarray] = [None] * self.time_len
         while not output_queue.empty():
@@ -308,22 +309,22 @@ class Polynomial:
             kwargs_sub (dict[str, Any]): the kwargs for the polynomial_fit function.
         """
         
-        # Open shared memories
+        # DATA open
         shm_coords, coords = MultiProcessing.open_shared_memory(coords)
         shm_sigma, sigma = MultiProcessing.open_shared_memory(sigma)
         
         while True:
-            # Get arguments
+            # CHECK input
             args = input_queue.get()
             if args is None: break
             index, time_index = args
 
-            # Filter data
+            # DATA filtering
             time_filter = coords[0, :] == time_index
             coords_section = coords[1:, time_filter]
             sigma_section = sigma[time_filter]
 
-            # Check if enough points for polynomial
+            # CHECK if enough points
             nb_parameters = len(kwargs_sub['params_init'])
             if nb_parameters >= sigma_section.shape[0]:
                 print(
@@ -334,7 +335,7 @@ class Polynomial:
                 result = np.empty((4, 0)) 
                 params = np.empty((4, 0))
             else:
-                # Get cumulative distance
+                # DISTANCE cumulative
                 t = np.empty(sigma_section.shape[0], dtype='float64')
                 t[0] = 0
                 for i in range(1, sigma_section.shape[0]): 
@@ -344,7 +345,7 @@ class Polynomial:
                     ]))
                 t /= t[-1]  # normalisation 
 
-                # Get results
+                # RESULTs formatting
                 kwargs = {
                     'coords': coords_section,
                     'sigma': sigma_section,
@@ -353,9 +354,9 @@ class Polynomial:
                 }
                 result, params = Polynomial.polynomial_fit(**kwargs, **kwargs_sub)
 
-            # Save results
+            # SAVE results
             output_queue.put((index, result, params))
-        # Close shared memories
+        
         shm_coords.close()
         shm_sigma.close()
 
@@ -376,7 +377,7 @@ class Polynomial:
             south_sigma: int | float,
             leg_threshold: float,
         ) -> tuple[np.ndarray, np.ndarray]:
-        """ #TODO: update docstring
+        """
         To get the polynomial fit of a data cube.
 
         Args:
@@ -392,21 +393,22 @@ class Polynomial:
                 [np.ndarray, tuple[int  |  float, ...]],
                 np.ndarray
                 ]): the n-th order polynomial function.
-            feet_sigma (float): the sigma position uncertainty used for the feet.
+            feet_sigma (int | float): the sigma position uncertainty used for the feet.
+            south_sigma (int | float): the sigma uncertainty for the leg values.
+            leg_threshold (float): the threshold value for defining which points correspond to the
+                legs.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding
                 coefficients.
         """
 
-        # Setting up polynomial weights
-        feet_mask = sigma > 2
+        # WEIGHTs
+        feet_mask = sigma > 2  # ! this might create some problems
         beginning_mask = t < leg_threshold
-        #TODO: testing a mask at the beginning of last axis (now the x-axis) to force the curve to
-        # pass through the left leg.
         t_mask = beginning_mask & ~feet_mask
 
-        # Try to get params
+        # PARAMs
         params = Polynomial.scipy_curve_fit(
             polynomial=nth_order_polynomial,
             t=t,
@@ -419,7 +421,7 @@ class Polynomial:
             south_sigma=south_sigma,
         )
 
-        # Get curve
+        # CURVE create
         params_x, params_y, params_z = params
         t_fine = np.linspace(-0.5, 1.5, precision_nb)
         x = nth_order_polynomial(t_fine, *params_x)
@@ -427,28 +429,26 @@ class Polynomial:
         z = nth_order_polynomial(t_fine, *params_z)
         data = np.vstack([x, y, z]).astype('float64')
 
-        # Cut outside init data
+        # BORDERs cut
         conditions_upper = (
             (data[0, :] >= shape[1] - 1) |
             (data[1, :] >= shape[2] - 1) |
             (data[2, :] >= shape[3] - 1)
         )
-        #TODO: the top code line is wrong as I am taking away 1 pixel but for now it is just to
-        # make sure no problem arouses from floats. will need to see what to do later
+        # * the top code line is wrong as I am taking away 1 pixel but for now it is just to
+        # * make sure no problem arouses from floats. will need to see what to do later
         conditions_lower = np.any(data < 0, axis=0)  # as floats can be a little lower than 0
         conditions = conditions_upper | conditions_lower
         data = data[:, ~conditions]
-
-        # No duplicates
         unique_data = np.unique(data, axis=1)
 
-        # Recreate format
+        # DATA formatting
         time_row = np.full((1, unique_data.shape[1]), time_index)
         unique_data = np.vstack([time_row, unique_data]).astype('float64')
         time_row = np.full((1, params.shape[1]), time_index)
         params = np.vstack([time_row, params]).astype('float64')
         return unique_data[Polynomial.axes_order], params[Polynomial.axes_order]
-        #TODO: will need to change this if I cancel the ax swapping in cls.__init__
+        #todo will need to change this if I cancel the ax swapping in cls.__init__
 
     @staticmethod
     def scipy_curve_fit(
@@ -466,23 +466,26 @@ class Polynomial:
         To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge
         on a solution due to the feet weight, then the feet weight is divided by 4 (i.e. the
         corresponding sigma is multiplied by 4) and the fitting is tried again.
-        #TODO: update docstring
+
         Args:
             polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the
                 function that outputs the n_th order polynomial function results.
             t (np.ndarray): the cumulative distance.
+            t_mask (np.ndarray): the mask representing the south leg position.
             coords (np.ndarray): the (x, y, z) coords of the data points.
             params_init (np.ndarray): the initial (random) polynomial parameters.
             sigma (np.ndarray): the standard deviation for each data point (i.e. can be seen as the
                 inverse of the weight).
-            mask (np.ndarray): the mask representing the feet position.
-            feet_sigma (float): the value of sigma given for the feet. This value is quadrupled
-                every time a try fails.
+            feet_mask (np.ndarray): the mask representing the feet position.
+            feet_sigma (int | float): the value of sigma given for the feet. This value is
+                quadrupled every time a try fails.
+            south_sigma (int | float): the value of sigma given for the south leg.
 
         Returns:
             np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
         """
 
+        # DATA formatting
         kwargs = {
             'polynomial': polynomial,
             't': t, 
@@ -494,6 +497,7 @@ class Polynomial:
             'south_sigma': south_sigma,
         }
         try: 
+            # FITTING
             sigma[feet_mask] = feet_sigma
             x, y, z = coords
             params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
@@ -504,7 +508,7 @@ class Polynomial:
             params = np.vstack([params_x, params_y, params_z]).astype('float64')
         
         except Exception:
-            # Changing feet value
+            # FITTING failed
             feet_sigma *= 4
             print(
                 "\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, "
@@ -514,10 +518,6 @@ class Polynomial:
             params = Polynomial.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
 
         finally:
-            print(
-                f"\033[92mThe curve_fit worked with feet values equal to {feet_sigma}.\033[0m",
-                flush=True,
-            )
             return params
 
     def generate_nth_order_polynomial(
@@ -564,7 +564,7 @@ class GetPolynomial:
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
-            data_type: str = 'No duplicates new with feet',
+            data_type: str = 'No duplicates with feet',
         ) -> None:
         """
         Initialise the class so that the pointer to the polynomial parameters is created (given
@@ -579,7 +579,7 @@ class GetPolynomial:
             number_of_points (int | float): the number of points to use when getting the polynomial
                 fit positions.
             data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates new with feet'.
+                polynomial fit. Defaults to 'No duplicates with feet'.
         """
 
         # ATTRIBUTES
@@ -713,11 +713,11 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             self,
             polynomial_order: int,
             integration_time: int,
-            number_of_points: int | float,
+            number_of_points: int,
             dx: float,
-            data_type: str = 'No duplicates new with feet',
+            data_type: str = 'No duplicates with feet',
         ) -> None:
-        """ # todo update docstring
+        """
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
@@ -726,10 +726,11 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             polynomial_order (int): the order of the polynomial fit to consider.
             integration_time (int): the integration time to consider when choosing the polynomial
                 fit parameters.
-            number_of_points (int | float): the number of positions to consider in the final
-                polynomial fit.
-            borders (dict[str, float]): the cube borders to consider to be able to get the final
-                heliocentric cartesian positions of the polynomial fit.
+            number_of_points (int): the number of positions to consider in the final polynomial
+                fit.
+            dx (float): the voxel resolution in km.
+            data_type (str, optional): the data type to consider when looking for the corresponding
+                polynomial fit. Defaults to 'No duplicates with feet'.
         """
 
         # PARENT
@@ -777,9 +778,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
                 in cube0010.save).
 
         Returns:
-            np.ndarray: the polynomial fit positions in the initial cube index positions. Important
-                to note that these new 'cube indexes' can also be negative as the limits have been
-                re-computed.
+            CubeInformation: the information for the reprocessed polynomial fit.
         """
 
         # PARAMs polynomial
