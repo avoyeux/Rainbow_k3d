@@ -28,6 +28,9 @@ from common import Decorators, Plot, root_path
 VoxelType = Any
 JsLinkType = Any
 
+# todo need to understand why the polynomial is at the wrong place. borders for the polynomial seem
+# different than for the corresponding data...
+
 
 
 class Setup:
@@ -40,7 +43,7 @@ class Setup:
     @typeguard.typechecked
     def __init__(
             self,
-            filename: str = 'sig1e20_leg20_lim0_03.h5',
+            filename: str = 'data.h5',
             sun: bool = False,
             with_feet: bool = True,
             all_data: bool = False,
@@ -132,7 +135,6 @@ class Setup:
         # RUN
         self.paths = self.setup_paths()
         self.cubes: CubesData = self.get_data()
-        # todo need to fix type error from Decorators.running_time
 
     def setup_paths(self) -> dict[str, str]:
         """
@@ -206,9 +208,8 @@ class Setup:
 
             # DATA formatting
             cubes.sdo_pos = (
-                sdo_positions[time_indexes] / self.constants.dx
+                sdo_positions[time_indexes] / self.constants.dx  #type: ignore
             ).astype('float32')
-            #TODO: need to add fov for sdo
         elif self.stereo_pov:
             # STEREO positions
             time_indexes: np.ndarray = HDF5File['Time indexes'][...]
@@ -303,7 +304,6 @@ class Setup:
 
                 # DATA get
                 interp_coords: h5py.Dataset = HDF5File[dataset_path]
-
                 # DATA formatting
                 polynomials[i] = PolynomialData(
                     dataset=interp_coords,
@@ -311,6 +311,7 @@ class Setup:
                     name=f'{order}th ' + group_path.split('/')[1],
                     color_hex=self.plot_polynomial_colours[i],
                 )
+                print(f'FETCHED -- {polynomials[i].name} data.')
         else:
             polynomials = None
 
@@ -324,6 +325,7 @@ class Setup:
             dataset_values=data_values,
             polynomials=polynomials,
         )
+        print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
 
 
@@ -529,7 +531,7 @@ class K3dAnimation(Setup):
             **kwargs,
         ) -> list[VoxelType]:
         """
-        Creates the k3d.plot.voxels() for a given cube 'type'
+        Creates the k3d.plot.voxels() for a given cube 'type'.
 
         Args:
             cube (CubeInfo): the cube and polynomial fit information.
@@ -551,7 +553,7 @@ class K3dAnimation(Setup):
         translation = (cube.xt_min_index, cube.yt_min_index, cube.zt_min_index)
 
         plots[0] = k3d.voxels(
-            voxels=cube[index][0].transpose(2, 1, 0), #type: ignore
+            voxels=cube[index][0].transpose(2, 1, 0),
             name=cube.name,
             opacity=opacity,
             color_map=color_map,

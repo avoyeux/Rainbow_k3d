@@ -24,8 +24,8 @@ class CubesConstants:
     """
 
     dx: float
-    time_indexes: np.ndarray
     dates: list[str]
+    time_indexes: np.ndarray
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -55,13 +55,13 @@ class PolynomialData:
         """
                     
         # FILTER
-        cube_filter = self.dataset[:, 0] == index
+        cube_filter = self.dataset[0] == index
         cube_coords = self.dataset[1:, cube_filter]
 
         # 3D array
         cube_shape = np.max(cube_coords, axis=1) + 1
         cube = np.zeros(cube_shape, dtype='uint8')
-        cube[tuple(cube_coords)[1:]] = 1
+        cube[tuple(cube_coords)] = 1
         return cube
 
 
@@ -71,7 +71,6 @@ class CubeInfo:
     Stores the data and information related to each different data group chosen.
     It is an immutable class without a __dict__ method (cf. dataclasses.dataclass).
     """
-    # todo when nearly finished, add dates and time_indexes here. will need to change a lot though
 
     # ID
     name: str
@@ -153,4 +152,3 @@ class CubesData:
         """
 
         self.hdf5File.close()
-
