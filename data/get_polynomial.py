@@ -21,6 +21,10 @@ from typing import Any, Callable
 from common import Decorators, MultiProcessing, root_path
 from projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
 
+# PLACEHOLDERs type annotation
+LockProxy = Any
+ValueProxy = Any
+
 
 
 class Polynomial:
@@ -231,9 +235,7 @@ class Polynomial:
         """
 
         # CONSTANTs
-        self.time_indexes = list(set(self.data.coords[0, :]))
-        #TODO: might get this from outside the class so that it is not computed twice or more
-        self.time_len = len(self.time_indexes)
+        self.time_len = self.data.coords[0, :].max() + 1
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
@@ -245,16 +247,16 @@ class Polynomial:
         )
         shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
         manager = mp.Manager()
-        input_queue = manager.Queue()
+        lock = manager.Lock()
+        value = manager.Value('i', self.time_len)
         output_queue = manager.Queue()
-        for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
-        for _ in range(process_nb): input_queue.put(None)
         
         # INPUTs
         kwargs = {
             'coords': coords,
             'sigma': sigma,
-            'input_queue': input_queue,
+            'lock': lock,
+            'value': value,
             'output_queue': output_queue,
         }
         kwargs_sub = {
@@ -292,11 +294,12 @@ class Polynomial:
     def get_data_sub(
             coords: dict[str, Any],
             sigma: dict[str, Any],
-            input_queue: mp.queues.Queue,
+            lock: LockProxy,
+            value: ValueProxy,
             output_queue: mp.queues.Queue,
             kwargs_sub: dict[str, Any],
         ) -> None:
-        """
+        """ # todo change docstring
         Static method to multiprocess the curve fitting creation.
 
         Args:
@@ -315,12 +318,13 @@ class Polynomial:
         
         while True:
             # CHECK input
-            args = input_queue.get()
-            if args is None: break
-            index, time_index = args
+            with lock:
+                index = value.value
+                if index < 0: break
+                value.value -= 1
 
             # DATA filtering
-            time_filter = coords[0, :] == time_index
+            time_filter = coords[0, :] == index
             coords_section = coords[1:, time_filter]
             sigma_section = sigma[time_filter]
 
@@ -350,7 +354,7 @@ class Polynomial:
                     'coords': coords_section,
                     'sigma': sigma_section,
                     't': t,
-                    'time_index': time_index,
+                    'time_index': index,
                 }
                 result, params = Polynomial.polynomial_fit(**kwargs, **kwargs_sub)
 
@@ -561,12 +565,13 @@ class GetPolynomial:
 
     def __init__(
             self,
+            filepath: str,
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
             data_type: str = 'No duplicates with feet',
         ) -> None:
-        """
+        """ # todo update docstring
         Initialise the class so that the pointer to the polynomial parameters is created (given
         the specified data type, integration time and polynomial order).
         After having finished using the class, the .close() method needs to be used to close the 
@@ -583,6 +588,7 @@ class GetPolynomial:
         """
 
         # ATTRIBUTES
+        self.filepath = filepath
         self.t_fine = np.linspace(0, 1, number_of_points) 
         self.data_type = data_type
         self.integration_time = integration_time
@@ -601,8 +607,7 @@ class GetPolynomial:
                 to the dataset containing the polynomial fit parameters.
         """
 
-        # PATHs file and dataset
-        filepath = root_path + '/data/sig1e20_leg20_lim0_03.h5'
+        # PATH group
         group_path = (
             'Time integrated/' + 
             self.data_type +
@@ -610,7 +615,7 @@ class GetPolynomial:
         )
 
         # FILE read
-        H5PYFile = h5py.File(filepath, 'r')
+        H5PYFile = h5py.File(self.filepath, 'r')
         return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order)
 
     def get_params(self, cube_index: int) -> np.ndarray:
@@ -711,13 +716,14 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
 
     def __init__(
             self,
+            filepath: str,
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
             dx: float,
             data_type: str = 'No duplicates with feet',
         ) -> None:
-        """
+        """ # todo update docstring
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
@@ -735,6 +741,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
 
         # PARENT
         super().__init__(
+            filepath=filepath,
             polynomial_order=polynomial_order,
             integration_time=integration_time,
             number_of_points=0,

@@ -40,7 +40,7 @@ class OrthographicalProjection:
             processes: int = 1,
             integration_time_hours: int = 24,
             filename: str = 'sig1e20_leg20_lim0_03.h5',
-            data_type : str = 'No duplicates new',
+            data_type : str = 'No duplicates',
             with_feet: bool = False,
             polynomial_order: int | list[int] = [4],
             plot_choices: str | list[str] = [
@@ -63,7 +63,7 @@ class OrthographicalProjection:
             filename (str, optional): the filename of the HDF5 containing all the relevant 3D data.
                 Defaults to 'sig1e20_leg20_lim0_03_thisone.h5'.
             data_type (str, optional): the data type of the 3D object to be reprojected
-                (e.g. All data). Defaults to 'No duplicates new'.
+                (e.g. All data). Defaults to 'No duplicates'.
             with_feet (bool, optional): deciding to use the data with or without added feet.
                 Defaults to True.
             polynomial_order (int | list[int], optional): the order(s) of the polynomial
@@ -323,9 +323,9 @@ class OrthographicalProjection:
             cubes_info = self.get_cubes_information(H5PYFile, filtered_path)
             if not self.fake_hdf5:
                 integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
-                # TEST DATA formatting
-                test_path = 'Test data/Fake cube'
-                test_info = self.get_cubes_information(H5PYFile, test_path)
+                # # TEST DATA formatting
+                # test_path = 'Test data/Fake cube'
+                # test_info = self.get_cubes_information(H5PYFile, test_path)
             
             while True:
                 # INFO process 
@@ -406,6 +406,7 @@ class OrthographicalProjection:
                         for i, poly_order in enumerate(self.polynomial_order):
 
                             polynomial_instance = GetCartesianProcessedPolynomial(
+                                filepath=os.path.join(self.paths['data'], self.filename),
                                 polynomial_order=poly_order,
                                 integration_time=self.integration_time,
                                 number_of_points=250,
@@ -436,19 +437,19 @@ class OrthographicalProjection:
                             polynomial_instance.close()
                         projection_data.fits = polynomials_info
                     
-                    if self.plot_choices['test']:
+                    # if self.plot_choices['test']:
 
-                        test_cube = CubeInformation(
-                            xt_min=test_info.xt_min,
-                            yt_min=test_info.yt_min,
-                            zt_min=test_info.zt_min,
-                            coords=test_info[0], # todo need to update this later
-                        )
-                        test_cube = self.cartesian_pos(test_cube)
-                        projection_data.test_cube = self.get_polar_image(self.matrix_rotation(
-                            data=test_cube.coords,
-                            sdo_pos=sdo_image_info.sdo_pos,
-                        )) 
+                    #     test_cube = CubeInformation(
+                    #         xt_min=test_info.xt_min,
+                    #         yt_min=test_info.yt_min,
+                    #         zt_min=test_info.zt_min,
+                    #         coords=test_info[0], # todo need to update this later
+                    #     )
+                    #     test_cube = self.cartesian_pos(test_cube)
+                    #     projection_data.test_cube = self.get_polar_image(self.matrix_rotation(
+                    #         data=test_cube.coords,
+                    #         sdo_pos=sdo_image_info.sdo_pos,
+                    #     )) 
 
                 # CHILD CLASSes functionality 
                 self.plotting(process_constants, projection_data)
@@ -1085,14 +1086,14 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
-        filename='fake_from_toto.h5',
+        filename='data.h5',
         verbose=2,
-        processes=48,
+        processes=6,
         polynomial_order=[4],
-        data_type='All data',
+        data_type='No duplicates',
         plot_choices=[
-            'polar', 'no duplicate', 'sdo image', 'sdo mask', 'envelope',
+            'polar', 'no duplicate', 'sdo image', 'sdo mask', 'envelope', 'fit', 'integration',
         ],
-        fake_hdf5=True,
+        fake_hdf5=False,
         flush=True,
     )

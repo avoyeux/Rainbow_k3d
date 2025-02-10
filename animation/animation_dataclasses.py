@@ -5,7 +5,6 @@ This was created to make it easier to swap between the real and fake protuberanc
 
 # IMPORTs
 import h5py
-import sparse
 
 # IMPORTs alias
 import numpy as np
@@ -124,6 +123,7 @@ class CubesData:
     This class doesn't have a __dict__() method (cf. dataclasses.dataclass).
     """
 
+    # FILE
     hdf5File: h5py.File
 
     # POS satellites

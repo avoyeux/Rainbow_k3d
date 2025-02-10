@@ -833,7 +833,7 @@ class DataSaver(BaseHDF5Protuberance):
                     group=inside_group,
                     data=data,
                     data_name=group_name,
-                    values=1 if 'with feet' in option else None,
+                    values=None if 'with feet' in option else 1,
                     borders=new_borders,
                 )
                 inside_group[group_name].attrs['description'] = (
@@ -1068,14 +1068,14 @@ class DataSaver(BaseHDF5Protuberance):
         for i, filepath in enumerate(filepaths):
             cube = scipy.io.readsav(filepath).cube
 
-            if not fake_hdf5:
-                # LOS data
-                cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
-                cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
+            # if not fake_hdf5:
+            # LOS data
+            cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
+            cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
 
-                cubes[i] = (cube + cube1 + cube2).astype('uint8')
-            else:
-                cubes[i] = cube.astype('uint8')
+            cubes[i] = (cube + cube1 + cube2).astype('uint8')
+            # else:
+            #     cubes[i] = cube.astype('uint8')
         cubes = np.stack(cubes, axis=0)
         cubes = np.transpose(cubes, (0, 3, 2, 1))
         cubes = DataSaver.sparse_data(cubes)
@@ -1400,13 +1400,13 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = DataSaver(
-        filename='data.h5',
+        filename='fake_from_toto.h5',
         polynomial_order=[3, 4, 5],
         processes=48,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
         full=False,
-        fake_hdf5=False,
+        fake_hdf5=True,
     )
     instance.create()
