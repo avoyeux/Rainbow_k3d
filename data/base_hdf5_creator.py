@@ -42,13 +42,15 @@ class BaseHdf5Creator:
         # PLACEHOLDERs
         self.filename: str
 
-    def add_group( # todo need to change so that the name arg is also optional
+    def add_group(
             self,
             parent_group: h5py.File | h5py.Group,
             info: dict[str, str | int | float | np.generic | np.ndarray | dict],
             name: str,
+            compression: str | None = None,
+            compression_lvl: int = 9,
         ) -> None:
-        """
+        """ # todo update docstring
         Adds group(s) with dataset(s) and attribute(s) to a HDF5 group.
         Group created if dict[str, str | dict]
         Dataset created if not dict[str, dict] and at least one item not being a str.
@@ -73,7 +75,7 @@ class BaseHdf5Creator:
             for key, value in info.items():
                 if isinstance(value, dict):
                     # GROUP add
-                    self.add_group(group, value, key)
+                    self.add_group(group, value, key, compression, compression_lvl)
                 else: 
                     # ATTRIBUTES add
                     group.attrs[key] = value
@@ -85,15 +87,17 @@ class BaseHdf5Creator:
 
         else:
             # DATASET as values but no dict
-            self.add_dataset(parent_group, info, name) #type: ignore
+            self.add_dataset(parent_group, info, name, compression, compression_lvl) #type: ignore
 
     def add_dataset(
             self,
             parent_group: h5py.File | h5py.Group,
             info: dict[str, str | int | float | np.generic | np.ndarray],
             name: str | None = None,
+            compression: str | None = None,
+            compression_lvl: int = 9,
         ) -> None:
-        """
+        """ # todo update docstring
         Adds a dataset and attributes to a HDF5 group like object.
 
         Args:
@@ -103,8 +107,9 @@ class BaseHdf5Creator:
             name (str, optional): the name of the DataSet to add. Defaults to None.
         """
         
-        # CHECK empty
+        # CHECKs
         if len(info) == 0: return
+        if compression is None: compression_lvl = None
         key: str = ''  # no need but for the type checker
 
         # DATASET key for ndarray
@@ -123,7 +128,23 @@ class BaseHdf5Creator:
         
         # DATASET create
         if (key != ''):
-            dataset = parent_group.create_dataset(name, data=info[key])
+            # SELECT dataset
+            data = info[key]
+
+            # CHECK compression
+            if not isinstance(data, (np.ndarray, list, tuple)):
+                compression = None
+                compression_lvl = None
+            elif len(data) < 2:
+                compression = None
+                compression_lvl = None
+            
+            dataset = parent_group.create_dataset(
+                name,
+                data=info[key],
+                compression=compression,
+                compression_opts=compression_lvl,
+            )
         else:
             dataset = parent_group
 

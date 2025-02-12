@@ -52,9 +52,12 @@ class DataSaver(BaseHDF5Protuberance):
         south_leg_sigma: int | float = 5,
         leg_threshold: float = 0.03,
         full: bool = False,
+        no_feet: bool = False,
+        compression: bool = True,
+        compression_lvl: int = 9,
         fake_hdf5: bool = False, 
     ) -> None:
-        """
+        """ #todo: update docstring
         To create the cubes with and/or without feet in an HDF5 file.
 
         Args:
@@ -88,7 +91,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
-        self.feet_options = ['', ' with feet']
+        self.feet_options = ['', ' with feet'] if not no_feet else ['']
 
         # ARGUMENTs
         self.filename = filename
@@ -106,6 +109,9 @@ class DataSaver(BaseHDF5Protuberance):
         self.south_leg_sigma = south_leg_sigma
         self.leg_threshold = leg_threshold
         self.full = full  # deciding to add the heavy sky coords arrays.
+        self.no_feet = no_feet
+        self.compression = 'gzip' if compression else None
+        self.compression_lvl = compression_lvl
         self.fake_hdf5 = fake_hdf5
 
         # PLACEHOLDERs
@@ -657,23 +663,24 @@ class DataSaver(BaseHDF5Protuberance):
                 'The initial data saved as Carrington Heliographic Coordinates in km.'
             )
 
-        # GROUP raw cubes with feet
-        data, borders = self.with_feet(data, borders)
-        group = self.add_cube(group, data, 'Raw cubes with feet', borders=borders)
-        group['Raw cubes with feet'].attrs['description'] = (
-            'The initial raw data in COO format with the feet positions added.'
-        )
-        group['Raw cubes with feet/values'].attrs['description'] = (
-            group['Raw cubes/values'].attrs['description']
-        )
-
-        if self.full:
-            # GROUP raw skycoords with feet
-            group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
-            group['Raw coordinates with feet'].attrs['description'] = (
-                "The initial data with the feet positions added saved as Carrington Heliographic "
-                "Coordinates in km."
+        if not self.no_feet:
+            # GROUP raw cubes with feet
+            data, borders = self.with_feet(data, borders)
+            group = self.add_cube(group, data, 'Raw cubes with feet', borders=borders)
+            group['Raw cubes with feet'].attrs['description'] = (
+                'The initial raw data in COO format with the feet positions added.'
             )
+            group['Raw cubes with feet/values'].attrs['description'] = (
+                group['Raw cubes/values'].attrs['description']
+            )
+
+            if self.full:
+                # GROUP raw skycoords with feet
+                group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
+                group['Raw coordinates with feet'].attrs['description'] = (
+                    "The initial data with the feet positions added saved as Carrington Heliographic "
+                    "Coordinates in km."
+                )
     
     @Decorators.running_time
     def filtered_group(
@@ -1066,16 +1073,18 @@ class DataSaver(BaseHDF5Protuberance):
 
         cubes = [None] * len(filepaths)
         for i, filepath in enumerate(filepaths):
+            data = scipy.io.readsav(filepath)
             cube = scipy.io.readsav(filepath).cube
 
-            # if not fake_hdf5:
-            # LOS data
-            cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
-            cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
+            # CHECK keywords
+            if ('cube1' in data) and ('cube2' in data):
+                # LOS data
+                cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
+                cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
 
-            cubes[i] = (cube + cube1 + cube2).astype('uint8')
-            # else:
-            #     cubes[i] = cube.astype('uint8')
+                cubes[i] = (cube + cube1 + cube2).astype('uint8')
+            else:
+                cubes[i] = cube.astype('uint8')
         cubes = np.stack(cubes, axis=0)
         cubes = np.transpose(cubes, (0, 3, 2, 1))
         cubes = DataSaver.sparse_data(cubes)
@@ -1145,7 +1154,7 @@ class DataSaver(BaseHDF5Protuberance):
         if borders is not None: raw |= borders
         
         # ADD group
-        self.add_group(group, raw, data_name)
+        self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
         return group
     
     def add_skycoords(
@@ -1238,14 +1247,14 @@ class DataSaver(BaseHDF5Protuberance):
     def with_feet(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, float]],
+            borders: dict[str, dict[str, str | float]],
         ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
 
         Args:
             data (sparse.COO): the data to add feet to.
-            borders (dict[str, dict[str, float]]): the initial data borders.
+            borders (dict[str, dict[str, str | float]]): the initial data borders.
 
         Returns:
             tuple[sparse.COO, dict[str, dict[str, str | float]]]: the new_data with feet and the
@@ -1380,8 +1389,8 @@ class DataSaver(BaseHDF5Protuberance):
             index, time = argument
 
             # DATA section
-            slice_filter = coords[0, :] == time
-            cube = coords[:, slice_filter]
+            slice_filter: np.ndarray = coords[0, :] == time
+            cube: np.ndarray = coords[:, slice_filter]
             
             # COORDs reprojected carrington
             skyCoord = astropy.coordinates.SkyCoord(
@@ -1400,13 +1409,16 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = DataSaver(
-        filename='fake_from_toto.h5',
+        filename='data.h5',
         polynomial_order=[3, 4, 5],
         processes=48,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
         full=False,
-        fake_hdf5=True,
+        no_feet=True,
+        compression=True,
+        compression_lvl=9,
+        fake_hdf5=False,
     )
     instance.create()
