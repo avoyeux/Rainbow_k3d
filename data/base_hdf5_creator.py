@@ -4,6 +4,7 @@ formatting.
 """
 
 # IMPORTs
+import sys
 import h5py
 import datetime
 
@@ -49,6 +50,7 @@ class BaseHdf5Creator:
             name: str,
             compression: str | None = None,
             compression_lvl: int = 9,
+            compression_min_size: int = 3 * 1024,
         ) -> None:
         """ # todo update docstring
         Adds group(s) with dataset(s) and attribute(s) to a HDF5 group.
@@ -75,7 +77,14 @@ class BaseHdf5Creator:
             for key, value in info.items():
                 if isinstance(value, dict):
                     # GROUP add
-                    self.add_group(group, value, key, compression, compression_lvl)
+                    self.add_group(
+                        parent_group=group,
+                        info=value,
+                        name=key,
+                        compression=compression,
+                        compression_lvl=compression_lvl,
+                        compression_min_size=compression_min_size,
+                    )
                 else: 
                     # ATTRIBUTES add
                     group.attrs[key] = value
@@ -87,7 +96,14 @@ class BaseHdf5Creator:
 
         else:
             # DATASET as values but no dict
-            self.add_dataset(parent_group, info, name, compression, compression_lvl) #type: ignore
+            self.add_dataset(
+                parent_group=parent_group,
+                info=info, #type: ignore
+                name=name,
+                compression=compression,
+                compression_lvl=compression_lvl,
+                compression_min_size=compression_min_size,
+            )
 
     def add_dataset(
             self,
@@ -95,7 +111,8 @@ class BaseHdf5Creator:
             info: dict[str, str | int | float | np.generic | np.ndarray],
             name: str | None = None,
             compression: str | None = None,
-            compression_lvl: int = 9,
+            compression_lvl: int | None = 9,
+            compression_min_size: int = 3 * 1024,
         ) -> None:
         """ # todo update docstring
         Adds a dataset and attributes to a HDF5 group like object.
@@ -131,13 +148,11 @@ class BaseHdf5Creator:
             # SELECT dataset
             data = info[key]
 
-            # CHECK compression
-            if not isinstance(data, (np.ndarray, list, tuple)):
-                compression = None
-                compression_lvl = None
-            elif len(data) < 2:
-                compression = None
-                compression_lvl = None
+            # NDARRAY change
+            if not isinstance(data, np.ndarray): data = np.array(data)
+
+            # CHECK nbytes
+            if data.nbytes < compression_min_size: compression, compression_lvl = None, None
             
             dataset = parent_group.create_dataset(
                 name,
