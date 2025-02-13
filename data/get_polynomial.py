@@ -24,6 +24,7 @@ from projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomi
 # PLACEHOLDERs type annotation
 LockProxy = Any
 ValueProxy = Any
+QueueProxy = Any
 
 
 
@@ -106,6 +107,10 @@ class Polynomial:
         # DATA
         polynomials, parameters = self.get_data()
 
+        # AXEs swap  # * will need to change this if I cancel the ax swapping in cls.__init__
+        parameters = parameters[Polynomial.axes_order]
+        polynomials = polynomials[Polynomial.axes_order]
+
         # NO DUPLICATEs
         treated_polynomials = self.no_duplicates_data(polynomials)
         
@@ -168,36 +173,40 @@ class Polynomial:
 
         # MULTIPROCESSING setup
         manager = mp.Manager()
+        lock = manager.Lock()
         output_queue = manager.Queue()
+        value = manager.Value('i', self.time_len)
         processes_nb = min(self.processes, self.time_len)
-        indexes = MultiProcessing.pool_indexes(self.time_len, processes_nb)
         shm, data = MultiProcessing.create_shared_memory(data)
 
         # RUN processes
         processes: list[mp.Process] = [None] * processes_nb
-        for i, index in enumerate(indexes):
-            p = mp.Process(target=self.no_duplicates_data_sub, args=(data, output_queue, index, i))
+        for i in range(processes_nb):
+            p = mp.Process(
+                target=self.no_duplicates_data_sub,
+                args=(data, lock, value, output_queue),
+            )
             p.start()
             processes[i] = p
         for p in processes: p.join()
         shm.unlink()
 
         # RESULTs formatting
-        polynomials = [None] * processes_nb
+        polynomials = [None] * self.time_len
         while not output_queue.empty():
             identifier, result = output_queue.get()
             polynomials[identifier] = result
-        polynomials = np.concatenate(polynomials, axis=1)
-        return polynomials.astype('uint16')
+        polynomials: np.ndarray = np.concatenate(polynomials, axis=1).astype('uint16')
+        return polynomials
 
     @staticmethod
     def no_duplicates_data_sub(
             data: dict[str, Any],
-            queue: mp.queues.Queue,
-            index: tuple[int, int],
-            position: int,
+            lock: LockProxy,
+            value: ValueProxy,
+            output_queue: QueueProxy,
         ) -> None:
-        """
+        """  # todo change docstring
         To multiprocess the no duplicates uint16 voxel positions treatment.
 
         Args:
@@ -212,15 +221,26 @@ class Polynomial:
         # DATA open
         shm, array = MultiProcessing.open_shared_memory(data)
 
-        # DATA filtering
-        data_filters = (array[0, :] >= index[0]) & (array[0, :] <= index[1])
-        data = np.copy(array[:, data_filters])
-        shm.close()
+        while True:
+            # CHECK input
+            with lock:
+                index = int(value.value) - 1
+                if index < 0: break
+                value.value -= 1
 
-        # INDEXEs no duplicates
-        data = np.rint(np.abs(data.T))
-        data = np.unique(array, axis=0).T.astype('uint16')
-        queue.put((position, data))
+            # DATA filtering
+            data_filters = (array[0, :] == index)
+            data = np.copy(array[1:, data_filters]).astype('float32')
+
+            # NO DUPLICATEs
+            data = np.rint(np.abs(data))
+            data = np.unique(data, axis=1).astype('uint16')
+
+            # SAVE results
+            output_queue.put((index, Polynomial.format_result(data, index)))
+
+        # CLOSE shared memory
+        shm.close()
         
     @Decorators.running_time
     def get_data(self) -> tuple[np.ndarray, np.ndarray]:
@@ -249,6 +269,7 @@ class Polynomial:
         manager = mp.Manager()
         lock = manager.Lock()
         value = manager.Value('i', self.time_len)
+        # * tried 'i' but clearly didn't give a signed integer
         output_queue = manager.Queue()
         
         # INPUTs
@@ -280,8 +301,8 @@ class Polynomial:
         shm_sigma.unlink()
 
         # RESULTs formatting
-        parameters: list[np.ndarray] = [None] * self.time_len
-        polynomials: list[np.ndarray] = [None] * self.time_len
+        parameters = [None] * self.time_len
+        polynomials = [None] * self.time_len
         while not output_queue.empty():
             identifier, interp, params = output_queue.get()
             polynomials[identifier] = interp
@@ -296,7 +317,7 @@ class Polynomial:
             sigma: dict[str, Any],
             lock: LockProxy,
             value: ValueProxy,
-            output_queue: mp.queues.Queue,
+            output_queue: QueueProxy,
             kwargs_sub: dict[str, Any],
         ) -> None:
         """ # todo change docstring
@@ -319,7 +340,7 @@ class Polynomial:
         while True:
             # CHECK input
             with lock:
-                index = value.value
+                index = int(value.value) - 1
                 if index < 0: break
                 value.value -= 1
 
@@ -336,8 +357,8 @@ class Polynomial:
                     f"{coords_section.shape})",
                     flush=True,
                 )
-                result = np.empty((4, 0)) 
-                params = np.empty((4, 0))
+                result = np.empty((3, 0)) 
+                params = np.empty((3, 0))
             else:
                 # DISTANCE cumulative
                 t = np.empty(sigma_section.shape[0], dtype='float64')
@@ -354,22 +375,42 @@ class Polynomial:
                     'coords': coords_section,
                     'sigma': sigma_section,
                     't': t,
-                    'time_index': index,
                 }
                 result, params = Polynomial.polynomial_fit(**kwargs, **kwargs_sub)
 
             # SAVE results
-            output_queue.put((index, result, params))
+            output_queue.put((
+                index,
+                Polynomial.format_result(result, index),
+                Polynomial.format_result(params, index),
+            ))
         
         shm_coords.close()
         shm_sigma.close()
+
+    @staticmethod
+    def format_result(data: np.ndarray, time_index: int) -> np.ndarray:
+        """
+        To format the data so that it has shape (4, N) where 4 represents (t, x, y, z).
+
+        Args:
+            data (np.ndarray): the data of shape (3, N).
+            time_index (int): the time index corresponding to the data.
+
+        Returns:
+            np.ndarray: the reformatted data.
+        """
+
+        # DATA formatting
+        time_row = np.full((1, data.shape[1]), time_index)
+        data = np.vstack([time_row, data]).astype('float32')
+        return data
 
     @staticmethod
     def polynomial_fit(
             coords: np.ndarray,
             sigma: np.ndarray,
             t: np.ndarray,
-            time_index: int,
             params_init: np.ndarray,
             shape: tuple[int, ...],
             precision_nb: int,
@@ -434,7 +475,7 @@ class Polynomial:
         data = np.vstack([x, y, z]).astype('float64')
 
         # BORDERs cut
-        conditions_upper = (
+        conditions_upper = (  # todo change this when the other changes are finished
             (data[0, :] >= shape[1] - 1) |
             (data[1, :] >= shape[2] - 1) |
             (data[2, :] >= shape[3] - 1)
@@ -445,14 +486,7 @@ class Polynomial:
         conditions = conditions_upper | conditions_lower
         data = data[:, ~conditions]
         unique_data = np.unique(data, axis=1)
-
-        # DATA formatting
-        time_row = np.full((1, unique_data.shape[1]), time_index)
-        unique_data = np.vstack([time_row, unique_data]).astype('float64')
-        time_row = np.full((1, params.shape[1]), time_index)
-        params = np.vstack([time_row, params]).astype('float64')
-        return unique_data[Polynomial.axes_order], params[Polynomial.axes_order]
-        #todo will need to change this if I cancel the ax swapping in cls.__init__
+        return unique_data, params
 
     @staticmethod
     def scipy_curve_fit(
@@ -569,7 +603,7 @@ class GetPolynomial:
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
-            data_type: str = 'No duplicates with feet',
+            data_type: str = 'No duplicates',
         ) -> None:
         """ # todo update docstring
         Initialise the class so that the pointer to the polynomial parameters is created (given
@@ -584,7 +618,7 @@ class GetPolynomial:
             number_of_points (int | float): the number of points to use when getting the polynomial
                 fit positions.
             data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates with feet'.
+                polynomial fit. Defaults to 'No duplicates'.
         """
 
         # ATTRIBUTES
@@ -721,7 +755,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             integration_time: int,
             number_of_points: int,
             dx: float,
-            data_type: str = 'No duplicates with feet',
+            data_type: str = 'No duplicates',
         ) -> None:
         """ # todo update docstring
         To process the polynomial fit positions so that the final result is a curve with a set
@@ -736,7 +770,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
                 fit.
             dx (float): the voxel resolution in km.
             data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates with feet'.
+                polynomial fit. Defaults to 'No duplicates'.
         """
 
         # PARENT
