@@ -2,6 +2,7 @@
 *
 
 # DIRs whitelisted
+!/tests/
 !/archive/
 !/archive/from_idl/
 !/archive/deprecated/
