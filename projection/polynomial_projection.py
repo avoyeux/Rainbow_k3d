@@ -349,7 +349,7 @@ class OrthographicalProjection:
                 projection_data = ProjectionData(ID=process)
 
                 # SDO information
-                filepath: str = self.sdo_timestamps[process_constants.date[:-3]]
+                filepath = self.sdo_timestamps[process_constants.date[:-3]]
                 if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
                 sdo_image_info = self.sdo_image(filepath) 
 
@@ -463,7 +463,7 @@ class OrthographicalProjection:
                     #         sdo_pos=sdo_image_info.sdo_pos,
                     #     )) 
 
-                # CHILD CLASSes functionality 
+                # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
                 self.create_fake_fits(process_constants, projection_data)
                 

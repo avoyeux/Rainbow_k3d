@@ -30,6 +30,9 @@ JsLinkType = Any
 
 # todo need to understand why the polynomial is at the wrong place. borders for the polynomial seem
 # different than for the corresponding data...
+# ! the position of the SDO satellite seems to be at the wrong place
+# ! the position of the STEREO satellite also seems to be at the wrong position
+# todo need to check if I am using the satellite positions right or if the positions are wrong.
 
 
 
@@ -210,7 +213,7 @@ class Setup:
             cubes.sdo_pos = (
                 sdo_positions[time_indexes] / self.constants.dx  #type: ignore
             ).astype('float32')
-        elif self.pov_stereo:
+        if self.pov_stereo:
             # STEREO positions
             time_indexes: np.ndarray = HDF5File['Time indexes'][...]
             stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
@@ -328,6 +331,13 @@ class Setup:
         print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
 
+    def close(self) -> None:
+        """
+        To close the HDF5 file.
+        """
+
+        self.cubes.close()
+
 
 class K3dAnimation(Setup):
     """
@@ -444,50 +454,49 @@ class K3dAnimation(Setup):
             )
             self.plot += points
 
-        cubes = self.cubes
         # ALL DATA add
-        if cubes.all_data is not None:
+        if self.cubes.all_data is not None:
             # VOXELS create
-            self.plot_alldata = self.create_voxels(cubes.all_data, **kwargs)
+            self.plot_alldata = self.create_voxels(self.cubes.all_data, **kwargs)
             for plot in self.plot_alldata: self.plot += plot     
         
         # NO DUPLICATES add
-        if cubes.no_duplicate is not None:
+        if self.cubes.no_duplicate is not None:
             # VOXELs create
-            self.plot_dupli_new = self.create_voxels(cubes.no_duplicate, **kwargs)
+            self.plot_dupli_new = self.create_voxels(self.cubes.no_duplicate, **kwargs)
             for plot in self.plot_dupli_new: self.plot += plot
 
         # TIME INTEGRATION add
-        if cubes.integration_all_data is not None:
+        if self.cubes.integration_all_data is not None:
             # VOXELs create
-            self.plot_interv_new = self.create_voxels(cubes.integration_all_data, **kwargs)
+            self.plot_interv_new = self.create_voxels(self.cubes.integration_all_data, **kwargs)
             for plot in self.plot_interv_new: self.plot += plot
     
         # TIME NO DUPLICATES add       
-        if cubes.integration_no_duplicate is not None:
+        if self.cubes.integration_no_duplicate is not None:
             # VOXELs create
             self.plot_interv_dupli_new = self.create_voxels(
-                cubes.integration_no_duplicate,
+                self.cubes.integration_no_duplicate,
                 **kwargs,
             )
             for plot in self.plot_interv_dupli_new: self.plot += plot  
 
         # SDO LINE OF SIGHT add
-        if cubes.los_sdo is not None:
+        if self.cubes.los_sdo is not None:
             # VOXELs create
-            self.plot_los_sdo = self.create_voxels(cubes.los_sdo, **kwargs)
+            self.plot_los_sdo = self.create_voxels(self.cubes.los_sdo, **kwargs)
             for plot in self.plot_los_sdo: self.plot += plot
 
         # STEREO LINE OF SIGHT add
-        if cubes.los_stereo is not None:
+        if self.cubes.los_stereo is not None:
             # VOXELs create
-            self.plot_los_stereo = self.create_voxels(cubes.los_stereo, **kwargs)
+            self.plot_los_stereo = self.create_voxels(self.cubes.los_stereo, **kwargs)
             for plot in self.plot_los_stereo: self.plot += plot
         
         # CUBE fake
-        if cubes.fake_cube is not None:
+        if self.cubes.fake_cube is not None:
             # VOXELs create
-            self.plot_fake_cube = self.create_voxels(cubes.fake_cube, **kwargs)
+            self.plot_fake_cube = self.create_voxels(self.cubes.fake_cube, **kwargs)
             for plot in self.plot_fake_cube: self.plot += plot
 
         # BUTTON play/pause

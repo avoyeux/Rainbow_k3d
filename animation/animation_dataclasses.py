@@ -127,8 +127,8 @@ class CubesData:
     hdf5File: h5py.File
 
     # POS satellites
-    sdo_pos: h5py.Dataset | None = None
-    stereo_pos: h5py.Dataset | None = None
+    sdo_pos: np.ndarray | None = None
+    stereo_pos: np.ndarray | None = None
 
     # CUBES data
     all_data: CubeInfo | None = None
