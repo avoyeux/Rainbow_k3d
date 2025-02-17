@@ -47,14 +47,14 @@ class Setup:
             sun: bool = False,
             with_feet: bool = True,
             all_data: bool = False,
-            no_duplicates: bool = False,
+            no_duplicate: bool = False,
             time_interval: int = 24,
-            time_interval_all_data: bool = False,
-            time_interval_no_duplicates: bool = False,
+            all_data_integration: bool = False,
+            no_duplicate_integration: bool = False,
             line_of_sight_SDO: bool = False,
             line_of_sight_STEREO: bool = False,
-            sdo_pov: bool = False,
-            stereo_pov: bool = False,
+            pov_sdo: bool = False,
+            pov_stereo: bool = False,
             processes: int = 5,
             polynomial: bool = False,
             polynomial_order: int | list[int] = [4],
@@ -73,21 +73,21 @@ class Setup:
                 Defaults to True.
             all_data (bool, optional): choosing to visualise the data that also contains the
                 duplicates. Defaults to False.
-            no_duplicates (bool, optional): choosing to visualise the data with no duplicates at
+            no_duplicate (bool, optional): choosing to visualise the data with no duplicate at
                 all. Defaults to False.
             time_interval (int, optional): the time interval for the time integration (in hours).
                 Defaults to 24.
-            time_interval_all_data (bool, optional): choosing to visualise the time integrated data
+            all_data_integration (bool, optional): choosing to visualise the time integrated data
                 with duplicates. Defaults to False.
-            time_interval_no_duplicates (bool, optional): choosing to visualise the time integrated
+            no_duplicate_integration (bool, optional): choosing to visualise the time integrated
                 data without any duplicates. Defaults to False.
             line_of_sight_SDO (bool, optional): deciding to visualise the line of sight data from
                 SDO's position. Defaults to False.
             line_of_sight_STEREO (bool, optional): deciding to visualise the line of sight data
                 from STEREO's position. Defaults to False.
-            sdo_pov (bool, optional): choosing to take SDO's point of view when looking at the
+            pov_sdo (bool, optional): choosing to take SDO's point of view when looking at the
                 data. Defaults to False.
-            stereo_pov (bool, optional): choosing to take STEREO B's point of view when looking at
+            pov_stereo (bool, optional): choosing to take STEREO B's point of view when looking at
                 the data. Defaults to False.
             processes (int, optional): the number of processes used in the multiprocessing.
                 Defaults to 5.
@@ -105,14 +105,14 @@ class Setup:
         self.filename = filename
         self.sun = sun
         self.all_data = all_data
-        self.no_duplicates = no_duplicates
+        self.no_duplicate = no_duplicate
         self.time_interval = time_interval
-        self.time_interval_all_data = time_interval_all_data
-        self.time_interval_no_duplicates = time_interval_no_duplicates
+        self.all_data_integration = all_data_integration
+        self.no_duplicate_integration = no_duplicate_integration
         self.line_of_sight_SDO = line_of_sight_SDO
         self.line_of_sight_STEREO = line_of_sight_STEREO
-        self.sdo_pov = sdo_pov
-        self.stereo_pov = stereo_pov
+        self.pov_sdo = pov_sdo
+        self.pov_stereo = pov_stereo
         self.processes = processes
         self.polynomial = polynomial
         if isinstance(polynomial_order, list):
@@ -174,20 +174,20 @@ class Setup:
             path = 'Filtered/All data' + self.feet
             cubes.all_data = self.get_cube_info(HDF5File, path, interpolate=False)
 
-        if self.no_duplicates: 
-            path = 'Filtered/No duplicates new' + self.feet
+        if self.no_duplicate: 
+            path = 'Filtered/No duplicates' + self.feet
             cubes.no_duplicate = self.get_cube_info(HDF5File, path, interpolate=False)
 
-        if self.time_interval_all_data: 
+        if self.all_data_integration: 
             path = (
                 'Time integrated/All data' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
             cubes.integration_all_data = self.get_cube_info(HDF5File, path)
 
-        if self.time_interval_no_duplicates:
+        if self.no_duplicate_integration:
             path = (
-                'Time integrated/No duplicates new' + self.feet +
+                'Time integrated/No duplicates' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
             cubes.integration_no_duplicate = self.get_cube_info(HDF5File, path)
@@ -201,7 +201,7 @@ class Setup:
             cubes.los_stereo = self.get_cube_info(HDF5File, path, interpolate=False)
         
         # POVs sdo, stereo
-        if self.sdo_pov:
+        if self.pov_sdo:
             # SDO positions
             time_indexes: np.ndarray = HDF5File['Time indexes'][...]
             sdo_positions: np.ndarray = HDF5File['SDO positions'][...]
@@ -210,7 +210,7 @@ class Setup:
             cubes.sdo_pos = (
                 sdo_positions[time_indexes] / self.constants.dx  #type: ignore
             ).astype('float32')
-        elif self.stereo_pov:
+        elif self.pov_stereo:
             # STEREO positions
             time_indexes: np.ndarray = HDF5File['Time indexes'][...]
             stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
@@ -365,7 +365,7 @@ class K3dAnimation(Setup):
             camera_zoom_speed (int | float, optional): the zoom speed when trying to zoom in on the
                 display. Defaults to 0.7.
             camera_pos (tuple[int | float, int | float, int | float] | None, optional): the
-                index position of the camera. Automatically set if 'sdo_pov' or 'stereo_pov' is set
+                index position of the camera. Automatically set if 'pov_sdo' or 'pov_stereo' is set
                 to True. Defaults to None.
             up_vector (tuple[int, int, int], optional): the up vector when displaying the
                 protuberance. Defaults to (0, 0, 1).
@@ -388,7 +388,7 @@ class K3dAnimation(Setup):
         self.sleep_time = sleep_time  # sets the time between each frames (in seconds)
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
-        self.camera_fov = self.get_sdo_fov() if self.sdo_pov else camera_fov  # fov in degrees
+        self.camera_fov = self.get_sdo_fov() if self.pov_sdo else camera_fov  # fov in degrees
         self.up_vector = up_vector  # up vector for the camera
         self.visible_grid = visible_grid  # setting the grid to be visible or not
         self.texture_resolution = texture_resolution

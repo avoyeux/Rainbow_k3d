@@ -167,8 +167,9 @@ class ProjectionData:
     ID: int
     sdo_image: PolarImageInfo | None = None
     sdo_mask: PolarImageInfo | None = None
-    integration: np.ndarray | None = None  # ? should I add the xt_min, yt_min, ... values
     cube: np.ndarray | None = None
+    integration: np.ndarray | None = None  # ? should I add the xt_min, yt_min, ... values
+    line_of_sight: np.ndarray | None = None
     fits: list[PolynomialInformation] | None = None
     test_cube: np.ndarray | None = None
 

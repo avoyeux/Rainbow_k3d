@@ -7,15 +7,14 @@ representation of the data.
 # IMPORTS
 import os
 import h5py
-import typeguard
 
 # IMPORTS alias
 import numpy as np
 import multiprocessing as mp
-import matplotlib.pyplot as plt
 
 # IMPORTS sub
-import multiprocessing.queues
+from typing import Any
+import matplotlib.pyplot as plt
 
 # IMPORTS personal
 from common import Decorators, Plot, root_path
@@ -23,6 +22,9 @@ from data.get_polynomial import GetCartesianProcessedPolynomial
 from projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
 from projection.cartesian_to_polar import CartesianToPolar
 from projection.projection_dataclasses import *
+
+# PLACEHOLDERs type annotation
+QueueProxy = Any
 
 
 
@@ -34,12 +36,11 @@ class OrthographicalProjection:
     """
 
     @Decorators.running_time
-    @typeguard.typechecked
     def __init__(
             self,
             processes: int = 1,
             integration_time_hours: int = 24,
-            filename: str = 'sig1e20_leg20_lim0_03.h5',
+            filename: str = 'data.h5',
             data_type : str = 'No duplicates',
             with_feet: bool = False,
             polynomial_order: int | list[int] = [4],
@@ -61,7 +62,7 @@ class OrthographicalProjection:
             integration_time_hours (int, optional): the integration time used for the data to be
                 reprojected. Defaults to 24.
             filename (str, optional): the filename of the HDF5 containing all the relevant 3D data.
-                Defaults to 'sig1e20_leg20_lim0_03_thisone.h5'.
+                Defaults to 'data.h5'.
             data_type (str, optional): the data type of the 3D object to be reprojected
                 (e.g. All data). Defaults to 'No duplicates'.
             with_feet (bool, optional): deciding to use the data with or without added feet.
@@ -88,7 +89,7 @@ class OrthographicalProjection:
         self.multiprocessing = True if self.processes > 1 else False
         self.filename = filename
         self.data_type = data_type + feet
-        self.foldername = filename.split('.')[0] + ''.join(feet.split(' ')) + 'testing'
+        self.foldername = filename.split('.')[0] + ''.join(feet.split(' ')) + 'new'
         if isinstance(polynomial_order, list):
             self.polynomial_order = sorted(polynomial_order)
         else:
@@ -164,7 +165,7 @@ class OrthographicalProjection:
         # CHOICES
         possibilities = [
             'polar', 'cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-            'envelope', 'fit', 'fit envelope', 'test'
+            'envelope', 'fit', 'fit envelope', 'test', 'line of sight',
         ]
         plot_choices_kwargs = {
             key: False 
@@ -285,7 +286,7 @@ class OrthographicalProjection:
     
     def data_setup(
             self,
-            input_queue: mp.queues.Queue | None = None,
+            input_queue: QueueProxy | None = None,
             index_list: np.ndarray | None = None,
         ) -> None:
         """
@@ -310,23 +311,24 @@ class OrthographicalProjection:
 
             # GLOBAL constants
             self.constants = self.get_global_constants(H5PYFile)
-
-            # DATA paths
-            filtered_path = 'Filtered/' + self.data_type
-            time_integrated_path = (
-                'Time integrated/' 
-                + self.data_type 
-                + f'/Time integration of {self.integration_time}.0 hours' 
-            )
-
-            # DATA formatting
-            cubes_info = self.get_cubes_information(H5PYFile, filtered_path)
-            if not self.fake_hdf5:
-                integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
-                # # TEST DATA formatting
-                # test_path = 'Test data/Fake cube'
-                # test_info = self.get_cubes_information(H5PYFile, test_path)
             
+            # DATA pointers
+            if self.plot_choices['no duplicate']:
+                filtered_path = 'Filtered/' + self.data_type
+                cubes_info = self.get_cubes_information(H5PYFile, filtered_path)
+
+            if self.plot_choices['integration']:
+                time_integrated_path = (
+                    'Time integrated/' 
+                    + self.data_type 
+                    + f'/Time integration of {self.integration_time}.0 hours' 
+                )
+                integrated_info = self.get_cubes_information(H5PYFile, time_integrated_path)
+
+            if self.plot_choices['line of sight']:
+                line_of_sight_path = 'Filtered/SDO line of sight'
+                line_of_sight_info = self.get_cubes_information(H5PYFile, line_of_sight_path)
+
             while True:
                 # INFO process 
                 if input_queue is not None:
@@ -378,64 +380,74 @@ class OrthographicalProjection:
                         sdo_pos=sdo_image_info.sdo_pos,
                     ))
 
-                # REAL DATA only
-                if not self.fake_hdf5:
+                if self.plot_choices['line of sight']:
+                    line_of_sight = CubeInformation(
+                        xt_min=line_of_sight_info.xt_min,
+                        yt_min=line_of_sight_info.yt_min,
+                        zt_min=line_of_sight_info.zt_min,
+                        coords=line_of_sight_info[process],
+                    )
+                    line_of_sight = self.cartesian_pos(line_of_sight)
+                    projection_data.line_of_sight = self.get_polar_image(self.matrix_rotation(
+                        data=line_of_sight.coords,
+                        sdo_pos=sdo_image_info.sdo_pos,
+                    ))
 
-                    if self.plot_choices['integration']:
+                if self.plot_choices['integration']:
 
-                        integration = CubeInformation(
-                            xt_min=integrated_info.xt_min,
-                            yt_min=integrated_info.yt_min,
-                            zt_min=integrated_info.zt_min,
-                            coords=integrated_info[process],
+                    integration = CubeInformation(
+                        xt_min=integrated_info.xt_min,
+                        yt_min=integrated_info.yt_min,
+                        zt_min=integrated_info.zt_min,
+                        coords=integrated_info[process],
+                    )
+                    integration = self.cartesian_pos(integration)
+
+                    # DATA formatting
+                    projection_data.integration = self.get_polar_image(self.matrix_rotation(
+                        data=integration.coords,
+                        sdo_pos=sdo_image_info.sdo_pos,
+                    ))
+
+                if self.plot_choices['fit']:
+
+                    polynomials_info: list[PolynomialInformation] = (
+                        [None] * len(self.polynomial_order)
+                    )#type: ignore
+
+                    for i, poly_order in enumerate(self.polynomial_order):
+
+                        polynomial_instance = GetCartesianProcessedPolynomial(
+                            filepath=os.path.join(self.paths['data'], self.filename),
+                            polynomial_order=poly_order,
+                            integration_time=self.integration_time,
+                            number_of_points=250,
+                            dx=self.constants.dx,
+                            data_type=self.data_type,
                         )
-                        integration = self.cartesian_pos(integration)
+                        initial_data = polynomial_instance.reprocessed_polynomial(process)
+
+                        polar_r, polar_theta, angles = self.get_polar_image_angles(
+                            self.matrix_rotation(
+                                data=self.cartesian_pos(initial_data).coords,
+                                sdo_pos=sdo_image_info.sdo_pos,
+                            ))
 
                         # DATA formatting
-                        projection_data.integration = self.get_polar_image(self.matrix_rotation(
-                            data=integration.coords,
-                            sdo_pos=sdo_image_info.sdo_pos,
-                        ))
+                        polynomial_information = PolynomialInformation(
+                            order=poly_order,
+                            xt_min=initial_data.xt_min,
+                            yt_min=initial_data.yt_min,
+                            zt_min=initial_data.zt_min,
+                            polar_r=polar_r,
+                            polar_theta=polar_theta,
+                            angles=angles,
+                        )
+                        polynomials_info[i] = polynomial_information
 
-                    if self.plot_choices['fit']:
-
-                        polynomials_info: list[PolynomialInformation] = (
-                            [None] * len(self.polynomial_order)
-                        )#type: ignore
-
-                        for i, poly_order in enumerate(self.polynomial_order):
-
-                            polynomial_instance = GetCartesianProcessedPolynomial(
-                                filepath=os.path.join(self.paths['data'], self.filename),
-                                polynomial_order=poly_order,
-                                integration_time=self.integration_time,
-                                number_of_points=250,
-                                dx=self.constants.dx,
-                                data_type=self.data_type,
-                            )
-                            initial_data = polynomial_instance.reprocessed_polynomial(process)
-
-                            polar_r, polar_theta, angles = self.get_polar_image_angles(
-                                self.matrix_rotation(
-                                    data=self.cartesian_pos(initial_data).coords,
-                                    sdo_pos=sdo_image_info.sdo_pos,
-                                ))
-
-                            # DATA formatting
-                            polynomial_information = PolynomialInformation(
-                                order=poly_order,
-                                xt_min=initial_data.xt_min,
-                                yt_min=initial_data.yt_min,
-                                zt_min=initial_data.zt_min,
-                                polar_r=polar_r,
-                                polar_theta=polar_theta,
-                                angles=angles,
-                            )
-                            polynomials_info[i] = polynomial_information
-
-                            # HDF5 close
-                            polynomial_instance.close()
-                        projection_data.fits = polynomials_info
+                        # HDF5 close
+                        polynomial_instance.close()
+                    projection_data.fits = polynomials_info
                     
                     # if self.plot_choices['test']:
 
@@ -955,6 +967,21 @@ class Plotting(OrthographicalProjection):
                 color='orange',
                 label='no duplicate contours',
             )
+
+        if projection_data.line_of_sight is not None:
+            # DATA (r, theta) line of sight
+            r_line_of_sight, theta_line_of_sight = projection_data.line_of_sight
+
+            # PLOT contours line of sight
+            self.plot_contours(
+                rho=r_line_of_sight,
+                theta=theta_line_of_sight,
+                d_theta=self.constants.d_theta,
+                dx=self.constants.dx,
+                image_shape=image_shape,
+                color='yellow',
+                label='line of sight contours',
+            )
         
         if projection_data.fits is not None:
 
@@ -995,7 +1022,7 @@ class Plotting(OrthographicalProjection):
                         )
 
         # TEST plot
-        if projection_data.test_cube is not None:
+        if projection_data.test_cube is not None:  # ! deprecated now
             # DATA (r, theta) fake
             r_fake, theta_fake = projection_data.test_cube
 
@@ -1092,7 +1119,7 @@ if __name__ == '__main__':
         polynomial_order=[4],
         data_type='No duplicates',
         plot_choices=[
-            'polar', 'no duplicate', 'sdo image', 'sdo mask', 'envelope', 'fit', 'integration',
+            'polar', 'no duplicate', 'sdo image', 'sdo mask', 'integration', 'line of sight',
         ],
         fake_hdf5=False,
         flush=True,
