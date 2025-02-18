@@ -59,11 +59,10 @@ class PrintValuesProjection(OrthographicalProjection):
             self.sdo_timestamps[self.constants.dates[time_index].decode('utf8')[:-3]]
             for time_index in self.constants.time_indexes
         ]
-        print(f'time indexes are {self.constants.time_indexes}')
-        print(f'filepaths are {filepaths}')
 
         # SERVER fetch
-        if self.in_local: filepaths = SSHMirroredFilesystem.remote_to_local(filepaths)
+        if self.in_local:
+            filepaths = SSHMirroredFilesystem.remote_to_local(filepaths, strip_level=0)
 
         sdo_positions = [
             tuple([
@@ -72,7 +71,6 @@ class PrintValuesProjection(OrthographicalProjection):
             ])
             for path in filepaths
         ]
-        print(f'sdo_positions are {sdo_positions}')
 
         if self.in_local: SSHMirroredFilesystem.cleanup()
         return sdo_positions
