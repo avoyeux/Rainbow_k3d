@@ -134,7 +134,7 @@ class OrthographicalProjection:
         # PATHs save
         paths = {
             'main': main_path,
-            'codes': root_path,
+            'code': root_path,
             'data': os.path.join(root_path, 'data'),
             'sdo': os.path.join(main_path, 'sdo'),
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
@@ -704,7 +704,7 @@ class OrthographicalProjection:
 
         # SETUP
         filepath_end = '/S00000/image_lev1.fits'
-        with open(os.path.join(self.paths['codes'], 'SDO_timestamps.txt'), 'r') as files:
+        with open(os.path.join(self.paths['code'], 'SDO_timestamps.txt'), 'r') as files:
             strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
     

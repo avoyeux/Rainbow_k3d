@@ -149,7 +149,7 @@ class Setup:
 
         # PATHs save
         paths = {
-            'codes': root_path,
+            'code': root_path,
             'data': os.path.join(root_path, 'data'),
             'sdo': os.path.join(root_path, '..', 'sdo'),
         }
