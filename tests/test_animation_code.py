@@ -3,10 +3,11 @@ To check the results gotten from the animation code.
 """
 
 # IMPORTs
-import h5py
+import os
 
 # IMPORTs alias
 import numpy as np
+import pandas as pd
 
 # IMPORTs personal
 from animation.animation_code import Setup
@@ -21,6 +22,7 @@ class DataPrint(Setup):
 
         super().__init__(**kwargs)
 
+        self.sdo_pos = self.cubes.sdo_pos * self.constants.dx
 
     def format_outputs(self) -> list[str]:
         """
@@ -31,8 +33,8 @@ class DataPrint(Setup):
         """
 
         time_indexes = self.constants.time_indexes
-        string_sdo = self.as_string(self.cubes.sdo_pos)
-        string_stereo = self.as_string(self.cubes.stereo_pos)
+        string_sdo = self.as_string(self.sdo_pos)
+        string_stereo = self.as_string(self.sdo_pos)
 
         formatted_list = [
             f"time{time_indexes[i]:03d} - sdo: ({string_sdo[i]}), stereo: ({string_stereo[i]})."
@@ -68,6 +70,23 @@ class DataPrint(Setup):
         formatted_list = self.format_outputs()
         return '\n'.join(formatted_list)
     
+    def to_csv(self) -> None:
+
+        # SETUP
+        path_save = os.path.join(self.paths['code'], 'tests', 'sdo_pos_animation.csv')
+
+        # DATA
+        data = {
+            'time': self.constants.time_indexes,
+            'x_pos': [x[0] for x in self.sdo_pos],
+            'y_pos': [y[1] for y in self.sdo_pos],
+            'z_pos': [z[2] for z in self.sdo_pos],
+        }
+        df = pd.DataFrame(data)
+
+        # SAVE
+        df.to_csv(path_save, index=False)
+
 
 
 if __name__=='__main__':
@@ -89,4 +108,6 @@ if __name__=='__main__':
         only_fake_data=False,
     )
     print(instance)
+    instance.to_csv()
     instance.close()
+    print('FINISHED')

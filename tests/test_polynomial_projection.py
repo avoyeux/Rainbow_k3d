@@ -8,6 +8,7 @@ import h5py
 
 # IMPORTs alias
 import numpy as np
+import pandas as pd
 
 # IMPORTs sub
 from typing import Any
@@ -29,7 +30,11 @@ class PrintValuesProjection(OrthographicalProjection):
 
         super().__init__(**kwargs)
 
+        # RUN parent
         self.run()
+
+        # RUN child
+        self.sdo_positions = self.get_used_sdo_positions()
 
     def data_setup(
             self,
@@ -47,6 +52,7 @@ class PrintValuesProjection(OrthographicalProjection):
         with h5py.File(os.path.join(self.paths['data'], self.filename), 'r') as H5PYFile:
             self.constants = self.get_global_constants(H5PYFile)
 
+    @Decorators.running_time
     def get_used_sdo_positions(self) -> list[tuple[float, float, float]]:
         """
         Get the sdo positions used in the projection.
@@ -62,7 +68,7 @@ class PrintValuesProjection(OrthographicalProjection):
 
         # SERVER fetch
         if self.in_local:
-            filepaths = SSHMirroredFilesystem.remote_to_local(filepaths, strip_level=0)
+            filepaths = SSHMirroredFilesystem.remote_to_local(filepaths, strip_level=1)
 
         sdo_positions = [
             tuple([
@@ -101,7 +107,7 @@ class PrintValuesProjection(OrthographicalProjection):
             list[str]: the formatted outputs.
         """
 
-        sdo_positions = self.as_string(self.get_used_sdo_positions())
+        sdo_positions = self.as_string(self.sdo_positions)
         formatted_list = [
             f"time{self.constants.time_indexes[i]:03d} - sdo: ({sdo_positions[i]})."
             for i in range(len(self.constants.time_indexes))
@@ -121,7 +127,27 @@ class PrintValuesProjection(OrthographicalProjection):
 
     def to_csv(self) -> None:
 
-        pass
+        # SETUP
+        save_path = os.path.join(self.paths['code'], 'tests', 'sdo_pos_projection.csv')
+
+        # DATA
+        data = {
+            'time': self.constants.time_indexes,
+            'x_pos': [sdo_pos[0] for sdo_pos in self.sdo_positions],
+            'y_pos': [sdo_pos[1] for sdo_pos in self.sdo_positions],
+            'z_pos': [sdo_pos[2] for sdo_pos in self.sdo_positions],
+        }
+        df = pd.DataFrame(data)
+
+        # SAVE
+        df.to_csv(save_path, index=False)
+    
+    def cleanup(self) -> None:
+        """
+        Cleanup the server.
+        """
+
+        if self.in_local: SSHMirroredFilesystem.cleanup()
 
 
 
@@ -138,5 +164,7 @@ if __name__=='__main__':
         fake_hdf5=False,
         flush=True,
     )
+    instance.to_csv()
     print(instance)
+    instance.cleanup()
     print('Done.')
