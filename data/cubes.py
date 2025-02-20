@@ -7,6 +7,7 @@ easy.
 # IMPORTS
 import os
 import re
+import glob
 import h5py
 import scipy
 import sunpy
@@ -20,6 +21,7 @@ import multiprocessing as mp
 # IMPORTs sub
 import sunpy.coordinates
 import multiprocessing.queues
+from typing import Any
 from astropy import units as u
 from typing import Any, Callable
 
@@ -27,6 +29,9 @@ from typing import Any, Callable
 from data.get_polynomial import Polynomial
 from data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_path
+
+# PLACEHOLDERs type annotation
+QueueProxy = Any
 
 # todo I could change the code so that one process runs only one cube at once (except for the time
 # integration part where I need to only take the data section needed). This will need to change the
@@ -92,6 +97,7 @@ class DataSaver(BaseHDF5Protuberance):
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
+        print(f'self.feet_options is {self.feet_options}')
 
         # ARGUMENTs
         self.filename = filename
@@ -193,10 +199,11 @@ class DataSaver(BaseHDF5Protuberance):
         self.paths = self.setup_path()
 
         # FILEPATHs cubes
+        filepaths = glob.glob(os.path.join(self.paths['cubes'], 'cube*.save'))
         self.filepaths = sorted([
-            os.path.join(self.paths['cubes'], name)
-            for name in os.listdir(self.paths['cubes'])
-            if self.cube_pattern.match(name)
+            filepath
+            for filepath in filepaths
+            if self.cube_pattern.match(os.path.basename(filepath))
         ])
 
         # NUMBERs cubes
@@ -206,15 +213,16 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         # DATEs
-        date_filenames = sorted(os.listdir(self.paths['intensities']))
-        dates: list[str] = [None] * self.max_cube_numbers
-        for i, number in enumerate(range(self.max_cube_numbers)):
-            for filename in date_filenames:
-                filename_match = self.date_pattern.match(filename)
-                if filename_match:
-                    if int(filename_match.group('number')) == number:
-                        dates[i] = filename_match.group('date')
-                        break
+        date_filepaths = sorted(glob.glob(os.path.join(self.paths['intensities'], '*.png')))
+        dates: list[str] = [None] * len(date_filepaths)
+        for i, filepath in enumerate(date_filepaths):
+            filename_match = self.date_pattern.match(os.path.basename(filepath))
+            if filename_match:
+                dates[i] = filename_match.group('date')
+            else:
+                raise ValueError(
+                    f'Filename {os.path.basename(filepath)} does not match the date pattern.'
+                )
         self.dates = dates
 
         # DATEs in seconds
@@ -711,7 +719,11 @@ class DataSaver(BaseHDF5Protuberance):
             # ADD all data
             new_borders = borders.copy()
             filtered_data = (data & 0b00000001).astype('uint8')
-            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
+            if option != '':
+                filtered_data, new_borders = self.with_feet(filtered_data, borders)
+                print(f'ERROR - 0', flush=True)
+            else:
+                print(f'seems to be working properly', flush=True)
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
@@ -730,7 +742,9 @@ class DataSaver(BaseHDF5Protuberance):
 
             # ADD no duplicates
             filtered_data = ((data & 0b00011000) == 0b00011000).astype('uint8')
-            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
+            if option != '':
+                filtered_data, new_borders = self.with_feet(filtered_data, borders)
+                print(f'ERROR - 1', flush=True)
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
@@ -750,8 +764,8 @@ class DataSaver(BaseHDF5Protuberance):
             )
 
             # ADD SDO los data
-            filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
             if option != '': continue
+            filtered_data = ((data & 0b10000000) == 0b10000000).astype('uint8')
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
@@ -1027,41 +1041,37 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # SETUP multiprocessing
-        manager = mp.Manager()
-        queue = manager.Queue()
         filepaths_nb = len(self.filepaths)
         processes_nb = min(self.processes, filepaths_nb)
-        indexes = MultiProcessing.pool_indexes(filepaths_nb, processes_nb)
-
+        manager = mp.Manager()
+        input_queue = manager.Queue()
+        output_queue = manager.Queue()
+        # INPUT populate
+        for i, filepath in enumerate(self.filepaths): input_queue.put((i, filepath))
+        for _ in range(processes_nb): input_queue.put(None)
         # RUN processes
         processes: list[mp.Process] = [None] * processes_nb
-        for i, index in enumerate(indexes): 
-            process = mp.Process(
+        for i in range(processes_nb): 
+            p = mp.Process(
                 target=self.raw_cubes_sub,
-                args=(queue, i, self.filepaths[index[0]:index[1] + 1], self.fake_hdf5),
+                args=(input_queue, output_queue),
             )
-            process.start()
-            processes[i] = process
+            p.start()
+            processes[i] = p
         for p in processes: p.join()
-
         # RESULTs formatting
-        rawCubes = [None] * processes_nb 
-        while not queue.empty():
-            identifier, result = queue.get()
-            rawCubes[identifier] = result
-        rawCubes: sparse.COO = sparse.concatenate(rawCubes, axis=0)
+        rawCubes: list[sparse.COO] = [None] * filepaths_nb
+        while not output_queue.empty():
+            identifier, result = output_queue.get()
+            rawCubes[identifier] = result 
+        rawCubes = sparse.stack(rawCubes, axis=0)
 
-        self.time_indexes = list(set(rawCubes.coords[0, :])) 
+        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless
         return rawCubes
     
     @staticmethod
-    def raw_cubes_sub(
-            queue: mp.queues.Queue,
-            queue_index: int,
-            filepaths: list[str],
-            fake_hdf5: bool,
-        ) -> None:
-        """
+    def raw_cubes_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
+        """ # todo update docstring
         To import the cubes in sections as there is a lot of cubes.
 
         Args:
@@ -1071,24 +1081,30 @@ class DataSaver(BaseHDF5Protuberance):
             fake_hdf5 (bool): if the data used is the fake hdf5 data.
         """
 
-        cubes = [None] * len(filepaths)
-        for i, filepath in enumerate(filepaths):
+        while True:
+
+            # CHECK inputs
+            args = input_queue.get()
+            if args is None: return
+            identifier, filepath = args
+
+            # DATA import
             data = scipy.io.readsav(filepath)
-            cube = scipy.io.readsav(filepath).cube
+            cube = data.cube
 
             # CHECK keywords
             if ('cube1' in data) and ('cube2' in data):
                 # LOS data
-                cube1 = scipy.io.readsav(filepath).cube1.astype('uint8') * 0b01000000
-                cube2 = scipy.io.readsav(filepath).cube2.astype('uint8') * 0b10000000
+                cube1 = data.cube1.astype('uint8') * 0b01000000
+                cube2 = data.cube2.astype('uint8') * 0b10000000
 
-                cubes[i] = (cube + cube1 + cube2).astype('uint8')
+                result = (cube + cube1 + cube2).astype('uint8')
             else:
-                cubes[i] = cube.astype('uint8')
-        cubes = np.stack(cubes, axis=0)
-        cubes = np.transpose(cubes, (0, 3, 2, 1))
-        cubes = DataSaver.sparse_data(cubes)
-        queue.put((queue_index, cubes))
+                result = cube.astype('uint8')
+
+            # SAVE
+            result = np.transpose(result, (0, 3, 2, 1))
+            output_queue.put((identifier, DataSaver.sparse_data(result)))
 
     @staticmethod
     def sparse_data(cubes: np.ndarray) -> sparse.COO:
@@ -1102,10 +1118,10 @@ class DataSaver(BaseHDF5Protuberance):
             sparse.COO: the corresponding sparse COO array.
         """
 
-        cubes = sparse.COO(cubes)
+        sparse_cubes = sparse.COO(cubes)
         # the .to_numpy() method wasn't used as the idx_type argument isn't working properly
-        cubes.coords = cubes.coords.astype('uint16')  # to save RAM
-        return cubes
+        sparse_cubes.coords = sparse_cubes.coords.astype('uint16')  # to save RAM
+        return sparse_cubes
     
     def add_cube(
             self,
@@ -1151,7 +1167,9 @@ class DataSaver(BaseHDF5Protuberance):
             },
         }
         # BORDERs add
-        if borders is not None: raw |= borders
+        if borders is not None:
+            print(f'for name {data_name} borders are {borders}', flush=True)
+            raw |= borders
         
         # ADD group
         self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
