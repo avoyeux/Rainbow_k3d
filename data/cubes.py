@@ -678,8 +678,8 @@ class DataSaver(BaseHDF5Protuberance):
                 # GROUP raw skycoords with feet
                 group = self.add_skycoords(group, data, 'Raw coordinates with feet', borders)
                 group['Raw coordinates with feet'].attrs['description'] = (
-                    "The initial data with the feet positions added saved as Carrington Heliographic "
-                    "Coordinates in km."
+                    "The initial data with the feet positions added saved as Carrington "
+                    "Heliographic Coordinates in km."
                 )
     
     @Decorators.running_time
