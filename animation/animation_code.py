@@ -30,9 +30,15 @@ JsLinkType = Any
 
 # todo need to understand why the polynomial is at the wrong place. borders for the polynomial seem
 # different than for the corresponding data...
-# ! the position of the SDO satellite seems to be at the wrong place
 # ! the position of the STEREO satellite also seems to be at the wrong position
-# todo need to check if I am using the satellite positions right or if the positions are wrong.
+# ! the no duplicates cube and the corresponding integrated cubes seem to be from the wrong date
+# ! while the line of sight data seems to be from the right date
+# ! that being said, the all data cubes seem to be from the right date
+# * seems like the position of the sdo satellite is the right one for the 3D visualisation and for
+# * the re-projection of the data.
+# ? can the problem only come from wrong border values?
+# * the no duplicate data used in the animation is the right one from the data.h5 file.
+# ! the creation of the data cubes must be wrong
 
 
 
@@ -560,6 +566,7 @@ class K3dAnimation(Setup):
 
         # INDEX translation
         translation = (cube.xt_min_index, cube.yt_min_index, cube.zt_min_index)
+        print(f'the borders are {translation}')
 
         plots[0] = k3d.voxels(
             voxels=cube[index][0].transpose(2, 1, 0),
@@ -778,6 +785,7 @@ class K3dAnimation(Setup):
 
         # DATA get
         cubes = cube_info[index]
+        print(f'number of voxels for name {cube_info.name} is {np.sum(cubes[0])}')
         
         # PLOTs add data
         for i, plot in enumerate(plots): plot.voxels = cubes[i].transpose(2, 1, 0)

@@ -15,22 +15,11 @@ import numpy as np
 from data.cubes import DataSaver
 from common import Decorators
 
-# ! the initial cubes coordinates are in carrington reprojected coordinates and I think that I am 
-# ! keeping them in that coordinate system through the whole code and as such there might be a
-# ! sort of deformation between what is seen and the actual 3D coordinates of the voxels. The SDO
-# ! position is also taken from the carrington position, so I might have misunderstood skycoords.
-
 # ! the projection error still hasn't been found. Need to make test data that copies the initial
 # Doesn't seem to be because of the feet as when I seem to be using the data without feet
 # (by setting with_feet=False in polynomial_projection.py), the error in the re-projection still
 # exists while the fake sun surface projection seem to be right.
 
-# The problem doesn't seem to be from recalculating the voxel positions from index to cartesian as
-# reusing the same code used in the feet to add them as index positions seem to work properly when
-# applying it to my test sun surface data.
-# ? could the problem come from using the wrong position for SDO? 
-# the fake data that I am using won't be able to answer the prior comment.
-# ? could the problem come from the new_toto.pro 3D creation (highly unlikely)
 # the solar_r values are not always the same but the problem shouldn't come from there.
 # ? could the problem come from the definition of nx in the idl codes. Something like taking n and
 # ? not n+1 (as the number of discreet values is n+1 or n depending on the problem)
