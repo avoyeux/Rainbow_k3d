@@ -1046,9 +1046,11 @@ class DataSaver(BaseHDF5Protuberance):
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
+
         # INPUT populate
         for i, filepath in enumerate(self.filepaths): input_queue.put((i, filepath))
         for _ in range(processes_nb): input_queue.put(None)
+
         # RUN processes
         processes: list[mp.Process] = [None] * processes_nb
         for i in range(processes_nb): 
@@ -1059,6 +1061,7 @@ class DataSaver(BaseHDF5Protuberance):
             p.start()
             processes[i] = p
         for p in processes: p.join()
+
         # RESULTs formatting
         rawCubes: list[sparse.COO] = [None] * filepaths_nb
         while not output_queue.empty():
@@ -1066,19 +1069,17 @@ class DataSaver(BaseHDF5Protuberance):
             rawCubes[identifier] = result 
         rawCubes = sparse.stack(rawCubes, axis=0)
 
-        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless
+        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless or is it?
         return rawCubes
     
     @staticmethod
     def raw_cubes_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
-        """ # todo update docstring
-        To import the cubes in sections as there is a lot of cubes.
+        """
+        To get the raw data from each cube.
 
         Args:
-            queue (mp.queues.Queue): to store the results.
-            queue_index (int): to keep the initial ordering
-            filepaths (list[str]): the filepaths to open.
-            fake_hdf5 (bool): if the data used is the fake hdf5 data.
+            input_queue (QueueProxy): the input data (identifier, filepath) for each cube.
+            output_queue (QueueProxy): the output data (identifier, data) for each cube.
         """
 
         while True:
@@ -1103,7 +1104,7 @@ class DataSaver(BaseHDF5Protuberance):
                 result = cube.astype('uint8')
 
             # SAVE
-            result = np.transpose(result, (0, 3, 2, 1))
+            result = np.transpose(result, (2, 1, 0))
             output_queue.put((identifier, DataSaver.sparse_data(result)))
 
     @staticmethod
@@ -1167,9 +1168,7 @@ class DataSaver(BaseHDF5Protuberance):
             },
         }
         # BORDERs add
-        if borders is not None:
-            print(f'for name {data_name} borders are {borders}', flush=True)
-            raw |= borders
+        if borders is not None: raw |= borders
         
         # ADD group
         self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
@@ -1428,8 +1427,8 @@ if __name__=='__main__':
 
     instance = DataSaver(
         filename='data.h5',
-        polynomial_order=[3, 4, 5],
-        processes=48,
+        polynomial_order=[4],
+        processes=32,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
