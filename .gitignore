@@ -20,7 +20,7 @@
 !**/*.py
 !**/*.ipynb
 !**/*.md
-!**/*yml
+!**/*.yml
 
 # FILEs whitelisted
 !README.md
