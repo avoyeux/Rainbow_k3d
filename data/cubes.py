@@ -92,7 +92,7 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # PARENT
-        super().__init__()
+        super().__init__(compression=compression, compression_lvl=compression_lvl)
 
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
@@ -116,8 +116,6 @@ class DataSaver(BaseHDF5Protuberance):
         self.leg_threshold = leg_threshold
         self.full = full  # deciding to add the heavy sky coords arrays.
         self.no_feet = no_feet
-        self.compression = 'gzip' if compression else None
-        self.compression_lvl = compression_lvl
         self.fake_hdf5 = fake_hdf5
 
         # PLACEHOLDERs
@@ -1123,56 +1121,6 @@ class DataSaver(BaseHDF5Protuberance):
         # the .to_numpy() method wasn't used as the idx_type argument isn't working properly
         sparse_cubes.coords = sparse_cubes.coords.astype('uint16')  # to save RAM
         return sparse_cubes
-    
-    def add_cube(
-            self,
-            group: h5py.File | h5py.Group,
-            data: sparse.COO,
-            data_name: str,
-            values: int | None = None,
-            borders: dict[str, dict[str, str | float]] | None = None,
-        ) -> h5py.File | h5py.Group:
-        """
-        To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes
-        also into account the border information.
-
-        Args:
-            group (h5py.File | h5py.Group): the Group where to add the data information.
-            data (sparse.COO): the data that needs to be included in the file.
-            data_name (str): the group name to be used in the file.
-            values (int | None): the value for the voxels. Set to None when all the voxels don't
-                have the same value. Default to None.
-            borders (dict[str, dict[str, str | float]] | None): the data border information. Set to
-                None if you don't want to add the border information in the created group.
-                Default to None.
-
-        Returns:
-            h5py.File | h5py.Group: the updated file or group.
-        """
-        
-        raw = {
-            'description': "Default",
-            'coords': {
-                'data': data.coords.astype('uint16'),
-                'unit': 'none',
-                'description': (
-                    "The index coordinates of the initial voxels.\nThe shape is (4, N) where the "
-                    "rows represent t, x, y, z where t the time index (i.e. which cube it is), "
-                    "and N the total number of voxels.\n"
-                ),
-            },
-            'values': {
-                'data': data.data if values is None else values, 
-                'unit': 'none',
-                'description': "The values for each voxel.",
-            },
-        }
-        # BORDERs add
-        if borders is not None: raw |= borders
-        
-        # ADD group
-        self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
-        return group
     
     def add_skycoords(
             self,

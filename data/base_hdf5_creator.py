@@ -4,8 +4,8 @@ formatting.
 """
 
 # IMPORTs
-import sys
 import h5py
+import sparse
 import datetime
 
 # IMPORTs alias
@@ -13,6 +13,8 @@ import numpy as np
 
 # IMPORTs sub
 from dataclasses import dataclass
+
+# ? should I add the .add_cube() method to the BaseHDF5Protuberance class?
 
 
 
@@ -193,18 +195,22 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
     To store base methods to create an HDF5 file using the rainbow protuberance data.
     """
 
-    def __init__(self) -> None:
-        """
+    def __init__(self, compression: bool = False, compression_lvl: int = 0) -> None:
+        """ # todo update docstring
         To initialise the instance attributes used when creating a default protuberance HDF5 file.
         """
         
         super().__init__()
 
-        # PLACEHOLDERs
-        self.volume: VolumeInfo
+        # ATTRIBUTEs
+        self.compression = 'gzip' if compression else None
+        self.compression_lvl = compression_lvl
 
         # CONSTANTs
         self.solar_r = 6.96e5  # in km
+
+        # PLACEHOLDERs
+        self.volume: VolumeInfo
 
     def create_borders(
             self,
@@ -250,6 +256,56 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             },
         }
         return info
+    
+    def add_cube(
+            self,
+            group: h5py.File | h5py.Group,
+            data: sparse.COO,
+            data_name: str,
+            values: int | None = None,
+            borders: dict[str, dict[str, str | float]] | None = None,
+        ) -> h5py.File | h5py.Group:
+        """
+        To add to an h5py.Group, the data and metadata of a cube index spare.COO object. This takes
+        also into account the border information.
+
+        Args:
+            group (h5py.File | h5py.Group): the Group where to add the data information.
+            data (sparse.COO): the data that needs to be included in the file.
+            data_name (str): the group name to be used in the file.
+            values (int | None): the value for the voxels. Set to None when all the voxels don't
+                have the same value. Default to None.
+            borders (dict[str, dict[str, str | float]] | None): the data border information. Set to
+                None if you don't want to add the border information in the created group.
+                Default to None.
+
+        Returns:
+            h5py.File | h5py.Group: the updated file or group.
+        """
+        
+        raw = {
+            'description': "Default",
+            'coords': {
+                'data': data.coords.astype('uint16'),
+                'unit': 'none',
+                'description': (
+                    "The index coordinates of the initial voxels.\nThe shape is (4, N) where the "
+                    "rows represent t, x, y, z where t the time index (i.e. which cube it is), "
+                    "and N the total number of voxels.\n"
+                ),
+            },
+            'values': {
+                'data': data.data if values is None else values, 
+                'unit': 'none',
+                'description': "The values for each voxel.",
+            },
+        }
+        # BORDERs add
+        if borders is not None: raw |= borders
+        
+        # ADD group
+        self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
+        return group
     
     def to_index_pos(self, coords: np.ndarray, unique: bool = False) -> tuple[np.ndarray, dict]:
         """
