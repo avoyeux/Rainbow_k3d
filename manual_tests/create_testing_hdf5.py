@@ -38,7 +38,7 @@ class CreateTestingHDF5(BaseHDF5Protuberance):
         self.wrong = wrong
 
         # CONSTANTs
-        self.shape: tuple = (4, 20, 20, 20)
+        self.shape: tuple = (4, 100, 100, 200)
 
         # RUN
         self.paths = self.setup_paths()
@@ -102,7 +102,7 @@ class CreateTestingHDF5(BaseHDF5Protuberance):
 
         # DATA
         data = np.zeros(self.shape, dtype='uint8')
-        data[:, 5:10, 10:15, 15:20] = 1
+        data[:, 5:100, 50:100, 15:200] = 1
         return sparse.COO(data)
 
 
@@ -113,4 +113,4 @@ if __name__ == '__main__':
     filename = 'testing_tests.h5'
 
     # CREATE
-    CreateTestingHDF5(filename, wrong=False)
+    CreateTestingHDF5(filename, wrong=True)

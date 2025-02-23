@@ -11,6 +11,7 @@ paths:
     data: 
         real: data/data.h5
         fake: data/fake_data/fake_from_toto.h5
+        tests: manual_tests/testing_tests.h5
     animation: animation
     projection: projection
     tests: tests
@@ -18,7 +19,7 @@ paths:
 processes: 2
 
 debug:
-    tests: True
-    processes: 4
+    tests: True  # ! need to implement this somewhere
+    processes: 10
     verbose: 1
     flush: True

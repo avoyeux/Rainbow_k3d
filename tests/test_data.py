@@ -6,6 +6,7 @@ To test if all_data is really the intersection of the line of sight data.
 import os
 import h5py
 import yaml
+import sparse
 import unittest
 
 # IMPORTs alias
@@ -31,7 +32,7 @@ QueueProxy = Any
 
 
 
-@dataclass(slots=True, repr=False, eq=False)
+@dataclass(slots=True, frozen=True, repr=False, eq=False)
 class DataCube:
     """
     To store and get the coordinates of the cubes.
@@ -188,18 +189,29 @@ class CompareCubes:
                 index = int(value.value) - 1
                 if index < 0: break
                 value.value -= 1
-            
-            # CUBE unique
-            sdo_cube = np.sort(sdo_data[index], axis=1)
-            print('sort for sdo_cube finished', flush=self.flush)
-            stereo_cube = np.sort(stereo_data[index], axis=1)
-            print('sort for stereo_cube finished', flush=self.flush)
 
             # INTERSECTION
-            intersection = self.intersect_2d_arrays(sdo_cube, stereo_cube)
+            intersection = self.intersect_2d_arrays(sdo_data[index], stereo_data[index])
+
+            # CHECK empty
+            all_data_cube = all_data[index]
+            if intersection.size == 0 and all_data_cube.size == 0:
+                print(f"Cube {index:03d} is empty but test passed.", flush=self.flush)
+                output_queue.put((index, True))
+                continue
+            elif (
+                intersection.size == 0 and all_data_cube.size != 0
+                ) or (
+                intersection.size != 0 and all_data_cube.size == 0
+                ):
+                print(f"Cube {index:03d} intersection is empty and test failed.", flush=self.flush)
+                output_queue.put((index, False))
+                continue
+
+            # CHECK intersection
             test_result = np.array_equal(
                 np.sort(intersection, axis=1),
-                np.sort(all_data[index], axis=1),
+                np.sort(all_data_cube, axis=1),
             )
             output_queue.put((index, test_result))
 
@@ -209,9 +221,55 @@ class CompareCubes:
                 else:
                     print(f"Cube {index:03d} intersection test failed.", flush=self.flush)
 
+    def intersect_2d_arrays(self, array1: np.ndarray, array2: np.ndarray) -> np.ndarray:
+        """
+        To intersect two 2D arrays by doing a bitwise operation on the hashed coordinates.
+
+        Args:
+            array1 (np.ndarray): the first array.
+            array2 (np.ndarray): the second array.
+
+        Returns:
+            np.ndarray: the intersected array.
+        """
+
+        set1 = set(map(tuple, array1.T))
+        set2 = set(map(tuple, array2.T))
+        intersection = set1 & set2
+        return np.array(list(intersection)).T
+    
     @staticmethod
-    # @njit
-    def intersect_2d_arrays(array1: np.ndarray, array2: np.ndarray) -> np.ndarray:
+    @njit(parallel=True)
+    def old2_intersect_2d_arrays(array1: np.ndarray, array2: np.ndarray) -> np.ndarray:
+        """
+        Intersects two 2D arrays by comparing columns.
+
+        Args:
+            array1 (np.ndarray): The first array.
+            array2 (np.ndarray): The second array.
+
+        Returns:
+            np.ndarray: A 2D array of intersected columns.
+        """
+        
+        # Pre-allocate a boolean array to track matches
+        matches = np.zeros(array1.shape[1], dtype=np.bool_)
+        print(f'len(matches): {len(matches)}')
+        for c_1 in range(array1.shape[1]):
+            col1 = array1[:, c_1]
+                
+            for c_2 in range(array2.shape[1]):
+                col2 = array2[:, c_2]
+
+                if np.array_equal(col1, col2):
+                    matches[c_1] = True
+                    break
+        
+        # Extract matched columns
+        intersected_columns = array1[:, matches]
+        return intersected_columns
+
+    def old_intersect_2d_arrays(self, array1: np.ndarray, array2: np.ndarray) -> np.ndarray:
         """
         Intersects two 2D arrays by comparing columns.
 
@@ -223,22 +281,26 @@ class CompareCubes:
             np.ndarray: A 2D array of intersected columns.
         """
 
-        # Pre-allocate a boolean array to track matches
-        matches = np.zeros(array1.shape[1], dtype=np.bool_)
+        max1 = np.max(array1, axis=1)
+        max2 = np.max(array2, axis=1)
+        shape = (
+            max(max1[0] + 1, max2[0] + 1),
+            max(max1[1] + 1, max2[1] + 1),
+            max(max1[2] + 1, max2[2] + 1),
+        )
+        array1_dense = sparse.COO(
+            coords=array1.astype('uint16'),
+            shape=shape,
+            data=1,
+        ).todense().astype(bool)
+        array2_dense = sparse.COO(
+            coords=array2.astype('uint16'),
+            shape=shape,
+            data=1,
+        ).todense().astype(bool)
 
-        for c_1 in range(array1.shape[1]):
-            col1 = array1[:, c_1]
-
-            for c_2 in range(array2.shape[1]):
-                col2 = array2[:, c_2]
-
-                if np.array_equal(col1, col2):
-                    matches[c_1] = True
-                    break
-
-        # Extract matched columns
-        intersected_columns = array1[:, matches]
-        return intersected_columns
+        intersection = (array1_dense & array2_dense).astype('uint8')
+        return sparse.COO(intersection).coords
 
 
 class TestCompareCubes(unittest.TestCase):
