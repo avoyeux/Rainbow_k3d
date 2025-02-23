@@ -1,3 +1,3 @@
 """
-To test some of the codes to try and debug the codes without changing them.
+To manually test some of the codes to try and debug the codes without changing them.
 """

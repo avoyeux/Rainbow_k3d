@@ -3,6 +3,7 @@
 
 # DIRs whitelisted
 !/tests/
+!/manual_tests/
 !/archive/
 !/archive/from_idl/
 !/archive/deprecated/
