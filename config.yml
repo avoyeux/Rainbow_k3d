@@ -1,0 +1,24 @@
+# Stores the 'global' arguments for the repository
+
+project:
+    name: RainbowK3d
+    version: 0.1.0
+    author: VOYEUX Alfred
+    description: "3D visualisation and re-projection of a solar protuberance"
+    
+paths:
+    root: null
+    data: 
+        real: data/data.h5
+        fake: data/fake_data/fake_from_toto.h5
+    animation: animation
+    projection: projection
+    tests: tests
+
+processes: 2
+
+debug:
+    tests: True
+    processes: 4
+    verbose: 1
+    flush: True
