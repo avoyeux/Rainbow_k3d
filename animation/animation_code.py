@@ -710,7 +710,7 @@ class K3dAnimation(Setup):
         # SAVE coords
         self.sun_points = np.array([x.ravel(), y.ravel(), z.ravel()], dtype='float32').T
 
-    def update_plot(self, change: dict[str, any]) -> None:
+    def update_plot(self, change: dict[str, Any]) -> None:
         """
         Updates the voxels depending on which time value is chosen.
 
@@ -804,7 +804,7 @@ class K3dAnimation(Setup):
             self.play_pause_button.description = 'Play'
             self.play_pause_button.icon = 'play'
 
-    def play_pause_handler(self, change: dict[str, any]) -> None:
+    def play_pause_handler(self, change: dict[str, Any]) -> None:
         """
         Changes the play button to pause when it is clicked.
 
