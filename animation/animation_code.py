@@ -7,7 +7,7 @@ import os
 import k3d
 import time
 import h5py
-import sparse
+import yaml
 import IPython
 import threading
 import typeguard
@@ -22,23 +22,15 @@ from astropy.io import fits
 
 # IMPORTs personal
 from animation.animation_dataclasses import *
-from common import Decorators, Plot, root_path
+from common import Decorators, Plot, root_path, DictToObject
+
+# CONFIGURATION load
+with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
+    config = DictToObject(yaml.safe_load(conf))
 
 # ANNOTATION alias
 VoxelType = Any
 JsLinkType = Any
-
-# todo need to understand why the polynomial is at the wrong place. borders for the polynomial seem
-# different than for the corresponding data...
-# ! the position of the STEREO satellite also seems to be at the wrong position
-# ! the no duplicates cube and the corresponding integrated cubes seem to be from the wrong date
-# ! while the line of sight data seems to be from the right date
-# ! that being said, the all data cubes seem to be from the right date
-# * seems like the position of the sdo satellite is the right one for the 3D visualisation and for
-# * the re-projection of the data.
-# ? can the problem only come from wrong border values?
-# * the no duplicate data used in the animation is the right one from the data.h5 file.
-# ! the creation of the data cubes must be wrong
 
 
 
@@ -52,7 +44,7 @@ class Setup:
     @typeguard.typechecked
     def __init__(
             self,
-            filename: str = 'data.h5',
+            filepath: str | None = None,
             sun: bool = False,
             with_feet: bool = True,
             all_data: bool = False,
@@ -64,11 +56,12 @@ class Setup:
             line_of_sight_STEREO: bool = False,
             pov_sdo: bool = False,
             pov_stereo: bool = False,
-            processes: int = 5,
+            processes: int | None = None,
             polynomial: bool = False,
             polynomial_order: int | list[int] = [4],
             only_fake_data: bool = False,
             test_data: bool = False,
+            test_points: bool = False,
     ) -> None:
         """ # todo update docstring
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
@@ -111,7 +104,6 @@ class Setup:
         
         # ATTRIBUTES
         self.solar_r = 6.96e5
-        self.filename = filename
         self.sun = sun
         self.all_data = all_data
         self.no_duplicate = no_duplicate
@@ -122,7 +114,6 @@ class Setup:
         self.line_of_sight_STEREO = line_of_sight_STEREO
         self.pov_sdo = pov_sdo
         self.pov_stereo = pov_stereo
-        self.processes = processes
         self.polynomial = polynomial
         if isinstance(polynomial_order, list):
             self.polynomial_order = polynomial_order
@@ -131,6 +122,12 @@ class Setup:
 
         self.only_fake_data = only_fake_data
         self.test_data = test_data
+        if filepath is None:
+            self.filepath = os.path.join(root_path, *config.paths.data.real.split('/'))
+        else:
+            self.filepath = filepath
+        self.processes = config.processes if processes is None else processes
+        self.test_points = test_points
 
         # ATTRIBUTES new
         self.plot_polynomial_colours = [
@@ -156,7 +153,6 @@ class Setup:
         # PATHs save
         paths = {
             'code': root_path,
-            'data': os.path.join(root_path, 'data'),
             'sdo': os.path.join(root_path, '..', 'sdo'),
         }
 
@@ -171,7 +167,7 @@ class Setup:
         """
 
         # DATA init
-        HDF5File = h5py.File(os.path.join(self.paths['data'], self.filename), 'r')
+        HDF5File = h5py.File(self.filepath, 'r')
         cubes = CubesData(hdf5File=HDF5File)
 
         # DATA main
@@ -192,22 +188,22 @@ class Setup:
                 'Time integrated/All data' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
-            cubes.integration_all_data = self.get_cube_info(HDF5File, path)
+            cubes.integration_all_data = self.get_cube_info(HDF5File, path, opacity=0.4)
 
         if self.no_duplicate_integration:
             path = (
                 'Time integrated/No duplicates' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
-            cubes.integration_no_duplicate = self.get_cube_info(HDF5File, path)
+            cubes.integration_no_duplicate = self.get_cube_info(HDF5File, path, opacity=0.6)
 
         if self.line_of_sight_SDO:
             path = ('Filtered/SDO line of sight')
-            cubes.los_sdo = self.get_cube_info(HDF5File, path, interpolate=False)
+            cubes.los_sdo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
         
         if self.line_of_sight_STEREO:
             path = ('Filtered/STEREO line of sight')
-            cubes.los_stereo = self.get_cube_info(HDF5File, path, interpolate=False)
+            cubes.los_stereo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
         
         # POVs sdo, stereo
         if self.pov_sdo:
@@ -236,6 +232,10 @@ class Setup:
                 'Test data/Fake cube',
                 interpolate=False,
             )
+
+        # ADD shape
+        cubes.add_shape()
+
         return cubes
 
     def get_sdo_fov(self) -> float:
@@ -280,6 +280,7 @@ class Setup:
             self,
             HDF5File: h5py.File,
             group_path: str,
+            opacity: float = 1.,
             interpolate: bool = True,
         ) -> CubeInfo:
         """
@@ -309,10 +310,10 @@ class Setup:
             polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)
 
             for i, order in enumerate(self.polynomial_order):
-                dataset_path = group_path + f'/{order}th order polynomial/coords'
-
                 # DATA get
+                dataset_path = group_path + f'/{order}th order polynomial/coords'
                 interp_coords: h5py.Dataset = HDF5File[dataset_path]
+
                 # DATA formatting
                 polynomials[i] = PolynomialData(
                     dataset=interp_coords,
@@ -327,6 +328,7 @@ class Setup:
         # FORMATTING data
         cube_info = CubeInfo(
             name=' '.join(group_path.split('/')[:2]),
+            opacity=opacity,
             xt_min_index=xt_min_index,
             yt_min_index=yt_min_index,
             zt_min_index=zt_min_index,
@@ -453,12 +455,38 @@ class K3dAnimation(Setup):
             self.add_sun()
             points = k3d.points(
                 positions=self.sun_points,
-                point_size=0.7, colors=[0xffff00] * len(self.sun_points),
+                point_size=0.7,
+                colors=[0xffff00] * len(self.sun_points),
                 shader='flat',
                 name='SUN',
                 compression_level=self.compression_level,
             )
             self.plot += points
+
+        # BORDERs add
+
+        if self.test_points:
+            cube = self.find_first_cube()
+            point = k3d.points(
+                positions=np.array([cube.xt_min_index, cube.yt_min_index, cube.zt_min_index]),
+                point_size=5,
+                colors=[0xff0000],
+                shader='3d',
+                name='BORDERs',
+            )
+            point2 = k3d.points(
+                positions=np.array([
+                    cube.xt_min_index + 62,
+                    cube.yt_min_index + 65,
+                    cube.zt_min_index + 150,
+                ]),
+                point_size=5,
+                colors=[0xff0000],
+                shader='3d',
+                name='BORDERs2',
+            )
+            self.plot += point
+            self.plot += point2
 
         # ALL DATA add
         if self.cubes.all_data is not None:
@@ -541,7 +569,6 @@ class K3dAnimation(Setup):
             self,
             cube: CubeInfo,
             index: int = 0,
-            opacity: float = 0.8,
             color_map: list[int] = [0x0000ff],
             **kwargs,
         ) -> list[VoxelType]:
@@ -569,9 +596,9 @@ class K3dAnimation(Setup):
         print(f'the borders are {translation}')
 
         plots[0] = k3d.voxels(
-            voxels=cube[index][0].transpose(2, 1, 0),
+            voxels=cube[index][0].transpose((2, 1, 0)),
             name=cube.name,
-            opacity=opacity,
+            opacity=cube.opacity,
             color_map=color_map,
             translation=translation,
             **kwargs,
@@ -584,9 +611,9 @@ class K3dAnimation(Setup):
             # INTERPOLATION orders
             for i, polynomial_data in enumerate(polynomials):
                 plots[i + 1] = k3d.voxels(
-                    voxels=polynomial_data[index].transpose(2, 1, 0),
+                    voxels=polynomial_data[index].transpose((2, 1, 0)),
                     name=polynomial_data.name,
-                    opacity=opacity,
+                    opacity=cube.opacity,  # todo change it to polynomial opacity
                     color_map=[polynomial_data.color_hex],
                     translation=translation,
                     **kwargs,
@@ -715,7 +742,7 @@ class K3dAnimation(Setup):
         Updates the voxels depending on which time value is chosen.
 
         Args:
-            change (dict[str, any]): the time value, with the 'new' key being the new value and
+            change (dict[str, Any]): the time value, with the 'new' key being the new value and
                 'old' key being the old value.
         """
 
@@ -785,10 +812,9 @@ class K3dAnimation(Setup):
 
         # DATA get
         cubes = cube_info[index]
-        print(f'number of voxels for name {cube_info.name} is {np.sum(cubes[0])}')
         
         # PLOTs add data
-        for i, plot in enumerate(plots): plot.voxels = cubes[i].transpose(2, 1, 0)
+        for i, plot in enumerate(plots): plot.voxels = cubes[i].transpose((2, 1, 0))
 
     def play(self) -> None:
         """
@@ -809,7 +835,7 @@ class K3dAnimation(Setup):
         Changes the play button to pause when it is clicked.
 
         Args:
-            change (dict[str, any]): the dictionary representing the value.
+            change (dict[str, Any]): the dictionary representing the value.
         """
 
         if change['new']:  # if clicked play

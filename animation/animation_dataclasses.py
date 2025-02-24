@@ -59,12 +59,12 @@ class PolynomialData:
 
         # 3D array
         cube_shape = np.max(cube_coords, axis=1) + 1
-        cube = np.zeros(cube_shape, dtype='uint8')
+        cube = np.zeros(cube_shape, dtype='uint8')  # ! check this to if the problem comes from here
         cube[tuple(cube_coords)] = 1
         return cube
 
 
-@dataclass(slots=True, frozen=True, repr=False, eq=False)
+@dataclass(slots=True, repr=False, eq=False)
 class CubeInfo:
     """
     Stores the data and information related to each different data group chosen.
@@ -73,6 +73,7 @@ class CubeInfo:
 
     # ID
     name: str
+    opacity: float
 
     # BORDERs index
     xt_min_index: float
@@ -83,6 +84,8 @@ class CubeInfo:
     dataset_coords: h5py.Dataset
     dataset_values: h5py.Dataset
     polynomials: list[PolynomialData] | None
+
+    max_shape: np.ndarray | None = None
 
     def __getitem__(self, index: int) -> list[np.ndarray]:
         """
@@ -95,6 +98,8 @@ class CubeInfo:
             list[np.ndarray]: the protuberance and polynomials data.
         """
 
+        if self.max_shape is None: raise ValueError('max_shape is not defined')
+        
         # FILTER
         cube_filter = self.dataset_coords[0] == index
         cube_coords = self.dataset_coords[1:, cube_filter]
@@ -103,9 +108,11 @@ class CubeInfo:
         else:
             values = self.dataset_values[cube_filter.ravel()]
 
+        # cube_shape = (180, 227, 236)
+        # cube_shape = (400, 400, 400)
+        
         # 3D array
-        cube_shape = np.max(cube_coords, axis=1) + 1
-        cube = np.zeros(cube_shape, dtype=self.dataset_values.dtype)
+        cube = np.zeros(self.max_shape, dtype=self.dataset_values.dtype)
         cube[tuple(cube_coords)] = values
         result = [cube]
 
@@ -113,6 +120,17 @@ class CubeInfo:
         if self.polynomials is not None:
             result += [polynomial[index] for polynomial in self.polynomials]
         return result
+    
+    @property
+    def shape(self) -> np.ndarray:
+        """
+        To get the shape of the data.
+
+        Returns:
+            tuple[int, int, int, int]: the shape of the data.
+        """
+
+        return np.max(self.dataset_coords, axis=1) + 1
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -145,6 +163,26 @@ class CubesData:
     def __enter__(self) -> Self: return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None: self.hdf5File.close()
+
+    def add_shape(self) -> None:
+
+        shapes = []
+        for attribute in self.__slots__:
+
+            if attribute in ['hdf5File', 'sdo_pos', 'stereo_pos']: continue
+            attr_value = getattr(self, attribute)
+            if attr_value is None: continue
+
+            shapes.append(attr_value.shape)
+        shapes = np.stack(shapes, axis=0)
+        max_shape = np.max(shapes, axis=0)[1:]
+
+        for attribute in self.__slots__:
+            if attribute in ['hdf5File', 'sdo_pos', 'stereo_pos']: continue
+            attr_value = getattr(self, attribute)
+            if attr_value is None: continue
+
+            attr_value.max_shape = max_shape
 
     def close(self):
         """
