@@ -92,7 +92,7 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # PARENT
-        super().__init__(compression=compression, compression_lvl=compression_lvl)
+        super().__init__(filename, compression, compression_lvl)
 
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
@@ -100,7 +100,6 @@ class DataSaver(BaseHDF5Protuberance):
         print(f'self.feet_options is {self.feet_options}')
 
         # ARGUMENTs
-        self.filename = filename
         self.processes = processes
         if isinstance(integration_time, int):
             self.integration_time = [integration_time * 3600]

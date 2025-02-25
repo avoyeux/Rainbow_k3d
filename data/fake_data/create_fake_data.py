@@ -54,10 +54,9 @@ class CreateFakeData(BaseHDF5Protuberance):
         """
 
         # PARENT
-        super().__init__()
+        super().__init__(filename=filename)
 
         # ARGUMENTs
-        self.filename = filename
         self.sun_resolution = sun_resolution
         self.nb_of_cubes = nb_of_cubes
         self.torus_main_radius = torus_main_radius

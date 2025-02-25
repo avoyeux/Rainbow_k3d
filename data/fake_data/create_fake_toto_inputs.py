@@ -86,7 +86,7 @@ class CreateFakeTotoInputs:
         paths = {
             'main': main_path,
             'stereo files': os.path.join(main_path, 'STEREO', 'masque_karine'),
-            'sdo files': os.path.join(main_path, 'sdo'),
+            'sdo files': os.path.join(main_path, 'sdo'),  # todo change if config.yml is updated
             'save fits': os.path.join(root_path, 'data/fake_data/fits'),
             'save png': os.path.join(root_path, 'data/fake_data/png'),
         }

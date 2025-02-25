@@ -14,8 +14,6 @@ import numpy as np
 # IMPORTs sub
 from dataclasses import dataclass
 
-# ? should I add the .add_cube() method to the BaseHDF5Protuberance class?
-
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -36,25 +34,33 @@ class BaseHdf5Creator:
     To store base methods for creating HDF5 files.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, filename: str, compression: bool = False, compression_lvl: int = 9) -> None:
         """
         To type initialise the instance attributes usd in these default hdf5 creator methods and
         the constant instant attributes.
+
+        Args:
+            filename (str): the filename of the HDF5 file to create.
+            compression (bool, optional): deciding to compress the datasets using gzip.
+                Defaults to False.
+            compression_lvl (int, optional): the gzip compression level. Defaults to 9.
         """
 
         # PLACEHOLDERs
-        self.filename: str
+        self.filename = filename
+        self.compression = 'gzip' if compression else None
+        self.compression_lvl = compression_lvl
+
+        # ATTRIBUTEs
+        self.compression_min_size = 3 * 1024
 
     def add_group(
             self,
             parent_group: h5py.File | h5py.Group,
             info: dict[str, str | int | float | np.generic | np.ndarray | dict],
             name: str,
-            compression: str | None = None,
-            compression_lvl: int = 9,
-            compression_min_size: int = 3 * 1024,
         ) -> None:
-        """ # todo update docstring
+        """
         Adds group(s) with dataset(s) and attribute(s) to a HDF5 group.
         Group created if dict[str, str | dict]
         Dataset created if not dict[str, dict] and at least one item not being a str.
@@ -79,14 +85,7 @@ class BaseHdf5Creator:
             for key, value in info.items():
                 if isinstance(value, dict):
                     # GROUP add
-                    self.add_group(
-                        parent_group=group,
-                        info=value,
-                        name=key,
-                        compression=compression,
-                        compression_lvl=compression_lvl,
-                        compression_min_size=compression_min_size,
-                    )
+                    self.add_group(parent_group=group, info=value, name=key)
                 else: 
                     # ATTRIBUTES add
                     group.attrs[key] = value
@@ -98,25 +97,15 @@ class BaseHdf5Creator:
 
         else:
             # DATASET as values but no dict
-            self.add_dataset(
-                parent_group=parent_group,
-                info=info, #type: ignore
-                name=name,
-                compression=compression,
-                compression_lvl=compression_lvl,
-                compression_min_size=compression_min_size,
-            )
+            self.add_dataset(parent_group=parent_group, info=info, name=name)
 
     def add_dataset(
             self,
             parent_group: h5py.File | h5py.Group,
             info: dict[str, str | int | float | np.generic | np.ndarray],
             name: str | None = None,
-            compression: str | None = None,
-            compression_lvl: int | None = 9,
-            compression_min_size: int = 3 * 1024,
         ) -> None:
-        """ # todo update docstring
+        """
         Adds a dataset and attributes to a HDF5 group like object.
 
         Args:
@@ -125,11 +114,15 @@ class BaseHdf5Creator:
                 in the DataSet.
             name (str, optional): the name of the DataSet to add. Defaults to None.
         """
-        
+
+        # SETUP
+        key: str = ''  # no need but it is for the type checker
+        compression: str | None = self.compression
+        compression_lvl: int | None = self.compression_lvl
+
         # CHECKs
         if len(info) == 0: return
         if compression is None: compression_lvl = None
-        key: str = ''  # no need but for the type checker
 
         # DATASET key for ndarray
         stopped = False
@@ -154,7 +147,7 @@ class BaseHdf5Creator:
             if not isinstance(data, np.ndarray): data = np.array(data)
 
             # CHECK nbytes
-            if data.nbytes < compression_min_size: compression, compression_lvl = None, None
+            if data.nbytes < self.compression_min_size: compression, compression_lvl = None, None
             
             dataset = parent_group.create_dataset(
                 name,
@@ -195,16 +188,19 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
     To store base methods to create an HDF5 file using the rainbow protuberance data.
     """
 
-    def __init__(self, compression: bool = False, compression_lvl: int = 0) -> None:
-        """ # todo update docstring
+    def __init__(self, filename: str, compression: bool = False, compression_lvl: int = 9) -> None:
+        """
         To initialise the instance attributes used when creating a default protuberance HDF5 file.
+
+        Args:
+            filename (str): the filename of the HDF5 file to create.
+            compression (bool, optional): deciding to compress the datasets using gzip.
+                Defaults to False.
+            compression_lvl (int, optional): the gzip compression level. Defaults to 9.
         """
         
-        super().__init__()
-
-        # ATTRIBUTEs
-        self.compression = 'gzip' if compression else None
-        self.compression_lvl = compression_lvl
+        # PARENT
+        super().__init__(filename, compression, compression_lvl)
 
         # CONSTANTs
         self.solar_r = 6.96e5  # in km
@@ -304,7 +300,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
         if borders is not None: raw |= borders
         
         # ADD group
-        self.add_group(group, raw, data_name, self.compression, self.compression_lvl)
+        self.add_group(group, raw, data_name)
         return group
     
     def to_index_pos(self, coords: np.ndarray, unique: bool = False) -> tuple[np.ndarray, dict]:
