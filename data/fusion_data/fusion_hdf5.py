@@ -5,14 +5,19 @@ To add both the real and fake data together in the same HDF5 file.
 # IMPORTS
 import os
 import h5py
+import yaml
 
 # IMPORTs sub
 from typing import Self
 from dataclasses import dataclass, field
 
-# IMPPORTs personal
-from common import root_path, Decorators
+# IMPORTs personal
+from common import root_path, Decorators, DictToObject
 from data.base_hdf5_creator import BaseHdf5Creator
+
+# CONFIGURATION setup
+with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
+    config = DictToObject(yaml.safe_load(conf))
 
 
 
@@ -87,20 +92,20 @@ class FusionHdf5(BaseHdf5Creator):
     """
 
     @Decorators.running_time
-    def __init__(self, filename: str, filename_real: str, filename_fake: str) -> None:
-        """
+    def __init__(self, filename: str, compression: bool = True, compression_lvl: int = 9) -> None:
+        """ # todo update docstring
         To add both the real and fake data together in the same HDF5 file.
 
         Args:
             filename (str): the new HDF5 filename.
-            filename_real (str): the HDF5 filename containing the real data.
-            filename_fake (str): the HDF5 filename containing the fake data.
         """
+
+        # PARENT
+        super().__init__(filename, compression, compression_lvl)
         
         # ATTRIBUTEs
-        self.filename = filename
-        self.filename_real = filename_real
-        self.filename_fake = filename_fake
+        self.filepath_real = os.path.join(root_path, *config.paths.real.split('/'))
+        self.filepath_fake = os.path.join(root_path, *config.paths.fake.split('/'))
 
         # SETUP
         self.paths = self.paths_setup()
@@ -117,8 +122,6 @@ class FusionHdf5(BaseHdf5Creator):
         # PATHs formatting
         paths = {
             'codes': root_path,
-            'real': os.path.join(root_path, 'data'),
-            'fake': os.path.join(root_path, 'data', 'fake_data'),
             'save': os.path.join(root_path, 'data', 'fusion_data'),
         }
         return paths
@@ -135,7 +138,7 @@ class FusionHdf5(BaseHdf5Creator):
         # PATHs choices
         global_choices = ['Dates', 'SDO positions', 'STEREO B positions', 'dx']
         real_sub_group_choices = [
-            'All data', 'No duplicates new', 'SDO line of sight', 'STEREO line of sight',
+            'All data', 'No duplicates', 'SDO line of sight', 'STEREO line of sight',
         ]
 
         # PATHs real and fake
@@ -143,7 +146,7 @@ class FusionHdf5(BaseHdf5Creator):
             'main': ['Time indexes'],
             'group': {
                 'Filtered': real_sub_group_choices,
-                'Time integrated': ['All data', 'No duplicates new'],
+                'Time integrated': ['All data', 'No duplicates'],
             },
         }
         fake_paths = {
@@ -167,13 +170,11 @@ class FusionHdf5(BaseHdf5Creator):
         Creates the new HDF5 file containing both the real and fake data.
         """
 
-        # PATHs to hdf5
+        # PATH to new hdf5
         new_hdf5_path = os.path.join(self.paths['save'], self.filename)
-        real_hdf5_path = os.path.join(self.paths['real'], self.filename_real)
-        fake_hdf5_path = os.path.join(self.paths['fake'], self.filename_fake)
 
         # OPEN setup
-        file_opener = FileFusionOpener(new_hdf5_path, real_hdf5_path, fake_hdf5_path)
+        file_opener = FileFusionOpener(new_hdf5_path, self.filepath_real, self.filepath_fake)
 
         # OPEN hdf5
         with file_opener as data:
@@ -234,7 +235,5 @@ if __name__ == '__main__':
     # FUSION
     fusion = FusionHdf5(
         filename='testing.h5',
-        filename_real='sig1e20_leg20_lim0_03.h5',
-        filename_fake='fake_from_toto.h5',
     )
     fusion.create()

@@ -1,5 +1,7 @@
 # Stores the 'global' arguments for the repository
 
+# todo need to think properly about the structure of the config file
+
 project:
     name: RainbowK3d
     version: 0.1.0
