@@ -104,8 +104,8 @@ class FusionHdf5(BaseHdf5Creator):
         super().__init__(filename, compression, compression_lvl)
         
         # ATTRIBUTEs
-        self.filepath_real = os.path.join(root_path, *config.paths.real.split('/'))
-        self.filepath_fake = os.path.join(root_path, *config.paths.fake.split('/'))
+        self.filepath_real = os.path.join(root_path, *config.paths.data.real.split('/'))
+        self.filepath_fake = os.path.join(root_path, *config.paths.data.fake.split('/'))
 
         # SETUP
         self.paths = self.paths_setup()
@@ -234,6 +234,6 @@ if __name__ == '__main__':
 
     # FUSION
     fusion = FusionHdf5(
-        filename='testing.h5',
+        filename='data_with_fake_from_toto.h5',
     )
     fusion.create()
