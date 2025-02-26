@@ -12,6 +12,7 @@ paths:
     data: 
         real: data/data.h5
         fake: data/fake_data/fake_from_toto.h5
+        fusion: data/fusion_data/data_with_fake_from_toto.h5
         tests: manual_tests/testing_tests.h5
     animation: animation
     projection: projection

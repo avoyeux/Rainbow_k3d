@@ -97,7 +97,6 @@ class DataSaver(BaseHDF5Protuberance):
         # CONSTANTs
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
-        print(f'self.feet_options is {self.feet_options}')
 
         # ARGUMENTs
         self.processes = processes
@@ -716,11 +715,7 @@ class DataSaver(BaseHDF5Protuberance):
             # ADD all data
             new_borders = borders.copy()
             filtered_data = (data & 0b00000001).astype('uint8')
-            if option != '':
-                filtered_data, new_borders = self.with_feet(filtered_data, borders)
-                print(f'ERROR - 0', flush=True)
-            else:
-                print(f'seems to be working properly', flush=True)
+            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
@@ -739,9 +734,7 @@ class DataSaver(BaseHDF5Protuberance):
 
             # ADD no duplicates
             filtered_data = ((data & 0b00011000) == 0b00011000).astype('uint8')
-            if option != '':
-                filtered_data, new_borders = self.with_feet(filtered_data, borders)
-                print(f'ERROR - 1', flush=True)
+            if option != '': filtered_data, new_borders = self.with_feet(filtered_data, borders)
             group = self.add_cube(
                 group=group,
                 data=filtered_data,
