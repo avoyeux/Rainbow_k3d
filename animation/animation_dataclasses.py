@@ -11,7 +11,7 @@ import numpy as np
 from typing import Self
 
 # IMPORTs sub
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 
@@ -59,21 +59,20 @@ class PolynomialData:
 
         # 3D array
         cube_shape = np.max(cube_coords, axis=1) + 1
-        cube = np.zeros(cube_shape, dtype='uint8')  # ! check this to if the problem comes from here
+        cube = np.zeros(cube_shape, dtype='uint8')
         cube[tuple(cube_coords)] = 1
         return cube
 
 
 @dataclass(slots=True, repr=False, eq=False)
-class CubeInfo:
+class ParentInfo:
     """
     Stores the data and information related to each different data group chosen.
-    It is an immutable class without a __dict__ method (cf. dataclasses.dataclass).
     """
 
     # ID
-    name: str
-    opacity: float
+    group_path: str
+    opacity: float  # ? add the colour value for each cube?
 
     # BORDERs index
     xt_min_index: float
@@ -83,21 +82,57 @@ class CubeInfo:
     # DATA
     dataset_coords: h5py.Dataset
     dataset_values: h5py.Dataset
-    polynomials: list[PolynomialData] | None
 
-    max_shape: np.ndarray | None = None
+    # COORDs max shape
+    max_shape: np.ndarray | None = field(default=None, init=False)
+
+    @property
+    def name(self) -> str:
+        """
+        To create the name of the dataset depending on the group path.
+
+        Returns:
+            str: the name of the dataset.
+        """
+
+        group_names = self.group_path.split('/')
+
+        if 'Fake' in group_names: return 'Fake ' + group_names[-1]
+        return group_names[-1]
+    
+    @property
+    def shape(self) -> np.ndarray:
+        """
+        To get the shape of the data as a dense array.
+
+        Returns:
+            tuple[int, int, int, int]: the shape of the data.
+        """
+
+        return np.max(self.dataset_coords, axis=1) + 1
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class CubeInfo(ParentInfo):
+    """
+    Stores the data and information related to the 'real' data cubes.
+    """
+
+    # DATA
+    polynomials: list[PolynomialData] | None = field(default=None)
 
     def __getitem__(self, index: int) -> list[np.ndarray]:
         """
         To get a single cube from each the protuberance and polynomials data.
 
         Args:
-            index (int | slice): the time indexes needed to be fetched.
+            index (int): the time index needed to be fetched.
 
         Returns:
             list[np.ndarray]: the protuberance and polynomials data.
         """
 
+        # CHECK shape
         if self.max_shape is None: raise ValueError('max_shape is not defined')
         
         # FILTER
@@ -112,7 +147,7 @@ class CubeInfo:
         # cube_shape = (400, 400, 400)
         
         # 3D array
-        cube = np.zeros(self.max_shape, dtype=self.dataset_values.dtype)
+        cube = np.zeros(self.max_shape, dtype='uint8')
         cube[tuple(cube_coords)] = values
         result = [cube]
 
@@ -120,17 +155,56 @@ class CubeInfo:
         if self.polynomials is not None:
             result += [polynomial[index] for polynomial in self.polynomials]
         return result
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class FakeCubeInfo(ParentInfo):
+    """
+    Stores the data and information related to the 'fake' data cubes.
+    """
     
-    @property
-    def shape(self) -> np.ndarray:
+    # DATA
+    time_indexes_fake: np.ndarray
+    time_indexes_real: np.ndarray
+
+    # PLACEHOLDERs
+    value_to_index: dict[int, int] = field(init=False)
+    polynomials: None = field(default=None, init=False)  # just to look like a CubeInfo
+
+    def __post_init__(self) -> None:
+
+        self.value_to_index = {value: index for index, value in enumerate(self.time_indexes_fake)}
+
+    def __getitem__(self, index: int) -> list[np.ndarray]:
         """
-        To get the shape of the data.
+        To get the corresponding cube from the fake data.
+
+        Args:
+            index (int): the index (from the real data) needed to be fetched.
 
         Returns:
-            tuple[int, int, int, int]: the shape of the data.
+            list[np.ndarray]: the corresponding fake cube inside a list.
         """
 
-        return np.max(self.dataset_coords, axis=1) + 1
+        # INDEX real to fake
+        time_index = int(self.time_indexes_real[index])
+        fake_index = self.value_to_index[time_index]
+
+        # CHECK shape
+        if self.max_shape is None: raise ValueError('max_shape is not defined')
+
+        # FILTER
+        cube_filter = self.dataset_coords[0] == fake_index
+        cube_coords = self.dataset_coords[1:, cube_filter]
+        if self.dataset_values.shape == ():
+            values = self.dataset_values[...]
+        else:
+            values = self.dataset_values[cube_filter.ravel()]
+
+        # 3D array
+        cube = np.zeros(self.max_shape, dtype='uint8')
+        cube[tuple(cube_coords)] = values
+        return [cube]
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -145,26 +219,31 @@ class CubesData:
     hdf5File: h5py.File
 
     # POS satellites
-    sdo_pos: np.ndarray | None = None
-    stereo_pos: np.ndarray | None = None
+    sdo_pos: np.ndarray | None = field(default=None, init=False)
+    stereo_pos: np.ndarray | None = field(default=None, init=False)
 
     # CUBES data
-    all_data: CubeInfo | None = None
-    no_duplicate: CubeInfo | None = None
-    integration_all_data: CubeInfo | None = None
-    integration_no_duplicate: CubeInfo | None = None
-    los_sdo: CubeInfo | None = None
-    los_stereo: CubeInfo | None = None
+    all_data: CubeInfo | None = field(default=None, init=False)
+    no_duplicate: CubeInfo | None = field(default=None, init=False)
+    integration_all_data: CubeInfo | None = field(default=None, init=False)
+    integration_no_duplicate: CubeInfo | None = field(default=None, init=False)
+    los_sdo: CubeInfo | None = field(default=None, init=False)
+    los_stereo: CubeInfo | None = field(default=None, init=False)
 
     # FAKE data
-    sun_surface: CubeInfo | None = None
-    fake_cube: CubeInfo | None = None
+    sun_surface: CubeInfo | None = field(default=None, init=False)
+    fake_cube: FakeCubeInfo | None = field(default=None, init=False)
 
     def __enter__(self) -> Self: return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None: self.hdf5File.close()
 
     def add_shape(self) -> None:
+        """
+        To add the max shape of all the different data cubes to the cubes themselves.
+        This was only done as there seems to be an error in the k3d module, forcing me to keep the
+        same cube shapes for all the data.
+        """
 
         shapes = []
         for attribute in self.__slots__:

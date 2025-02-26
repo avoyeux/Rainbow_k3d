@@ -17,7 +17,7 @@ import ipywidgets
 import numpy as np
 
 # IMPORTs sub
-from typing import Any
+from typing import Any, overload, Literal
 from astropy.io import fits
 
 # IMPORTs personal
@@ -59,9 +59,8 @@ class Setup:
             processes: int | None = None,
             polynomial: bool = False,
             polynomial_order: int | list[int] = [4],
-            only_fake_data: bool = False,
-            test_data: bool = False,
-            test_points: bool = False,
+            with_fake_data: bool = False,
+            test_points: bool = False, # todo will take it out when Dr. Auchere has already seen it
     ) -> None:
         """ # todo update docstring
         To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
@@ -99,6 +98,7 @@ class Setup:
                 visualise (if polynomial is set to True). Defaults to [5].
         """
 
+        # todo need to make the __init__ cleaner.
         # FEET
         self.feet = ' with feet' if with_feet else ''
         
@@ -120,12 +120,16 @@ class Setup:
         else:
             self.polynomial_order = [polynomial_order]
 
-        self.only_fake_data = only_fake_data
-        self.test_data = test_data
-        if filepath is None:
+        self.with_fake_data = with_fake_data
+
+        # DATA filepath
+        if filepath is None and with_fake_data:
+            self.filepath = os.path.join(root_path, *config.paths.data.fusion.split('/'))
+        elif filepath is None:
             self.filepath = os.path.join(root_path, *config.paths.data.real.split('/'))
         else:
             self.filepath = filepath
+
         self.processes = config.processes if processes is None else processes
         self.test_points = test_points
 
@@ -153,11 +157,10 @@ class Setup:
         # PATHs save
         paths = {
             'code': root_path,
-            'sdo': os.path.join(root_path, '..', 'sdo'),
+            'sdo': os.path.join(root_path, '..', 'sdo'), # ? should I add it to config ?
         }
 
         # PATHs update
-        if self.only_fake_data: paths['data'] = os.path.join(paths['data'], 'fake_data')
         return paths
 
     @Decorators.running_time
@@ -169,73 +172,72 @@ class Setup:
         # DATA init
         HDF5File = h5py.File(self.filepath, 'r')
         cubes = CubesData(hdf5File=HDF5File)
+        init_path = '' if not self.with_fake_data else 'Real/'
 
         # DATA main
-        self.constants = self.get_default_data(HDF5File)
+        self.constants = self.get_default_data(HDF5File, init_path)
         self.radius_index = self.solar_r / self.constants.dx
 
         # CHOICES data
         if self.all_data: 
-            path = 'Filtered/All data' + self.feet
+            path = init_path + 'Filtered/All data' + self.feet
             cubes.all_data = self.get_cube_info(HDF5File, path, interpolate=False)
 
         if self.no_duplicate: 
-            path = 'Filtered/No duplicates' + self.feet
+            path = init_path + 'Filtered/No duplicates' + self.feet
             cubes.no_duplicate = self.get_cube_info(HDF5File, path, interpolate=False)
 
         if self.all_data_integration: 
             path = (
-                'Time integrated/All data' + self.feet +
+                init_path + 'Time integrated/All data' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
             cubes.integration_all_data = self.get_cube_info(HDF5File, path, opacity=0.4)
 
         if self.no_duplicate_integration:
             path = (
-                'Time integrated/No duplicates' + self.feet +
+                init_path + 'Time integrated/No duplicates' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
             cubes.integration_no_duplicate = self.get_cube_info(HDF5File, path, opacity=0.6)
 
         if self.line_of_sight_SDO:
-            path = ('Filtered/SDO line of sight')
+            path = init_path + 'Filtered/SDO line of sight'
             cubes.los_sdo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
         
         if self.line_of_sight_STEREO:
-            path = ('Filtered/STEREO line of sight')
+            path = init_path + 'Filtered/STEREO line of sight'
             cubes.los_stereo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
         
         # POVs sdo, stereo
         if self.pov_sdo:
             # SDO positions
-            time_indexes: np.ndarray = HDF5File['Time indexes'][...]
             sdo_positions: np.ndarray = HDF5File['SDO positions'][...]
 
             # DATA formatting
             cubes.sdo_pos = (
-                sdo_positions[time_indexes] / self.constants.dx  #type: ignore
+                sdo_positions[self.constants.time_indexes] / self.constants.dx
             ).astype('float32')
         if self.pov_stereo:
             # STEREO positions
-            time_indexes: np.ndarray = HDF5File['Time indexes'][...]
             stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
 
             # DATA formatting
             cubes.stereo_pos = (
-                stereo_positions[time_indexes] / self.constants.dx  #type: ignore
+                stereo_positions[self.constants.time_indexes] / self.constants.dx
             ).astype('float32')
             #TODO: will need to add the POV center
 
-        if self.test_data:
+        if self.with_fake_data:
             cubes.fake_cube = self.get_cube_info(
-                HDF5File,
-                'Test data/Fake cube',
+                HDF5File=HDF5File,
+                group_path='Fake/Filtered/All data',
                 interpolate=False,
+                fake_cubes=True,
             )
 
         # ADD shape
-        cubes.add_shape()
-
+        cubes.add_shape()  # * had to as there seems to be a bug in the k3d module
         return cubes
 
     def get_sdo_fov(self) -> float:
@@ -253,8 +255,8 @@ class Setup:
         hdul.close()
         return fov_degrees # ? in my old code I divide it by 3, no clue why
     
-    def get_default_data(self, HDF5File: h5py.File) -> CubesConstants:
-        """
+    def get_default_data(self, HDF5File: h5py.File, init_path: str) -> CubesConstants:
+        """ # todo update docstring
         Gives the global information for the data.
 
         Args:
@@ -265,7 +267,7 @@ class Setup:
         """
         
         # DATA setup
-        time_indexes: np.ndarray = HDF5File['Time indexes'][...]
+        time_indexes: np.ndarray = HDF5File[init_path + 'Time indexes'][...]
         dates_bytes: np.ndarray = HDF5File['Dates'][...]
         dates_str = [dates_bytes[number].decode('utf-8') for number in time_indexes]
 
@@ -276,14 +278,37 @@ class Setup:
         )
         return constants
     
+    @overload  # ? add another when fake_cube is not given ? VSCode seems to understand though
+    def get_cube_info(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            opacity: float = ...,
+            interpolate: bool = ...,
+            *,
+            fake_cubes: Literal[False] = ...,
+        ) -> CubeInfo: ...
+
+    @overload
+    def get_cube_info(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            opacity: float = ...,
+            interpolate: bool = ...,
+            *,
+            fake_cubes: Literal[True] = ...,
+        ) -> FakeCubeInfo: ...
+
     def get_cube_info(
             self,
             HDF5File: h5py.File,
             group_path: str,
             opacity: float = 1.,
             interpolate: bool = True,
-        ) -> CubeInfo:
-        """
+            fake_cubes: bool = False,
+        ) -> CubeInfo | FakeCubeInfo:
+        """ # todo update docstring
         Gives the protuberance and polynomial fit information for a chosen cube 'type'.
 
         Args:
@@ -325,17 +350,31 @@ class Setup:
         else:
             polynomials = None
 
-        # FORMATTING data
-        cube_info = CubeInfo(
-            name=' '.join(group_path.split('/')[:2]),
-            opacity=opacity,
-            xt_min_index=xt_min_index,
-            yt_min_index=yt_min_index,
-            zt_min_index=zt_min_index,
-            dataset_coords=data_coords,
-            dataset_values=data_values,
-            polynomials=polynomials,
-        )
+        if not fake_cubes:
+            # FORMATTING data
+            cube_info = CubeInfo(
+                group_path=group_path,
+                opacity=opacity,
+                xt_min_index=xt_min_index,
+                yt_min_index=yt_min_index,
+                zt_min_index=zt_min_index,
+                dataset_coords=data_coords,
+                dataset_values=data_values,
+                polynomials=polynomials,
+            )
+        else:
+            cube_info = FakeCubeInfo(
+                group_path=group_path,
+                opacity=opacity,
+                xt_min_index=xt_min_index,
+                yt_min_index=yt_min_index,
+                zt_min_index=zt_min_index,
+                dataset_coords=data_coords,
+                dataset_values=data_values,
+                time_indexes_real=self.constants.time_indexes,
+                time_indexes_fake=HDF5File['Fake/Time indexes'][...],
+            )
+        
         print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
 
@@ -567,7 +606,7 @@ class K3dAnimation(Setup):
 
     def create_voxels(
             self,
-            cube: CubeInfo,
+            cube: CubeInfo | FakeCubeInfo,
             index: int = 0,
             color_map: list[int] = [0x0000ff],
             **kwargs,
@@ -576,7 +615,7 @@ class K3dAnimation(Setup):
         Creates the k3d.plot.voxels() for a given cube 'type'.
 
         Args:
-            cube (CubeInfo): the cube and polynomial fit information.
+            cube (CubeInfo | FakeCubeInfo): the cube and polynomial fit information.
             index (int, optional): the chosen index to initially plot. Defaults to 0.
             opacity (float, optional): the voxel opacity in the plot. Defaults to 0.8.
             color_map (list[int], optional): the color chosen for the voxels.
@@ -593,7 +632,6 @@ class K3dAnimation(Setup):
 
         # INDEX translation
         translation = (cube.xt_min_index, cube.yt_min_index, cube.zt_min_index)
-        print(f'the borders are {translation}')
 
         plots[0] = k3d.voxels(
             voxels=cube[index][0].transpose((2, 1, 0)),
@@ -705,7 +743,7 @@ class K3dAnimation(Setup):
                 self.camera_pos = (- distance_to_sun, -0.5 * distance_to_sun, 0)
 
             self.plot.camera = [
-                self._camera_reference[0] + self.camera_pos[0], 
+                self._camera_reference[0] + self.camera_pos[0], # ! there is an overflow here
                 self._camera_reference[1] + self.camera_pos[1],
                 self._camera_reference[2] + self.camera_pos[2],
                 self._camera_reference[0],
@@ -800,13 +838,18 @@ class K3dAnimation(Setup):
         if self.cubes.fake_cube is not None:
             self.update_voxel(self.plot_fake_cube, self.cubes.fake_cube, change['new'])
 
-    def update_voxel(self, plots: list[VoxelType], cube_info: CubeInfo, index: int) -> None:
+    def update_voxel(
+            self,
+            plots: list[VoxelType],
+            cube_info: CubeInfo | FakeCubeInfo,
+            index: int,
+        ) -> None:
         """
         Updates the k3d plot voxels for each cube and the corresponding polynomials.
 
         Args:
             plots (list[VoxelType]): the different voxel plots for each cube type.
-            cube_info (CubeInfo): each cube type. None if it wasn't created.
+            cube_info (CubeInfo | FakeCubeInfo): the data cubes. None if it doesn't exist.
             index (int): the index to plot.
         """
 
