@@ -177,14 +177,14 @@ class PolynomialInformation:
 @dataclass(slots=True, repr=False, eq=False)
 class ProjectedCube:
 
+    # ? add xt_min, yt_min, zt_min ?
     # DATA
     data: np.ndarray
 
     # PLOT config
     colour: str
 
-    def __iter__(self) -> Iterator[np.ndarray]:
-        return iter(self.data)
+    def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -198,7 +198,7 @@ class ProjectionData:
     sdo_mask: PolarImageInfo | None = None
     all_data: ProjectedCube | None = None
     no_duplicates: ProjectedCube | None = None
-    integration: ProjectedCube | None = None  # ? should I add the xt_min, yt_min, ... values
+    integration: ProjectedCube | None = None
     line_of_sight: ProjectedCube | None = None
     fits: list[PolynomialInformation] | None = None
     test_data: ProjectedCube | None = None

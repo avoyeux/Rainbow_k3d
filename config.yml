@@ -1,22 +1,31 @@
 # Stores the 'global' arguments for the repository
 
-# todo need to think properly about the structure of the config file
-
 project:
     name: RainbowK3d
     version: 0.1.0
     author: VOYEUX Alfred
     description: "3D visualisation and re-projection of a solar protuberance"
     
-paths:
-    data: 
-        real: data/data.h5
-        fake: data/fake_data/fake_from_toto.h5
-        fusion: data/fusion_data/data_with_fake_from_toto.h5
-        tests: manual_tests/testing_tests.h5
-    animation: animation
-    projection: projection
-    tests: tests
+directories:
+    data: &datapath data
+    fake_data: &fakepath !join [*datapath, "fake_data"]
+    fusion_data: &fusionpath !join [*datapath, "fusion_data"]
+    animation: &animationpath animation
+    projection: &projectionpath projection
+    manual_tests: &manualtestspath manual_tests
+    tests: &testspath tests
+    sdo: &sdopath !join ['..', 'sdo']
+
+    save:
+        path: &workdone !join ['..', 'work_done']  # ! this is wrong for now
+        envelope: !join [*workdone, 'envelope']
+
+data: 
+    path:
+        real: !join [*datapath, "data.h5"]
+        fake: !join [*fakepath, "fake_from_toto.h5"]
+        fusion: !join [*fusionpath, "data_with_fake_from_toto.h5"]
+        tests: !join [*manualtestspath, "testing_tests.h5"]
 
 processes: 4
 

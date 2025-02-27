@@ -18,20 +18,14 @@ from typing import Any
 import matplotlib.pyplot as plt
 
 # IMPORTS personal
-from common import Decorators, Plot, root_path, DictToObject
+from common import Decorators, Plot, root_path, config
 from data.get_polynomial import GetCartesianProcessedPolynomial
 from projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
 from projection.cartesian_to_polar import CartesianToPolar
 from projection.projection_dataclasses import *
 
-# CONFIGURATION setup
-with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
-    config = DictToObject(yaml.safe_load(conf))
-
 # PLACEHOLDERs type annotation
 QueueProxy = Any
-
-# todo change the plot_choices choices so that the string is exactly the same as in the data.
 
 
 
@@ -150,9 +144,9 @@ class OrthographicalProjection:
 
         if filepath is None:
             if self.with_fake_data:
-                filepath = os.path.join(root_path, *config.paths.data.fusion.split('/'))
+                filepath = os.path.join(root_path, *config.data.path.fusion.split('/'))
             else:
-                filepath = os.path.join(root_path, *config.paths.data.real.split('/'))
+                filepath = os.path.join(root_path, *config.data.path.real.split('/'))
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -170,8 +164,8 @@ class OrthographicalProjection:
         paths = {
             'main': main_path,
             'code': root_path,
-            'data': os.path.join(root_path, 'data'),
-            'sdo': os.path.join(main_path, 'sdo'),
+            'data': os.path.join(root_path, config.directories.data),
+            'sdo': os.path.join(root_path, config.directories.sdo),
             'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
             'save': os.path.join(main_path, 'Work_done', self.foldername),
         }
