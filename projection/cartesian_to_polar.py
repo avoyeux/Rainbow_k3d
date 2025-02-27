@@ -44,9 +44,10 @@ class CartesianToPolar:
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
             plot: bool = False,
+            colour: str = 'black',
             **kwargs,
         ) -> None:
-        """
+        """ # todo update docstring
         To change an SDO fits image to the polar representation centred on the Sun's disk.
         The image borders will depend on the specified method.
         The result of the processing is gotten from the .coordinates_cartesian_to_polar() after
@@ -68,6 +69,7 @@ class CartesianToPolar:
         self.direction = direction
         self.theta_offset = theta_offset
         self.plot = plot
+        self.colour = colour
         self.kwargs = kwargs
 
         # RUN
@@ -80,6 +82,7 @@ class CartesianToPolar:
             cls,
             filepath: str,
             borders: ImageBorders,
+            colour: str,
             direction: str = 'anticlockwise',
             theta_offset: int | float = 0,
             **kwargs,
@@ -105,6 +108,7 @@ class CartesianToPolar:
             borders=borders,
             direction=direction,
             theta_offset=theta_offset,
+            colour=colour,
             **kwargs,
         )
         return instance.coordinates_cartesian_to_polar()
@@ -252,6 +256,7 @@ class CartesianToPolar:
             sdo_pos=self.image_info.sdo_pos,
             resolution_km=new_dx,
             resolution_angle=new_d_theta,
+            colour=self.colour,
         )
         return polar_image_info
     
