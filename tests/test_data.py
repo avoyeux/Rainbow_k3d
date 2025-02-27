@@ -6,7 +6,6 @@ To test if all_data is really the intersection of the line of sight data.
 import os
 import h5py
 import yaml
-import sparse
 import unittest
 
 # IMPORTs alias
@@ -14,9 +13,9 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs sub
-from numba import njit
 from typing import Any
 from dataclasses import dataclass
+import jax.numpy as jnp
 
 # IMPORTs personal
 from common import root_path, Decorators, DictToObject
@@ -232,12 +231,44 @@ class CompareCubes:
         Returns:
             np.ndarray: the intersected array.
         """
-
+        print(f'array1 and array2 shapes are {array1.shape}, {array2.shape}')
         set1 = set(map(tuple, array1.T))
         set2 = set(map(tuple, array2.T))
         intersection = set1 & set2
         return np.array(list(intersection)).T
 
+    def old_intersect_2d_arrays(self, array1: np.ndarray, array2: np.ndarray) -> np.ndarray:
+        """ # ! this doesn't work yet. I need to change the arrays to dense and test it during the weekend
+        To intersect two 2D arrays by doing a bitwise operation on the hashed coordinates.
+
+        Args:
+            array1 (np.ndarray): the first array.
+            array2 (np.ndarray): the second array.
+
+        Returns:
+            np.ndarray: the intersected array.
+        """
+        # Convert arrays to JAX arrays
+        array1 = jnp.array(array1)
+        array2 = jnp.array(array2)
+
+        # Create unique hashed identifiers for each coordinate
+        hash1 = jnp.sum(array1 * jnp.array([1, 10, 100]), axis=0)
+        hash2 = jnp.sum(array2 * jnp.array([1, 10, 100]), axis=0)
+
+        # Create boolean masks for the presence of coordinates
+        mask1 = jnp.zeros((hash1.max() + 1,), dtype=bool).at[hash1].set(True)
+        mask2 = jnp.zeros((hash2.max() + 1,), dtype=bool).at[hash2].set(True)
+
+        # Find the intersection using bitwise_and
+        intersection_mask = jnp.bitwise_and(mask1, mask2)
+
+        # Extract the intersected coordinates
+        intersection_indices = jnp.where(intersection_mask)[0]
+        intersection = array1[:, jnp.isin(hash1, intersection_indices)]
+
+        return intersection
+    
 
 class TestCompareCubes(unittest.TestCase):
     """
