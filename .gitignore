@@ -2,18 +2,11 @@
 *
 
 # DIRs whitelisted
-!/tests/
-!/manual_tests/
-!/archive/
-!/archive/from_idl/
-!/archive/deprecated/
-!/animation/
-!/animation/personal_test_visualisation.txt
-!/Common/
-!/data/
-!/data/fake_data/
-!/data/fusion_data/
-!/projection/
+!Common/
+!Common/**/*
+!codes/
+!codes/**/
+!data_files/
 
 # TYPEs whitelisted
 !**/*.pro
@@ -21,9 +14,9 @@
 !**/*.ipynb
 !**/*.md
 !**/*.yml
+!**/*.txt
 
 # FILEs whitelisted
 !README.md
 !requirements.txt
-!SDO_timestamps.txt
 !.gitignore

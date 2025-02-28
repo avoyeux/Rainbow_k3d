@@ -1,36 +1,64 @@
 # Stores the 'global' arguments for the repository
+# todo need to add a postprocessing for paths like path/to/file so that I don't use !join everytime
+
 
 project:
     name: RainbowK3d
     version: 0.1.0
     author: VOYEUX Alfred
     description: "3D visualisation and re-projection of a solar protuberance"
-    
+
 directories:
-    data: &datapath data
-    fake_data: &fakepath !join [*datapath, "fake_data"]
-    fusion_data: &fusionpath !join [*datapath, "fusion_data"]
-    animation: &animationpath animation
-    projection: &projectionpath projection
-    manual_tests: &manualtestspath manual_tests
-    tests: &testspath tests
-    sdo: &sdopath !join ['..', 'sdo']
+    code:
+        path: &pathcode codes
 
-    save:
-        path: &workdone !join ['..', 'work_done']  # ! this is wrong for now
-        envelope: !join [*workdone, 'envelope']
+        animation: !join [*pathcode, 'animation']
+        projection: !join [*pathcode, 'projection']
+        manual_test: !join [*pathcode, 'manual_tests']
+        test: !join [*pathcode, 'tests'] 
 
-data: 
-    path:
-        real: !join [*datapath, "data.h5"]
-        fake: !join [*fakepath, "fake_from_toto.h5"]
-        fusion: !join [*fusionpath, "data_with_fake_from_toto.h5"]
-        tests: !join [*manualtestspath, "testing_tests.h5"]
+        data: &datacode !join [*pathcode, 'data']
+        fake_data: !join [*datacode, 'fake_data']
+        fusion_data: !join [*datacode, 'fusion_data']
+        quick_data: !join [*datacode, 'quick_visualisation_data']
 
-processes: 4
+    data: 
+        path: &datapath data_files
 
-debug:
-    tests: True  # ! need to implement this somewhere
-    processes: 10
-    verbose: 1
-    flush: True
+        hdf5: !join [*datapath, 'hdf5_files']
+        mp4: !join [*datapath, 'mp4_saves']
+        synoptic_maps: !join [*datapath, 'synoptic_maps']  # ! subdirectories are not given here
+
+        sdo_fits: &sdofiles !join [*datapath, 'sdo']
+        sdo_png: !join [*sdofiles, 'png']
+
+        stereo: 
+            path: &stereofiles !join [*datapath, 'stereo']
+
+            avg: !join [*stereofiles, 'avg']
+            int: !join [*stereofiles, 'int']
+            masque:
+                alf: !join [*stereofiles, 'masque']
+                karine: !join [*stereofiles, 'masque_karine']
+
+        results:
+            path: &workdone !join [*datapath, 'work_done']
+
+            contours: !join [*workdone, 'contours_3images']
+            stereo: !join [*workdone, 'opening_stereo_new']
+            envelope: !join [*workdone, 'envelope']
+            texture: !join [*workdone, 'textures']
+            projection: !join [*workdone, 'projection']
+
+            stats: 
+                path: &stats !join [*workdone, 'stats']
+                plot: !join [*stats, 'stats_plot']
+
+run:
+    processes: 4
+
+    debug:
+        tests: True  # ! need to implement this somewhere
+        processes: 10
+        verbose: 1
+        flush: True

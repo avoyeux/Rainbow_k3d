@@ -1,0 +1,6 @@
+faire passser l'interpolation par le skeleton. 
+
+
+il faut prouver que la derivee dune positions (donc selon t), donne la meme direction que la derivee de cette fonction mais seuleon une variable f(t) non lineaire.
+C'est pour prouver que, meme si ma distance cumule n'est pas lineaire, le calcul de sa derive devrait quand meme donne le bon angle pour la correction de l'ancien
+papier scientific de frederic.
