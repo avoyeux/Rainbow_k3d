@@ -5,19 +5,14 @@ To add both the real and fake data together in the same HDF5 file.
 # IMPORTS
 import os
 import h5py
-import yaml
 
 # IMPORTs sub
 from typing import Self
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import root_path, Decorators, DictToObject
+from common import config, Decorators
 from data.base_hdf5_creator import BaseHdf5Creator
-
-# CONFIGURATION setup
-with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
-    config = DictToObject(yaml.safe_load(conf))
 
 
 
@@ -92,20 +87,33 @@ class FusionHdf5(BaseHdf5Creator):
     """
 
     @Decorators.running_time
-    def __init__(self, filename: str, compression: bool = True, compression_lvl: int = 9) -> None:
-        """ # todo update docstring
-        To add both the real and fake data together in the same HDF5 file.
+    def __init__(
+            self,
+            filename: str | None = None,
+            compression: bool = True,
+            compression_lvl: int = 9,
+        ) -> None:
+        """
+        To add the fake and real data together in the same HDF5 file.
 
         Args:
-            filename (str): the new HDF5 filename.
+            filename (str | None, optional): the filename of the new HDF5 file. If not, it fetches
+                the name from the config file. Defaults to None.
+            compression (bool, optional): deciding to use gzip compression for the datasets in the
+                fusion file. Defaults to True.
+            compression_lvl (int, optional): the level of the gzip compression to use.
+                Defaults to 9.
         """
+
+        # FILENAME setup
+        filename = os.path.basename(config.path.data.fusion) if filename is None else filename
 
         # PARENT
         super().__init__(filename, compression, compression_lvl)
         
         # ATTRIBUTEs
-        self.filepath_real = os.path.join(root_path, *config.paths.data.real.split('/'))
-        self.filepath_fake = os.path.join(root_path, *config.paths.data.fake.split('/'))
+        self.filepath_real = config.path.data.real
+        self.filepath_fake = config.path.data.fake
 
         # SETUP
         self.paths = self.paths_setup()
@@ -120,10 +128,7 @@ class FusionHdf5(BaseHdf5Creator):
         """
 
         # PATHs formatting
-        paths = {
-            'codes': root_path,
-            'save': os.path.join(root_path, 'data', 'fusion_data'),
-        }
+        paths = {'save': config.path.dir.data.hdf5}
         return paths
     
     def paths_choices(self) -> dict[str, list[str] | dict[str, list[str] | dict[str, list[str]]]]:
@@ -233,7 +238,5 @@ class FusionHdf5(BaseHdf5Creator):
 if __name__ == '__main__':
 
     # FUSION
-    fusion = FusionHdf5(
-        filename='data_with_fake_from_toto.h5',
-    )
+    fusion = FusionHdf5(filename=None)
     fusion.create()

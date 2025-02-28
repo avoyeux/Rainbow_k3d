@@ -18,7 +18,7 @@ from astropy.io import fits
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import root_path, Decorators
+from common import config, Decorators
 
 # PLACEHOLDERs type annotation
 LockProxy = Any
@@ -52,8 +52,13 @@ class CreateFakeTotoInputs:
     To create the fake data inputs (i.e. FITs + PNGs) for Dr. Auchere's new_toto.pro code.
     """
 
-    def __init__(self, sphere_radius: float, fake_len: int = 413, processes: int = 4) -> None:
-        """
+    def __init__(
+            self,
+            sphere_radius: float,
+            fake_len: int = 413,
+            processes: int | None = None,
+        ) -> None:
+        """ # todo update docstring
         To create the fake data inputs for Dr. Auchere's new_toto.pro code.
 
         Args:
@@ -61,10 +66,12 @@ class CreateFakeTotoInputs:
             fake_len (int, optional): the number of fake data to create. Defaults to 413.
         """
 
+        # PROCESSES setup
+        self.processes = config.run.processes if processes is None else processes
+
         # ATTRIBUTEs
         self.fake_len = fake_len
         self.sphere_radius = sphere_radius
-        self.processes = processes
         
         # RUN
         self.paths = self.paths_setup()
@@ -79,16 +86,12 @@ class CreateFakeTotoInputs:
             dict[str, str]: the paths to the different directories.
         """
 
-        # PATHs setup
-        main_path = os.path.join(root_path, '..')
-
         # PATHs formatting
         paths = {
-            'main': main_path,
-            'stereo files': os.path.join(main_path, 'STEREO', 'masque_karine'),
-            'sdo files': os.path.join(main_path, 'sdo'),  # todo change if config.yml is updated
-            'save fits': os.path.join(root_path, 'data/fake_data/fits'),
-            'save png': os.path.join(root_path, 'data/fake_data/png'),
+            'stereo files': config.path.dir.data.stereo.mask.karine,
+            'sdo files': config.path.dir.data.sdo,
+            'save fits': config.path.dir.data.fake.fits,
+            'save png': config.path.dir.data.fake.png,
         }
 
         # PATHs create
@@ -240,4 +243,4 @@ class CreateFakeTotoInputs:
 
 if __name__=='__main__':
 
-    CreateFakeTotoInputs(sphere_radius=6.96e5, processes=10)
+    CreateFakeTotoInputs(sphere_radius=6.96e5)

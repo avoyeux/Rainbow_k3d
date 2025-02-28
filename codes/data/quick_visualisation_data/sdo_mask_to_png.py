@@ -16,7 +16,7 @@ from astropy.io import fits
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
-from common import Decorators, config
+from common import config, Decorators
 
 # PLACEHOLDERs type annotation
 QueueProxy = Any
@@ -60,8 +60,8 @@ class SdoMasksToPng:
 
         # PATHs formatting
         paths = {
-            'sdo': config.directories.data.sdo,
-            'png': os.path.join(config.directories.data.sdo, 'png'),
+            'sdo': config.path.dir.data.sdo,
+            'png': os.path.join(config.path.dir.data.sdo, 'png'),
         }
 
         # PATHs create

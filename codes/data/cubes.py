@@ -20,7 +20,6 @@ import multiprocessing as mp
 
 # IMPORTs sub
 import sunpy.coordinates
-import multiprocessing.queues
 from typing import Any
 from astropy import units as u
 from typing import Any, Callable
@@ -28,14 +27,12 @@ from typing import Any, Callable
 # IMPORTs personal
 from data.get_polynomial import Polynomial
 from data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
-from common import Decorators, CustomDate, DatesUtils, MultiProcessing, root_path
+from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
-# todo I could change the code so that one process runs only one cube at once (except for the time
-# integration part where I need to only take the data section needed). This will need to change the
-# whole fetching, cube creating and saved data structure, so holding it off for now
+# todo change the code so each cube processing is done in a separate process
 
 
 
@@ -47,8 +44,8 @@ class DataSaver(BaseHDF5Protuberance):
     @Decorators.running_time
     def __init__(
         self,
-        filename: str,
-        processes: int, 
+        filename: str | None = None,
+        processes: int | None = None, 
         integration_time: int | list[int] = [24],
         polynomial_points: int = int(1e6), 
         polynomial_order: int | list[int] = [3, 4, 5],
@@ -91,6 +88,13 @@ class DataSaver(BaseHDF5Protuberance):
                 Defaults to False.
         """
 
+        # FILENAME setup
+        if filename is None:
+            if fake_hdf5:
+                filename = os.path.basename(config.path.data.fake)
+            else:
+                filename = os.path.basename(config.path.data.real)
+
         # PARENT
         super().__init__(filename, compression, compression_lvl)
 
@@ -98,8 +102,10 @@ class DataSaver(BaseHDF5Protuberance):
         self.max_cube_numbers = 413  # ? kind of weird I hard coded this
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
 
+        # MULTIPROCESSING setup
+        self.processes = int(config.run.processes if processes is None else processes)
+
         # ARGUMENTs
-        self.processes = processes
         if isinstance(integration_time, int):
             self.integration_time = [integration_time * 3600]
         else:
@@ -139,26 +145,17 @@ class DataSaver(BaseHDF5Protuberance):
             dict[str, str]: the directory paths.
         """
 
-        # SETUP
-        main = os.path.join(root_path, '..')
-
         # PATHs keep
         paths = {
-            'main': main,
-            'codes': root_path,
-            'cubes': os.path.join(main, 'Cubes_karine'),
-            'intensities': os.path.join(main, 'STEREO', 'int'),
-            'sdo': os.path.join(main, 'sdo'),
-            'save': os.path.join(root_path, 'data'),
+            'cubes': config.path.dir.data.cubes.karine,
+            'intensities': config.path.dir.data.stereo.int,
+            'sdo': config.path.dir.data.sdo,
+            'stereo info': config.path.data.stereob_info,
+            'save': config.path.dir.data.hdf5,
         }
 
-        # PATHS change
-        if self.fake_hdf5:
-            paths['cubes'] = os.path.join(root_path, 'data', 'fake_data', 'save_from_toto')
-            paths['save'] = os.path.join(root_path, 'data', 'fake_data')
-        
-        # PATHS create
-        for key in ['save']: os.makedirs(paths[key], exist_ok=True)
+        # PATHS update
+        if self.fake_hdf5: paths['cubes'] = config.path.dir.data.cubes.fake
         return paths
     
     def setup_patterns(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -467,9 +464,7 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # DATA
-        stereo_information = scipy.io.readsav(
-            os.path.join(self.paths['main'], 'rainbow_stereob_304.save')
-        ).datainfos
+        stereo_information = scipy.io.readsav(self.paths['stereo info']).datainfos
 
         # COORDs
         coordinates = self.get_pos_code(stereo_information, self.get_pos_stereo_sub)
@@ -531,7 +526,7 @@ class DataSaver(BaseHDF5Protuberance):
         return coordinates
     
     @staticmethod
-    def get_pos_sdo_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+    def get_pos_sdo_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
         """
         To get the position of the SDO satellite.
 
@@ -567,7 +562,7 @@ class DataSaver(BaseHDF5Protuberance):
             output_queue.put((identification, result))
         
     @staticmethod
-    def get_pos_stereo_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+    def get_pos_stereo_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
         """
         To get the position of the STEREO B satellite.
 
@@ -910,7 +905,7 @@ class DataSaver(BaseHDF5Protuberance):
         return data, new_borders
 
     @staticmethod
-    def time_integration_sub(input_queue: mp.queues.Queue, output_queue: mp.queues.Queue) -> None:
+    def time_integration_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
         """
         To multiprocess the time integration of the cubes. This does it for each given date.
 
@@ -1320,8 +1315,8 @@ class DataSaver(BaseHDF5Protuberance):
     @staticmethod
     def skyCoords_slice(
             coords: dict[str, Any],
-            input_queue: mp.queues.Queue,
-            output_queue: mp.queues.Queue,
+            input_queue: QueueProxy,
+            output_queue: QueueProxy,
         ) -> None:
         """
         To create an astropy.coordinates.SkyCoord object for a singular cube (i.e. for a unique
@@ -1366,9 +1361,7 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = DataSaver(
-        filename='data.h5',
         polynomial_order=[4],
-        processes=32,
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
