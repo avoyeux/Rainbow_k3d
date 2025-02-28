@@ -28,9 +28,7 @@ directories:
         hdf5: !join [*datapath, 'hdf5_files']
         mp4: !join [*datapath, 'mp4_saves']
         synoptic_maps: !join [*datapath, 'synoptic_maps']  # ! subdirectories are not given here
-
-        sdo_fits: &sdofiles !join [*datapath, 'sdo']
-        sdo_png: !join [*sdofiles, 'png']
+        sdo: !join [*datapath, 'sdo']
 
         stereo: 
             path: &stereofiles !join [*datapath, 'stereo']
