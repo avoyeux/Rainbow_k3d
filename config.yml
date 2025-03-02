@@ -69,6 +69,7 @@ path:
 
     data:
         stereob_info: !join [*datacubes, 'rainbow_stereob_304.save']
+        sdo_timestamp: !join [*datapath, 'SDO_timestamps.txt']
 
         real: !join [*datahdf5, 'data.h5']
         fake: !join [*datahdf5, 'fake_from_toto.h5']
@@ -77,11 +78,13 @@ path:
         test: !join [*datahdf5, 'testing.h5']
 
 run:
-    processes: 4
-    verbose: 3
+    processes: 2
+    verbose: 2
+    flush: False
 
     debug:
         tests: True  # ! need to implement this somewhere
+        
         processes: 10
         verbose: 1
         flush: True

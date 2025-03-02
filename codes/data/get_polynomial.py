@@ -18,8 +18,8 @@ import multiprocessing as mp
 from typing import Any, Callable
 
 # IMPORTs personal
-from common import Decorators, MultiProcessing, root_path
-from projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
+from common import Decorators, MultiProcessing
+from codes.projection.projection_dataclasses import CubeInformation, HDF5GroupPolynomialInformation
 
 # PLACEHOLDERs type annotation
 LockProxy = Any

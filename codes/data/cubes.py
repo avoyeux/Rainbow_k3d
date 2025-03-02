@@ -25,8 +25,8 @@ from astropy import units as u
 from typing import Any, Callable
 
 # IMPORTs personal
-from data.get_polynomial import Polynomial
-from data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
+from codes.data.get_polynomial import Polynomial
+from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 
 # PLACEHOLDERs type annotation

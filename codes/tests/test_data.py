@@ -5,7 +5,6 @@ To test if all_data is really the intersection of the line of sight data.
 # IMPORTs
 import os
 import h5py
-import yaml
 import unittest
 
 # IMPORTs alias
@@ -18,11 +17,7 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 
 # IMPORTs personal
-from common import root_path, Decorators, DictToObject
-
-# CONFIGURATION load
-with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
-    config = DictToObject(yaml.safe_load(conf))
+from common import config, Decorators
 
 # PLACEHOLDERs type annotation
 LockProxy = Any
@@ -54,12 +49,12 @@ class CompareCubes:
 
     def __init__(
             self,
-            filepath: str,
-            processes: int = 4,
-            verbose: int = 1,
-            flush: bool = False,
+            filepath: str | None = None,
+            processes: int | None = None,
+            verbose: int | None = None,
+            flush: bool | None = None,
         ) -> None:
-        """
+        """ # todo update docstring
         To initialize the CompareCubes class.
 
         Args:
@@ -69,10 +64,14 @@ class CompareCubes:
             flush (bool, optional): to flush the print. Defaults to False.
         """
 
-        self.filepath = filepath
-        self.processes = processes
-        self.verbose = verbose
-        self.flush = flush
+        # CONFIGURATION values
+        self.filepath = config.path.data.real if filepath is None else filepath
+        if processes is None:
+            self.processes: int = config.debug.processes
+        else:
+            self.processes = processes if processes > 1 else 1
+        self.verbose = config.debug.verbose if verbose is None else verbose
+        self.flush = config.debug.flush if flush is None else flush
 
     @Decorators.running_time
     def run_checks(self) -> list[bool]:
@@ -280,12 +279,7 @@ class TestCompareCubes(unittest.TestCase):
         To set up the test.
         """
 
-        self.compare_cubes = CompareCubes(
-            filepath=os.path.join(root_path, *config.paths.data.real.split('/')),
-            processes=config.debug.processes,
-            verbose=config.debug.verbose,
-            flush=config.debug.flush,
-        )
+        self.compare_cubes = CompareCubes()
 
     def test_check_intersection(self) -> None:
         """

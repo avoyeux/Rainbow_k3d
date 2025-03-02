@@ -16,8 +16,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
-from common import root_path
-from projection.projection_dataclasses import (
+from common import config
+from codes.projection.projection_dataclasses import (
     ImageBorders, EnvelopeInformation, EnvelopeLimitInformation, EnvelopeMiddleInformation
 )
 
@@ -36,9 +36,9 @@ class ExtractEnvelope:
             borders: ImageBorders,
             image_shape: tuple[int, int],
             plot: bool,
-            verbose: int = 0,
+            verbose: int | None = None,
         ) -> None:
-        """
+        """ # todo update docstring
         To get the curve equations of the two PNGs (created by Dr. Auchere) of the envelope
         encompassing the Rainbow protuberance. From there, it also creates the middle path of that
         envelope. 
@@ -56,13 +56,15 @@ class ExtractEnvelope:
             verbose (int, optional): decides on the details in the prints. Defaults to 0.
         """
 
+        # CONFIG attributes
+        self.verbose: int = config.run.verbose if verbose is None else verbose
+
         # ATTRIBUTES setup
         self.polynomial_order = polynomial_order
         self.number_of_points = number_of_points
         self.borders = borders
         self.image_shape = image_shape
         self.create_plot = plot        
-        self.verbose = verbose
         
         # PATHs setup
         self.paths = self.path_setup()
@@ -78,9 +80,9 @@ class ExtractEnvelope:
             borders: ImageBorders,
             image_shape: tuple[int, int] = (400, 1250),
             plot: bool = False,
-            verbose: int = 0,
+            verbose: int | None = None,
         ) -> EnvelopeInformation:
-        """
+        """ # todo update docstring
         This classmethod directly gives the envelope and middle path positions in polar
         coordinates.
 
@@ -120,17 +122,8 @@ class ExtractEnvelope:
             dict[str, str]: the needed paths.
         """
 
-        # PATHs setup
-        main_path = os.path.join(root_path, '..')
-
         # PATHs save
-        paths = {
-            'main': main_path,
-            'codes': root_path,
-            'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
-            'results': os.path.join(main_path, 'Work_done', 'Envelope', 'Extract_envelope'),
-        }
-        if self.create_plot: os.makedirs(paths['results'], exist_ok=True)
+        paths = {'envelope': config.path.dir.data.result.envelope}
         return paths
     
     def processing(self) -> None:

@@ -5,7 +5,6 @@ disk's center and get the corresponding image defined inside borders in polar co
 """
 
 # IMPORTs
-import os
 import sunpy
 import astropy
 import skimage
@@ -23,8 +22,8 @@ import sunpy.coordinates
 from typing import Any
 
 # IMPORTs personal
-from common import root_path
-from projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
+from common import config
+from codes.projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any
@@ -138,7 +137,7 @@ class CartesianToPolar:
         """
 
         # PATHs formatting
-        paths = {'sdo': os.path.join(root_path, '..', 'sdo')}
+        paths = {'sdo': config.path.dir.data.sdo}
         return paths
     
     def _open_data(self) -> ImageInfo:
