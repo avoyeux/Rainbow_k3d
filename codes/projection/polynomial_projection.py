@@ -18,11 +18,11 @@ from typing import Any
 import matplotlib.pyplot as plt
 
 # IMPORTS personal
-from common import Decorators, Plot, root_path, config
-from data.get_polynomial import GetCartesianProcessedPolynomial
-from projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
-from projection.cartesian_to_polar import CartesianToPolar
-from projection.projection_dataclasses import *
+from common import config, Decorators, Plot
+from codes.data.get_polynomial import GetCartesianProcessedPolynomial
+from codes.projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
+from codes.projection.cartesian_to_polar import CartesianToPolar
+from codes.projection.projection_dataclasses import *
 
 # PLACEHOLDERs type annotation
 QueueProxy = Any
@@ -48,8 +48,8 @@ class OrthographicalProjection:
                 'sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data',
             ], 
             with_fake_data: bool = False,
-            verbose: int = 1,
-            flush: bool = False
+            verbose: int | None = None,
+            flush: bool | None = None,
         ) -> None:
         """ # todo update docstring
         Re-projection of the computed 3D volume to recreate a 2D image of what is seen from SDO's
@@ -82,50 +82,45 @@ class OrthographicalProjection:
                 force the print buffer to be emptied (i.e. forces the prints). Defaults to False.
         """
 
-        # CONSTANTS
+        # CONFIG values
+        if processes is None:
+            self.processes: int = config.run.processes
+        else:
+            self.processes = processes if processes > 1 else 1
+        self.verbose: int = config.run.verbose if verbose is None else verbose
+        self.flush: bool = config.run.flush if flush is None else flush
+        self.in_local = True if not 'old_project' in config.root_path else False
+
+        # SERVER connection
+        if self.in_local:
+            from common.server_connection import SSHMirroredFilesystem
+            self.SSHMirroredFilesystem = SSHMirroredFilesystem
+
+        # CONSTANTs
         self.solar_r = 6.96e5  # in km
         self.projection_borders = ImageBorders(
             radial_distance=(690, 870),  # in Mm
             polar_angle=(245, 295),  # in degrees
         )
 
-        # ATTRIBUTES
-        self.feet = ' with feet' if with_feet else ''
+        # ATTRIBUTEs
         self.with_fake_data = with_fake_data
-        self.filepath = self.filepath_setup(filepath)
-        self.foldername = (
-            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
-        )
-        self.plot_choices = self.plot_choices_creation(plot_choices)
-        # todo need to clean up the __init__ method.
-        
-        
+        self.plot_choices = self.plot_choices_creation(plot_choices)        
         self.integration_time = integration_time_hours
-
-        if processes is None:
-            self.processes: int = config.processes
-        else:
-            self.processes = processes if processes > 1 else 1
-
         self.multiprocessing = True if self.processes > 1 else False
-        
         if isinstance(polynomial_order, list):
             self.polynomial_order = sorted(polynomial_order)
         else:
             self.polynomial_order = [polynomial_order]
-        self.in_local = True if not 'old_project' in root_path else False
-        self.verbose = verbose
-        self.flush = flush
 
+        # PATHs setup
+        self.feet = ' with feet' if with_feet else ''
+        self.filepath = self.filepath_setup(filepath)
+        self.foldername = (
+            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
+        )
+        self.paths = self.path_setup()  # path setup
 
-        # SETUP paths
-        self.paths = self.path_setup()  # todo need to think about what to do with this
-
-        # SERVER connection
-        if self.in_local:
-            from common.server_connection import SSHMirroredFilesystem
-            self.SSHMirroredFilesystem = SSHMirroredFilesystem
-        
         # GLOBAL data
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
         # PATHS sdo image
@@ -144,9 +139,9 @@ class OrthographicalProjection:
 
         if filepath is None:
             if self.with_fake_data:
-                filepath = os.path.join(root_path, *config.data.path.fusion.split('/'))
+                filepath: str = config.path.data.fusion
             else:
-                filepath = os.path.join(root_path, *config.data.path.real.split('/'))
+                filepath: str = config.path.data.real
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -157,17 +152,11 @@ class OrthographicalProjection:
             dict[str, str]: the needed paths.
         """
 
-        # PATH setup
-        main_path = os.path.join(root_path, '..')
-
         # PATHs save
         paths = {
-            'main': main_path,
-            'code': root_path,
-            'data': os.path.join(root_path, config.directories.data),
-            'sdo': os.path.join(root_path, config.directories.sdo),
-            'envelope': os.path.join(main_path, 'Work_done', 'Envelope'),
-            'save': os.path.join(main_path, 'Work_done', self.foldername),
+            'sdo': config.path.dir.data.sdo,
+            'sdo times': config.path.data.sdo_timestamp,
+            'save': os.path.join(config.path.dir.data.result.projection, self.foldername),
         }
 
         # PATHs update
@@ -406,7 +395,7 @@ class OrthographicalProjection:
                         self.paths['sdo'],
                         f"AIA_fullhead_{process_constants.time_index:03d}.fits.gz",
                     )
-                    polar_mask_info = self.sdo_image(filepath, colour='red')  # todo need to put the colour value somewhere else
+                    polar_mask_info = self.sdo_image(filepath, colour='red')
                     image = np.zeros(polar_mask_info.image.shape)
                     image[polar_mask_info.image > 0] = 1
                     polar_mask_info.image = image
@@ -796,7 +785,7 @@ class OrthographicalProjection:
 
         # SETUP
         filepath_end = '/S00000/image_lev1.fits'
-        with open(os.path.join(self.paths['code'], 'SDO_timestamps.txt'), 'r') as files:
+        with open(self.paths['sdo times'], 'r') as files:
             strings = files.read().splitlines()
         tuple_list = [s.split(" ; ") for s in strings]
     
