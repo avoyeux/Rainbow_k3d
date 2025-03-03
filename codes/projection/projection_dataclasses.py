@@ -125,7 +125,7 @@ class ProcessConstants:
     time_index: int
 
 
-@dataclass(slots=True, frozen=True, repr=False, eq=False)
+@dataclass(slots=True, repr=False, eq=False)
 class CubePointer:
     """
     Class to store the pointer to the data cubes used in the polynomial projection module.
@@ -142,6 +142,31 @@ class CubePointer:
     def __getitem__(self, item: int) -> np.ndarray:
         data_filter = self.pointer[0, :] == item
         return self.pointer[1:, data_filter].astype('float64')
+    
+
+@dataclass(slots=True, repr=False, eq=False)
+class FakeCubePointer(CubePointer):
+
+    # INDEXes time
+    real_time_indexes: np.ndarray
+    fake_time_indexes: np.ndarray
+
+    # PLACEHOLDERs
+    value_to_index: dict[int, int] = field(init=False)
+
+    def __post_init__(self) -> None:
+
+        self.value_to_index = {value: index for index, value in enumerate(self.fake_time_indexes)}
+
+    def __getitem__(self, item: int) -> np.ndarray:
+        
+        # INDEX real to fake
+        time_index = int(self.real_time_indexes[item])
+        fake_index = self.value_to_index[time_index]
+
+        # FILTER
+        data_filter = self.pointer[0, :] == fake_index
+        return self.pointer[1:, data_filter].astype('float64')
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -154,7 +179,7 @@ class CubesPointers:
     no_duplicates: CubePointer | None = field(default=None, init=False)
     integration: CubePointer | None = field(default=None, init=False)
     line_of_sight: CubePointer | None = field(default=None, init=False)
-    test_data: CubePointer | None = field(default=None, init=False)
+    test_data: FakeCubePointer | None = field(default=None, init=False)
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -182,6 +207,7 @@ class ProjectedCube:
     data: np.ndarray
 
     # PLOT config
+    name: str
     colour: str
 
     def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)

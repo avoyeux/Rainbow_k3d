@@ -51,35 +51,35 @@ class OrthographicalProjection:
             verbose: int | None = None,
             flush: bool | None = None,
         ) -> None:
-        """ # todo update docstring
+        """
         Re-projection of the computed 3D volume to recreate a 2D image of what is seen from SDO's
         POV.
         This is done to recreate the analysis of Dr. Auchere's paper; 'The coronal Monsoon'.
 
         Args:
-            processes (int, optional): the number of parallel processes used in the
-                multiprocessing. Defaults to 0.
+            processes (int | None, optional): the number of parallel processes used in the
+                multiprocessing. When None, uses the config file. Defaults to None.
             integration_time_hours (int, optional): the integration time used for the data to be
                 reprojected. Defaults to 24.
-            filename (str, optional): the filename of the HDF5 containing all the relevant 3D data.
-                Defaults to 'data.h5'.
-            data_type (str, optional): the data type of the 3D object to be reprojected
-                (e.g. All data). Defaults to 'No duplicates'.
+            filepath (str | None, optional): the filepath of the HDF5 containing all the relevant
+                3D data. When None, uses the config file. Defaults to None.
             with_feet (bool, optional): deciding to use the data with or without added feet.
-                Defaults to True.
+                Defaults to False.
             polynomial_order (int | list[int], optional): the order(s) of the polynomial
                 function(s) that represent the fitting of the integrated 3D volume.
-                Defaults to [4, 5, 6].
+                Defaults to [4].
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
                 the reprojection. The possible choices are:
-                ['cartesian', 'integration', 'no duplicate', 'sdo image', 'sdo mask',
-                'envelope', 'fit', 'fit envelope', 'test'].
-            fake_hdf5 (bool, optional): deciding to use the HDF5 file containing only the fake
-                data. Defaults to False.
-            verbose (int, optional): gives the verbosity in the outputted prints. The higher the
-                value, the more prints. Starts at 0 for no prints. Defaults to 1.
-            flush (bool, optional): used in the 'flush' kwarg of the print() class. Decides to
-                force the print buffer to be emptied (i.e. forces the prints). Defaults to False.
+                ['sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
+                Defaults to [ 'sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
+            with_fake_data (bool, optional): if the input data is the fusion HDF5 file.
+                Defaults to False.
+            verbose (int | None, optional): gives the verbosity in the outputted prints. The higher
+                the value, the more prints. Starts at 0 for no prints. When None, uses the config
+                file. Defaults to None.
+            flush (bool | None, optional): used in the 'flush' kwarg of the print() class.\
+                Decides to force the print buffer to be emptied (i.e. forces the prints). When
+                None, uses the config file. Defaults to None.
         """
 
         # CONFIG values
@@ -89,7 +89,7 @@ class OrthographicalProjection:
             self.processes = processes if processes > 1 else 1
         self.verbose: int = config.run.verbose if verbose is None else verbose
         self.flush: bool = config.run.flush if flush is None else flush
-        self.in_local = True if not 'old_project' in config.root_path else False
+        self.in_local = True if 'Documents' in config.root_path else False
 
         # SERVER connection
         if self.in_local:
@@ -120,11 +120,10 @@ class OrthographicalProjection:
             os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
         )
         self.paths = self.path_setup()  # path setup
+        self.sdo_timestamps = self.sdo_image_finder()  # sdo image timestamps
 
         # GLOBAL data
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
-        # PATHS sdo image
-        self.sdo_timestamps = self.sdo_image_finder()
 
     def filepath_setup(self, filepath: str | None) -> str:
         """
@@ -138,10 +137,7 @@ class OrthographicalProjection:
         """
 
         if filepath is None:
-            if self.with_fake_data:
-                filepath: str = config.path.data.fusion
-            else:
-                filepath: str = config.path.data.real
+            filepath = config.path.data.fusion if self.with_fake_data else config.path.data.real
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -361,7 +357,7 @@ class OrthographicalProjection:
                 # ? add the stereo line of sight just to see the intersection ?
             if self.plot_choices['test data']:
                 test_path = 'Fake/Filtered/All data'
-                data_pointers.test_data = self.get_cubes_information(H5PYFile, test_path)
+                data_pointers.test_data = self.get_fake_cube_information(H5PYFile, test_path)
 
             while True:
                 # INFO process 
@@ -395,7 +391,7 @@ class OrthographicalProjection:
                         self.paths['sdo'],
                         f"AIA_fullhead_{process_constants.time_index:03d}.fits.gz",
                     )
-                    polar_mask_info = self.sdo_image(filepath, colour='red')
+                    polar_mask_info = self.sdo_image(filepath, colour='green')
                     image = np.zeros(polar_mask_info.image.shape)
                     image[polar_mask_info.image > 0] = 1
                     polar_mask_info.image = image
@@ -404,101 +400,50 @@ class OrthographicalProjection:
                     projection_data.sdo_mask = polar_mask_info
 
                 if data_pointers.no_duplicates is not None:
-                    cube = CubeInformation(
-                        xt_min=data_pointers.no_duplicates.xt_min,
-                        yt_min=data_pointers.no_duplicates.yt_min,
-                        zt_min=data_pointers.no_duplicates.zt_min,
-                        coords=data_pointers.no_duplicates[process],
-                    )
-                    cube = self.cartesian_pos(cube)
-                    no_duplicates = self.get_polar_image(self.matrix_rotation(
-                        data=cube.coords,
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                    # DATA formatting
-                    projection_data.no_duplicates = ProjectedCube(
-                        data=no_duplicates,
+                    projection_data.no_duplicates = self.format_cube(
+                        data=data_pointers.no_duplicates,
+                        index=process,
+                        name='no duplicates',
                         colour='orange',
+                        sdo_pos=sdo_image_info.sdo_pos,
                     )
 
                 if data_pointers.all_data is not None:
-                    cube = CubeInformation(
-                        xt_min=data_pointers.all_data.xt_min,
-                        yt_min=data_pointers.all_data.yt_min,
-                        zt_min=data_pointers.all_data.zt_min,
-                        coords=data_pointers.all_data[process],
-                    )
-                    cube = self.cartesian_pos(cube)
-                    all_data = self.get_polar_image(self.matrix_rotation(
-                        data=cube.coords,
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                    # DATA formatting
-                    projection_data.all_data = ProjectedCube(
-                        data=all_data,
+                    projection_data.all_data = self.format_cube(
+                        data=data_pointers.all_data,
+                        index=process,
+                        name='all data',
                         colour='blue',
+                        sdo_pos=sdo_image_info.sdo_pos,
                     )
 
                 if data_pointers.line_of_sight is not None:
-                    line_of_sight = CubeInformation(
-                        xt_min=data_pointers.line_of_sight.xt_min,
-                        yt_min=data_pointers.line_of_sight.yt_min,
-                        zt_min=data_pointers.line_of_sight.zt_min,
-                        coords=data_pointers.line_of_sight[process],
-                    )
-                    line_of_sight = self.cartesian_pos(line_of_sight)
-                    line_of_sight = self.get_polar_image(self.matrix_rotation(
-                        data=line_of_sight.coords,
+                    projection_data.line_of_sight = self.format_cube(
+                        data=data_pointers.line_of_sight,
+                        index=process,
+                        name='line of sight',
+                        colour='purple',
                         sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                    # DATA formatting
-                    projection_data.line_of_sight = ProjectedCube(
-                        data=line_of_sight,
-                        colour='green',
                     )
 
                 if data_pointers.integration is not None: 
-                    integration = CubeInformation(
-                        xt_min=data_pointers.integration.xt_min,
-                        yt_min=data_pointers.integration.yt_min,
-                        zt_min=data_pointers.integration.zt_min,
-                        coords=data_pointers.integration[process],
-                    )
-                    integration = self.cartesian_pos(integration)
-                    integration = self.get_polar_image(self.matrix_rotation(
-                        data=integration.coords,
+                    projection_data.integration = self.format_cube(
+                        data=data_pointers.integration,
+                        index=process,
+                        name='integration',
+                        colour='red',
                         sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                    # DATA formatting
-                    projection_data.integration = ProjectedCube(
-                        data=integration,
-                        colour='purple',
                     )
                 
                 if data_pointers.test_data is not None:
-                    test_data = CubeInformation(
-                        xt_min=data_pointers.test_data.xt_min,
-                        yt_min=data_pointers.test_data.yt_min,
-                        zt_min=data_pointers.test_data.zt_min,
-                        coords=data_pointers.test_data[process],
-                    )
-                    test_data = self.cartesian_pos(test_data)
-                    test_data = self.get_polar_image(self.matrix_rotation(
-                        data=test_data.coords,
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    ))
-
-                    # DATA formatting
-                    projection_data.test_data = ProjectedCube(
-                        data=test_data,
+                    projection_data.test_data = self.format_cube(
+                        data=data_pointers.test_data,
+                        index=process,
+                        name='test data',
                         colour='black',
+                        sdo_pos=sdo_image_info.sdo_pos,
                     )
 
-                # ! haven't check the following if statement. Most likely doesn't work any more
                 if self.plot_choices['fit']:
 
                     polynomials_info: list[PolynomialInformation] = (
@@ -506,14 +451,13 @@ class OrthographicalProjection:
                     )#type: ignore
 
                     for i, poly_order in enumerate(self.polynomial_order):
-
-                        polynomial_instance = GetCartesianProcessedPolynomial(  # ! need to update this function
+                        polynomial_instance = GetCartesianProcessedPolynomial(
                             filepath=self.filepath,
                             polynomial_order=poly_order,
                             integration_time=self.integration_time,
                             number_of_points=250,
                             dx=self.constants.dx,
-                            data_type=None,
+                            with_fake_data=self.with_fake_data,
                         )
                         initial_data = polynomial_instance.reprocessed_polynomial(process)
 
@@ -545,6 +489,40 @@ class OrthographicalProjection:
                 
         if self.in_local: self.connection.close()
 
+    def format_cube(
+            self,
+            data: CubePointer,
+            index: int,
+            name: str,
+            colour: str,
+            sdo_pos: np.ndarray,
+        ) -> ProjectedCube:
+        """
+        To format the cube data for the projection.
+
+        Args:
+            data (CubePointer): the data cube to be formatted.
+            index (int): the index of the data cube.
+            colour (str): the colour of the data cube.
+            sdo_pos (np.ndarray): the position of the SDO satellite.
+
+        Returns:
+            ProjectedCube: the formatted and reprojected data cube.
+        """
+
+        # CUBE formatting
+        cube = CubeInformation(
+            xt_min=data.xt_min,
+            yt_min=data.yt_min,
+            zt_min=data.zt_min,
+            coords=data[index],
+        )
+        cube = self.cartesian_pos(cube)
+        cube = self.get_polar_image(self.matrix_rotation(data=cube.coords, sdo_pos=sdo_pos))
+
+        # PROJECTION formatting
+        return ProjectedCube(data=cube, name=name, colour=colour)
+
     def get_global_constants(self, H5PYFile: h5py.File, init_path: str) -> GlobalConstants:
         """ # todo update docstring
         To get the global constants of the data.
@@ -570,12 +548,8 @@ class OrthographicalProjection:
         )
         return constants
 
-    def get_cubes_information(
-            self,
-            H5PYFile: h5py.File,
-            group_path: str,
-        ) -> CubePointer:
-        """ # todo update docstring
+    def get_cubes_information(self, H5PYFile: h5py.File, group_path: str) -> CubePointer:
+        """
         To get the information about the data cubes.
 
         Args:
@@ -583,10 +557,10 @@ class OrthographicalProjection:
             group_path (str): the path to the group containing the data.
 
         Returns:
-            CubesInformation: the information about the data cubes.
+            CubePointer: the information about the data cubes.
         """
 
-        # BORDERS
+        # BORDERs
         xt_min = float(H5PYFile[group_path + '/xt_min'][...])
         yt_min = float(H5PYFile[group_path + '/yt_min'][...])
         zt_min = float(H5PYFile[group_path + '/zt_min'][...])
@@ -599,6 +573,28 @@ class OrthographicalProjection:
             pointer=H5PYFile[group_path + '/coords'],
         )
         return cube_info
+    
+    def get_fake_cube_information(self, H5PYFile: h5py.File, group_path: str) -> FakeCubePointer:
+        
+        # BORDERs
+        xt_min = float(H5PYFile[group_path + '/xt_min'][...])
+        yt_min = float(H5PYFile[group_path + '/yt_min'][...])
+        zt_min = float(H5PYFile[group_path + '/zt_min'][...])
+
+        # FAKE time indexes
+        time_indexes: np.ndarray = H5PYFile['Fake/Time indexes'][...]
+
+        # FORMAT data
+        cube_info = FakeCubePointer(
+            xt_min=xt_min,
+            yt_min=yt_min,
+            zt_min=zt_min,
+            pointer=H5PYFile[group_path + '/coords'],
+            real_time_indexes=self.constants.time_indexes,
+            fake_time_indexes=time_indexes,
+        )
+        return cube_info
+
 
     def cartesian_pos(self, data: CubeInformation) -> CubeInformation:
         """
@@ -683,7 +679,7 @@ class OrthographicalProjection:
             np.ndarray: (r, theta, angle) in the SDO image reference frame.
         """
 
-        #TODO: add an explanation in the equation .md file.
+        # todo add an explanation in the equation .md file.
 
         # DATA open
         coords, _ = data
@@ -986,7 +982,6 @@ class Plotting(OrthographicalProjection):
             )
 
         if projection_data.sdo_mask is not None:
-
             # CONTOURS get
             lines = self.image_contour(
                 image=projection_data.sdo_mask.image,
@@ -1013,55 +1008,45 @@ class Plotting(OrthographicalProjection):
                     )
 
         if projection_data.sdo_image is not None:
-
             plt.imshow(
                 self.sdo_image_treatment(projection_data.sdo_image.image),
                 **self.plot_kwargs['image'],
             )
 
         if projection_data.integration is not None:
-            # DATA (r, theta)
-            r_cube, theta_cube = projection_data.integration
-
             # PLOT contours time integrated
             self.plot_contours(
-                rho=r_cube,
-                theta=theta_cube,
+                projection=projection_data.integration,
                 d_theta=self.constants.d_theta,
                 dx=self.constants.dx,
                 image_shape=image_shape,
-                color=projection_data.integration.colour,
-                label='time integrated contours',
             )
         
         if projection_data.no_duplicates is not None:
-            # DATA (r, theta) no duplicate
-            r_no_duplicate, theta_no_duplicate = projection_data.no_duplicates
-
             # PLOT contours no duplicates
             self.plot_contours(
-                rho=r_no_duplicate,
-                theta=theta_no_duplicate,
+                projection=projection_data.no_duplicates,
                 d_theta=self.constants.d_theta,
                 dx=self.constants.dx,
                 image_shape=image_shape,
-                color=projection_data.no_duplicates.colour,
-                label='no duplicate contours',
+            )
+
+        if projection_data.all_data is not None:
+            # PLOT contours all data
+            self.plot_contours(
+                projection=projection_data.all_data,
+                d_theta=self.constants.d_theta,
+                dx=self.constants.dx,
+                image_shape=image_shape,
             )
 
         if projection_data.line_of_sight is not None:
-            # DATA (r, theta) line of sight
-            r_line_of_sight, theta_line_of_sight = projection_data.line_of_sight
-
             # PLOT contours line of sight
             self.plot_contours(
-                rho=r_line_of_sight,
-                theta=theta_line_of_sight,
+                projection=projection_data.line_of_sight,
                 d_theta=self.constants.d_theta,
                 dx=self.constants.dx,
                 image_shape=image_shape,
-                color=projection_data.line_of_sight.colour,
-                label='line of sight contours',
             )
         
         # ! haven't checked this if statement yet
@@ -1105,17 +1090,12 @@ class Plotting(OrthographicalProjection):
 
         # TEST plot
         if projection_data.test_data is not None:
-            # DATA (r, theta) fake
-            r_fake, theta_fake = projection_data.test_data
-
+            # PLOT contours test data
             self.plot_contours(
-                rho=r_fake,
-                theta=theta_fake,
+                projection=projection_data.test_data,
                 d_theta=self.constants.d_theta,
                 dx=self.constants.dx,
                 image_shape=image_shape,
-                color=projection_data.test_data.colour,
-                label='fake data',
             )
 
         # PLOT settings
@@ -1139,20 +1119,19 @@ class Plotting(OrthographicalProjection):
         plt.close()
 
         if self.verbose > 1: 
-            print(f"IMAGE nb {process_constants.time_index}")
-            print(f'SAVED - filename: {plot_name}', flush=self.flush)
+            print(
+                f'SAVED - nb {process_constants.time_index:03d} - filename: {plot_name}',
+                flush=self.flush,
+            )
 
     def plot_contours(
             self,
-            rho: np.ndarray,
-            theta: np.ndarray,
+            projection: ProjectedCube,
             d_theta: float, 
             dx: float,
             image_shape: tuple[int, int],
-            color: str,
-            label: str,
         ) -> None:
-        """ 
+        """ # todo update docstring
         To plot the contours of the image for the protuberance as seen from SDO's pov.
 
         Args:
@@ -1168,6 +1147,10 @@ class Plotting(OrthographicalProjection):
             color (str): the color used in the plot of the contours of the SDO image.
             label (str): the label in the plot for the contours of the SDO image.
         """
+
+        # POLAR coordinates
+        rho, theta = projection
+        color = projection.colour
 
         # CONTOURS cube
         _, lines = self.cube_contour(
@@ -1185,7 +1168,7 @@ class Plotting(OrthographicalProjection):
                 line[1],
                 line[0],
                 color=color,
-                label=label,
+                label=projection.name + ' contour',
                 **self.plot_kwargs['contour'],
             )
             for line in lines:
@@ -1199,6 +1182,7 @@ if __name__ == '__main__':
         polynomial_order=[4],
         plot_choices=[
             'no duplicates', 'sdo image', 'sdo mask', 'integration', 'line of sight', 'test data',
+            'fit',
         ],
         with_fake_data=True,
         flush=True,

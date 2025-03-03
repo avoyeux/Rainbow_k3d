@@ -604,6 +604,7 @@ class GetPolynomial:
             integration_time: int,
             number_of_points: int,
             data_type: str = 'No duplicates',
+            with_fake_data: bool = False,
         ) -> None:
         """ # todo update docstring
         Initialise the class so that the pointer to the polynomial parameters is created (given
@@ -627,6 +628,7 @@ class GetPolynomial:
         self.data_type = data_type
         self.integration_time = integration_time
         self.order = polynomial_order
+        self.with_fake_data = with_fake_data
         
         # POINTERs
         self.file, self.polynomial_info = self.get_group_pointer()
@@ -642,7 +644,9 @@ class GetPolynomial:
         """
 
         # PATH group
+        init_path = 'Real/' if self.with_fake_data else ''
         group_path = (
+            init_path +
             'Time integrated/' + 
             self.data_type +
             f'/Time integration of {self.integration_time}.0 hours'
@@ -756,6 +760,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             number_of_points: int,
             dx: float,
             data_type: str = 'No duplicates',
+            with_fake_data: bool = False,
         ) -> None:
         """ # todo update docstring
         To process the polynomial fit positions so that the final result is a curve with a set
@@ -780,6 +785,7 @@ class GetCartesianProcessedPolynomial(GetPolynomial):
             integration_time=integration_time,
             number_of_points=0,
             data_type=data_type,
+            with_fake_data=with_fake_data,
         )
 
         # EXTRAPOLATION polynomial
