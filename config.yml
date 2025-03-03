@@ -6,10 +6,12 @@ project:
     author: VOYEUX Alfred
     description: "3D visualisation and re-projection of a solar protuberance"
 
+root_path: &rootpath !rootpath  # setting the root path dynamically
+
 path:
     dir:
         code:
-            path: &pathcode codes
+            path: &pathcode !join [*rootpath, 'codes']
 
             animation: !join [*pathcode, 'animation']
             projection: !join [*pathcode, 'projection']
@@ -22,7 +24,7 @@ path:
             quick_data: !join [*datacode, 'quick_visualisation_data']
 
         data: 
-            path: &datapath data_files
+            path: &datapath !join [*rootpath, 'data_files']
 
             hdf5: &datahdf5 !join [*datapath, 'hdf5_files']
             mp4: !join [*datapath, 'mp4_saves']
@@ -78,7 +80,7 @@ path:
         test: !join [*datahdf5, 'testing.h5']
 
 run:
-    processes: 2
+    processes: 1
     verbose: 2
     flush: False
 
