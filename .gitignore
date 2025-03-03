@@ -8,6 +8,9 @@
 !codes/**/
 !data_files/
 
+# BLACKLIST hidden directories
+**/.*/
+
 # TYPEs whitelisted
 !**/*.pro
 !**/*.py
