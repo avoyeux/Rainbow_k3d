@@ -1,15 +1,22 @@
 # Stores the 'global' arguments for the repository
 
+# PROJECT metadata
 project:
     name: RainbowK3d
     version: 0.1.0
     author: VOYEUX Alfred
     description: "3D visualisation and re-projection of a solar protuberance"
 
+# ROOTPATH project
 root_path: &rootpath !rootpath  # setting the root path dynamically
 
+# PATHs
 path:
+
+    # DIRECTORIEs
     dir:
+
+        # PATHs code directories
         code:
             path: &pathcode !join [*rootpath, 'codes']
 
@@ -23,12 +30,13 @@ path:
             fusion_data: !join [*datacode, 'fusion_data']
             quick_data: !join [*datacode, 'quick_visualisation_data']
 
+        # PATHs data directories
         data: 
             path: &datapath !join [*rootpath, 'data_files']
 
             hdf5: &datahdf5 !join [*datapath, 'hdf5_files']
             mp4: !join [*datapath, 'mp4_saves']
-            synoptic_maps: !join [*datapath, 'synoptic_maps']  # ! subdirectories are not given here
+            synoptic_maps: !join [*datapath, 'synoptic_maps'] # ! subdirectories are not given here
             sdo: !join [*datapath, 'sdo']
 
             cubes:
@@ -69,6 +77,7 @@ path:
 
                     plot: !join [*stats, 'stats_plot']
 
+    # PATHs to data files
     data:
         stereob_info: !join [*datacubes, 'rainbow_stereob_304.save']
         sdo_timestamp: !join [*datapath, 'SDO_timestamps.txt']
@@ -79,11 +88,13 @@ path:
 
         test: !join [*datahdf5, 'testing.h5']
 
+# RUN configuration
 run:
-    processes: 1
+    processes: 6
     verbose: 2
     flush: False
 
+    # DEBUG configuration
     debug:
         tests: True  # ! need to implement this somewhere
         

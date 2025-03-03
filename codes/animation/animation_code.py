@@ -7,7 +7,6 @@ import os
 import k3d
 import time
 import h5py
-import yaml
 import IPython
 import threading
 import typeguard
@@ -21,12 +20,8 @@ from typing import Any, overload, Literal
 from astropy.io import fits
 
 # IMPORTs personal
-from animation.animation_dataclasses import *
-from common import Decorators, Plot, root_path, DictToObject
-
-# CONFIGURATION load
-with open(os.path.join(root_path, 'config.yml'), 'r') as conf:
-    config = DictToObject(yaml.safe_load(conf))
+from codes.animation.animation_dataclasses import *
+from common import config, Decorators, Plot
 
 # ANNOTATION alias
 VoxelType = Any
@@ -124,13 +119,13 @@ class Setup:
 
         # DATA filepath
         if filepath is None and with_fake_data:
-            self.filepath = os.path.join(root_path, *config.paths.data.fusion.split('/'))
+            self.filepath: str = config.path.data.fusion
         elif filepath is None:
-            self.filepath = os.path.join(root_path, *config.paths.data.real.split('/'))
+            self.filepath: str = config.path.data.real
         else:
             self.filepath = filepath
 
-        self.processes = config.processes if processes is None else processes
+        self.processes = config.run.processes if processes is None else processes
         self.test_points = test_points
 
         # ATTRIBUTES new
@@ -155,10 +150,7 @@ class Setup:
         """
 
         # PATHs save
-        paths = {
-            'code': root_path,
-            'sdo': os.path.join(root_path, '..', 'sdo'), # ? should I add it to config ?
-        }
+        paths = {'sdo': config.path.dir.data.sdo}
 
         # PATHs update
         return paths
@@ -261,6 +253,8 @@ class Setup:
 
         Args:
             HDF5File (h5py.File): the HDF5 file where the data is stored.
+            init_path (str): the initial path to the data depending on which datafile is being
+                used.
 
         Returns:
             CubesConstants: the global information of protuberance.
@@ -278,7 +272,7 @@ class Setup:
         )
         return constants
     
-    @overload  # ? add another when fake_cube is not given ? VSCode seems to understand though
+    @overload
     def get_cube_info(
             self,
             HDF5File: h5py.File,
