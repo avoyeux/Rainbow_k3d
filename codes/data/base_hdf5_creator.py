@@ -206,7 +206,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
         self.solar_r = 6.96e5  # in km
 
         # PLACEHOLDERs
-        self.volume: VolumeInfo
+        self.volume: VolumeInfo  # todo change this as a placeholder doesn't make sense.
 
     def create_borders(
             self,
@@ -258,7 +258,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             group: h5py.File | h5py.Group,
             data: sparse.COO,
             data_name: str,
-            values: int | None = None,
+            values: int | float | None = None,
             borders: dict[str, dict[str, str | float]] | None = None,
         ) -> h5py.File | h5py.Group:
         """
@@ -269,8 +269,8 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             group (h5py.File | h5py.Group): the Group where to add the data information.
             data (sparse.COO): the data that needs to be included in the file.
             data_name (str): the group name to be used in the file.
-            values (int | None): the value for the voxels. Set to None when all the voxels don't
-                have the same value. Default to None.
+            values (int | float | None): the value for the voxels. Set to None when all the voxels
+                don't have the same value. Default to None.
             borders (dict[str, dict[str, str | float]] | None): the data border information. Set to
                 None if you don't want to add the border information in the created group.
                 Default to None.
@@ -293,7 +293,10 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             'values': {
                 'data': data.data if values is None else values, 
                 'unit': 'none',
-                'description': "The values for each voxel.",
+                'description': (
+                    "The values for each voxel. If int or float, then all voxels have the same "
+                    "value."
+                ),
             },
         }
         # BORDERs add

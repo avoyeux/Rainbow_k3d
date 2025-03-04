@@ -59,9 +59,9 @@ path:
             fake:
                 path: &fakedir !join [*datapath, 'fake_data']
 
+                h5: !join [*fakedir, 'h5']
                 png: !join [*fakedir, 'png']
                 fits: !join [*fakedir, 'fits']
-                from_toto: !join [*fakedir, 'save_from_toto']
 
             result:
                 path: &workdone !join [*datapath, 'work_done']
@@ -83,7 +83,8 @@ path:
         sdo_timestamp: !join [*datapath, 'SDO_timestamps.txt']
 
         real: !join [*datahdf5, 'data.h5']
-        fake: !join [*datahdf5, 'fake_from_toto.h5']
+        fake_cube: !join [*datahdf5, 'fake_cube.h5']
+        fake_toto: !join [*datahdf5, 'fake_from_toto.h5']
         fusion: !join [*datahdf5, 'data_with_fake_from_toto.h5']
 
         test: !join [*datahdf5, 'testing.h5']

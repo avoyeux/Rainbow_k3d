@@ -6,7 +6,6 @@ Should be able to tell if there is any actual projection errors from the totalit
 # IMPORTs
 import os
 import h5py
-import scipy
 import sparse
 
 # IMPORTs alias
@@ -14,12 +13,11 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs sub
-import multiprocessing.queues
 from typing import Any
-from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import root_path, Decorators
+from common import config, Decorators
+from codes.data.fake_data.base_fake_hdf5 import BaseFakeHDF5
 
 # PLACEHOLDERs type annotation
 LockProxy = Any
@@ -27,204 +25,61 @@ ValueProxy = Any
 
 
 
-@dataclass(slots=True, repr=False, eq=False)
-class CubeBorders:
+class FakeData(BaseFakeHDF5):
     """
-    To store the border information of the cube, be it in cartesian, in spherical or in indexes.
-    """
-
-    # CUBEs info
-    dx: float
-    xt_min: float
-    xt_max: float
-    yt_min: float
-    yt_max: float
-    zt_min: float
-    zt_max: float
-    increase_factor: float
-    
-    # BORDERs spherical
-    r_min: float = field(init=False)
-    r_max: float = field(init=False)
-    theta_min: float = field(init=False)
-    theta_max: float = field(init=False)
-    phi_min: float = field(init=False)
-    phi_max: float = field(init=False)
-
-    # BORDERs indexes
-    max_x_index: int = field(init=False)
-    max_y_index: int = field(init=False)
-    max_z_index: int = field(init=False)
-
-    def __post_init__(self) -> None:
-
-        # BORDERs increase
-        self.border_increase()
-
-        # BORDERs spherical
-        self.r_min = np.sqrt(self.xt_min**2 + self.yt_min**2 + self.zt_min**2)
-        self.r_max = np.sqrt(self.xt_max**2 + self.yt_max**2 + self.zt_max**2)
-        self.theta_min = np.arccos(self.zt_min / self.r_min)
-        self.theta_max = np.arccos(self.zt_max / self.r_max)
-        self.phi_min = np.arctan2(self.yt_min, self.xt_min)
-        self.phi_max = np.arctan2(self.yt_max, self.xt_max)
-
-        # BORDERs indexes
-        self.max_x_index = int((self.xt_max - self.xt_min) // self.dx)
-        self.max_y_index = int((self.yt_max - self.yt_min) // self.dx)
-        self.max_z_index = int((self.zt_max - self.zt_min) // self.dx)
-
-    def border_increase(self) -> None:
-        """
-        To increase the borders of the cube.
-        """
-
-        # BORDERs range
-        x_range = self.xt_max - self.xt_min
-        y_range = self.yt_max - self.yt_min
-        z_range = self.zt_max - self.zt_min
-
-        # BORDERs increase
-        self.xt_min -= x_range * (self.increase_factor - 1) / 2
-        self.yt_min -= y_range * (self.increase_factor - 1) / 2
-        self.zt_min -= z_range * (self.increase_factor - 1) / 2
-        self.xt_max += x_range * (self.increase_factor - 1) / 2
-        self.yt_max += y_range * (self.increase_factor - 1) / 2
-        self.zt_max += z_range * (self.increase_factor - 1) / 2
-
-class FakeData:
-    """
-    Creates fake mat data to then be converted to .save file to finally be used by my re-projection
+    Creates fake h5 data to then be converted to .save file to finally be used by my re-projection
     code.
     """
 
     def __init__(
             self,
-            max_radius: float,
-            min_radius: float,
             nb_of_points: int,
+            sphere_radius: tuple[float, float],
             nb_of_cubes: int,
             increase_factor: float,
-            processes: int,
+            processes: int | None = None,
+            flush: bool | None = None,
+            verbose: int | None = None,
         ) -> None:
         """
-        To create the fake sun surface data indexes in mat files.
-
-        Args: # todo update docstring
-            radius (float): the radius of the sphere in km.
-            nb_of_points (int): the initial resolution in spherical coordinates of the sphere.
-            nb_of_cubes (int): the number of cubes to create.
-            increase_factor (float): the coefficient in the increase (or decrease) of the cube
-                size.
-        """
-
-        # ATTRIBUTEs
-        self.max_radius = max_radius
-        self.min_radius = min_radius
-        self.nb_of_cubes = nb_of_cubes
-        self.nb_of_points = nb_of_points
-        self.increase_factor = increase_factor
-        self.processes = processes
-        self.multiprocessing = True if processes > 1 else False
-
-        # RUN
-        self.paths = self.path_setup()
-        self.defaults = self.get_defaults()
-        self.create_fake_data()
-
-    def path_setup(self) -> dict[str, str]:
-        """
-        To give the paths to the different needed directories.
-
-        Returns:
-            dict[str, str]: the paths to the different directories.
-        """
-
-        # PATHs setup
-        main_path = os.path.join(root_path, '..')
-
-        # PATHs formatting
-        paths = {
-            'main': main_path,
-            'cubes': os.path.join(main_path, 'Cubes_karine'),
-            'save h5': os.path.join(root_path, 'Data/fake_data/h5'),
-        }
-
-        # PATHs create
-        for key in ['save h5']: os.makedirs(paths[key], exist_ok=True)
-        return paths
-
-    def get_defaults(self) -> CubeBorders:
-        """
-        To get the usual values of the cube resolution and borders.
-
-        Returns:
-            CubeBorders: the usual values of the cube resolution and borders.
-        """
-
-        first_cube = scipy.io.readsav(os.path.join(self.paths['cubes'], 'cube000.save'))
-        info = CubeBorders(
-            dx=float(first_cube.dx),
-            increase_factor=self.increase_factor,
-            xt_min=float(first_cube.xt_min),
-            yt_min=float(first_cube.yt_min),
-            zt_min=float(first_cube.zt_min),
-            xt_max=float(first_cube.xt_max),
-            yt_max=float(first_cube.yt_max),
-            zt_max=float(first_cube.zt_max),
-        )
-        return info
-
-    @Decorators.running_time    
-    def create_sphere_surface(self) -> np.ndarray:
-        """
-        To get the cartesian coordinates of the sphere surface.
-
-        Returns:
-            np.ndarray: the cartesian coordinates of the sphere surface.
-        """
-        
-        # COORDs spherical
-        radius = np.arange(self.min_radius, self.max_radius, self.defaults.dx)
-        phi = np.linspace(self.defaults.phi_min, self.defaults.phi_max, self.nb_of_points * 2)
-        theta = np.linspace(self.defaults.theta_min, self.defaults.theta_max, self.nb_of_points)
-        radius, phi, theta = np.meshgrid(radius, phi, theta)
-
-        # COORDs cartesian
-        x = radius * np.sin(theta) * np.cos(phi)
-        y = radius * np.sin(theta) * np.sin(phi)
-        z = radius * np.cos(theta)
-        return np.stack((x.ravel(), y.ravel(), z.ravel()), axis=0)
-
-    @Decorators.running_time
-    def to_index(self, coords: np.ndarray) -> np.ndarray:
-        """
-        To convert the cartesian coordinates to cube indexes.
+        To create fake h5 data to then be converted to .save data.
 
         Args:
-            coords (np.ndarray): the cartesian coordinates.
-
-        Returns:
-            np.ndarray: the cube indexes.
+            nb_of_points (int): the number of points to be used in spherical phi direction.
+            sphere_radius (tuple[float, float]): the min and max radius of the fake sphere in km.
+            nb_of_cubes (int): the number of cubes to create (and hence the final number of hdf5
+                files created).
+            increase_factor (float): the cube border increase factor.
+            processes (int | None, optional): the number of processes used in the multiprocessing.
+                When None, it uses the config file value. Defaults to None.
+            flush (bool | None, optional): deciding to flush the buffer each time there is a print.
+                When None, it uses the config file value. Defaults to None.
+            verbose (int | None, optional): the verbosity level. When None, it uses the config file
+                value. Defaults to None.
         """
 
-        # COORDs to cube
-        coords[0] -= self.defaults.xt_min
-        coords[1] -= self.defaults.yt_min
-        coords[2] -= self.defaults.zt_min
+        # PARENT
+        super().__init__(
+            nb_of_points=nb_of_points,
+            sphere_radius=sphere_radius,
+            increase_factor=increase_factor,
+        )
 
-        # BIN values
-        coords //= self.defaults.dx
+        # CONFIGURATION attributes
+        self.processes = config.run.processes if processes is None else processes
+        self.flush = config.run.flush if flush is None else flush
+        self.verbose = config.run.verbose if verbose is None else verbose
 
-        # FILTER values
-        x_filter = (coords[0] >= 0) & (coords[0] < self.defaults.max_x_index)
-        y_filter = (coords[1] >= 0) & (coords[1] < self.defaults.max_y_index)
-        z_filter = (coords[2] >= 0) & (coords[2] < self.defaults.max_z_index)
-        coords = coords[:, x_filter & y_filter & z_filter]
+        # ATTRIBUTEs
+        self.nb_of_cubes = nb_of_cubes
+        self.multiprocessing = True if self.processes > 1 else False
 
-        # UNIQUE values
-        coords = np.unique(coords.astype(int), axis=1)
-        return coords
+        # PATH update
+        self.paths['save'] = config.path.dir.fake.h5
+        os.makedirs(self.paths['save'], exist_ok=True)
+
+        # RUN
+        self.create_fake_data()
 
     @Decorators.running_time
     def create_fake_data(self) -> None:
@@ -233,8 +88,8 @@ class FakeData:
         """
 
         # COORDs
-        sphere_surface = self.create_sphere_surface()
-        sphere_surface = self.to_index(sphere_surface)[[2, 1, 0]]
+        sphere_surface = self.fake_sphere_surface()
+        sphere_surface = self.to_index(sphere_surface)[[2, 1, 0]]  # ? why the changes in axes
         # added this to follow the same shape pattern as the original save files. 
 
         # ARRAY 3d
@@ -252,7 +107,7 @@ class FakeData:
             # MUTLI-PROCESSING run
             processes: list[mp.Process] = [None] * nb_processes
             for i in range(nb_processes):
-                p =  mp.Process(target=self.create_h5, args=(array, lock, counter))
+                p =  mp.Process(target=self.sub_create_fake_data, args=(array, lock, counter))
                 p.start()
                 processes[i] = p
             for p in processes: p.join()
@@ -260,21 +115,10 @@ class FakeData:
         else:
             # HDF5 save
             for i in range(self.nb_of_cubes):
-                filename = os.path.join(self.paths['save h5'], f'cube{i:03d}.h5')
+                filepath = os.path.join(self.paths['save'], f'cube{i:03d}.h5')
+                self.create_h5(filepath=filepath, data=array)
 
-                with h5py.File(filename, 'w') as f:
-                    # DATA formatting
-                    f.create_dataset('cube', data=array, compression='gzip')
-                    f.create_dataset('dx', data=self.defaults.dx)
-                    f.create_dataset('xt_min', data=self.defaults.xt_min)
-                    f.create_dataset('yt_min', data=self.defaults.yt_min)
-                    f.create_dataset('zt_min', data=self.defaults.zt_min)
-                    f.create_dataset('xt_max', data=self.defaults.xt_max)
-                    f.create_dataset('yt_max', data=self.defaults.yt_max)
-                    f.create_dataset('zt_max', data=self.defaults.zt_max)
-                print(f"Saved {filename}")
-
-    def create_h5(self, data: np.ndarray, lock: LockProxy, counter: ValueProxy) -> None:
+    def sub_create_fake_data(self, data: np.ndarray, lock: LockProxy, counter: ValueProxy) -> None:
         """
         To create the .h5 files using multiprocessing.
 
@@ -293,28 +137,36 @@ class FakeData:
                 counter.value += 1
             
             # HDF5 save
-            filename = os.path.join(self.paths['save h5'], f'cube{i:03d}.h5')
+            filepath = os.path.join(self.paths['save'], f'cube{i:03d}.h5')
+            self.create_h5(filepath=filepath, data=data)
 
-            with h5py.File(filename, 'w') as f:
-                # DATA formatting
-                f.create_dataset('cube', data=data, compression='gzip')
-                f.create_dataset('dx', data=self.defaults.dx)
-                f.create_dataset('xt_min', data=self.defaults.xt_min)
-                f.create_dataset('yt_min', data=self.defaults.yt_min)
-                f.create_dataset('zt_min', data=self.defaults.zt_min)
-                f.create_dataset('xt_max', data=self.defaults.xt_max)
-                f.create_dataset('yt_max', data=self.defaults.yt_max)
-                f.create_dataset('zt_max', data=self.defaults.zt_max)
-            print(f"Saved {filename}")
+    def create_h5(self, filepath: str, data: np.ndarray) -> None:
+        """
+        To create the .h5 file given the desired filepath and data.
+
+        Args:
+            filepath (str): the filepath to the new hdf5 file.
+            data (np.ndarray): the data to save in the hdf5 file.
+        """
+
+        with h5py.File(filepath, 'w') as f:
+            # DATA formatting
+            f.create_dataset('cube', data=data, compression='gzip', compression_opts=9)
+            f.create_dataset('dx', data=self.cube_info.dx)
+            f.create_dataset('xt_min', data=min(self.cube_info.xt))
+            f.create_dataset('yt_min', data=min(self.cube_info.yt))
+            f.create_dataset('zt_min', data=min(self.cube_info.zt))
+            f.create_dataset('xt_max', data=max(self.cube_info.xt))
+            f.create_dataset('yt_max', data=max(self.cube_info.yt))
+            f.create_dataset('zt_max', data=max(self.cube_info.zt))
+        if self.verbose > 0: print(f"Saved {os.path.basename(filepath)}", flush=self.flush)
 
 
 
 if __name__=='__main__':
     FakeData(
-        max_radius=8e5,
-        min_radius=7.6e5,
+        sphere_radius=(7.6e5, 8e5),
         nb_of_points=int(1e3),
         nb_of_cubes=413,
         increase_factor=1.3,
-        processes=12,
     )
