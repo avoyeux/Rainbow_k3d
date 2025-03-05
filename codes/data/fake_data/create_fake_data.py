@@ -8,7 +8,6 @@ codes.
 # IMPORTs
 import os
 import h5py
-import scipy
 import datetime
 
 # IMPORTs alias
@@ -19,13 +18,11 @@ from common import config, Decorators
 from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from codes.data.fake_data.base_fake_hdf5 import BaseFakeHDF5
 
-# todo need to think about how to do cubes one by one to save RAM.
-
 
 
 class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
     """
-    To create a fake data set for testing in an HDF5.
+    To create a fake data set for comparing with the fake and real datasets.
     """
 
     def __init__(
@@ -41,20 +38,29 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
             verbose: int | None = None,
             flush: bool | None = None,
         ) -> None:
-        """ # todo update docstring
-        To initialise the class with the needed arguments.
+        """
+        To initialise the CreateFakeData class.
 
         Args:
-            filename (str): the filename for the HDF5. Should be the name for the HDF5 real data if
-                create_new_hdf5 is False.    
-            sun_resolution (int): the number of points in the theta direction for the Sun's
-                surface.
-            torus_main_radius (float): the main radius of the torus.
-            torus_width_radius (float): the width radius of the torus.
-            torus_plane (str, optional): the plane in which the torus is created. Defaults to 'xy'.
-            nb_of_cubes (int, optional): the number of cubes to be created. Defaults to 4.
-            create_new_hdf5 (bool, optional): if the HDF5 file is to be created anew. Defaults to
-                True.
+            nb_of_points (int): defines the initial precision in the creation of the fake data.
+                The higher the number, the more 'points' the initial data will have.
+            sphere_radius (tuple[float, float]): the max and min radius of the fake ball in km.
+            torus_radius (tuple[float, float]): the main and minor radius of the fake torus in km.
+            increase_factor (float, optional): the multiplying factor by which the initial cube
+                borders will change. Defaults to 1..
+            filepath (str | None, optional): the path where the HDF5 file will be saved. If None,
+                the config file information will be used. If create_new_hdf5 is False, the filepath
+                needs to be the path to am already existing HDF5 file. Defaults to None.
+            compression (bool, optional): deciding to compress the datasets using 'gzip'.
+                Defaults to True.
+            compression_lvl (int, optional): the 'gzip' compression level. If 'compression' is
+                False, this parameter is ignored. Defaults to 9.
+            create_new_hdf5 (bool, optional): deciding to store the new data in a new HDF5 file.
+                If False, the data will be added to the existing HDF5 file. Defaults to True.
+            verbose (int | None, optional): the level of verbosity. If None, the corresponding
+                config file value will be used. Defaults to None.
+            flush (bool | None, optional): deciding to flush the buffer (print output).
+                If None, the corresponding config file value will be used. Defaults to None.
         """
 
         # CONFIGURATION attributes
@@ -71,7 +77,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
         super().__init__(
             nb_of_points=nb_of_points,
             sphere_radius=sphere_radius,
-            increase_factor=increase_factor,  # ! need to pay attention to that as it also changes xt, yt and zt
+            increase_factor=increase_factor,
             torus_radius=torus_radius,
         )
         BaseHDF5Protuberance.__init__(
@@ -449,8 +455,9 @@ if __name__=='__main__':
 
     instance = CreateFakeData(
         nb_of_points=int(2e3),
-        create_new_hdf5=True,
+        create_new_hdf5=False,
         torus_radius=(7.8e5, 2e4),
-        sphere_radius=(6.95e5, 7.e5),
+        sphere_radius=(6.92e5, 6.96e5),
+        increase_factor=1.,  # ! not 100% sur if it works properly, but should be. Will test later.
     )
     instance.create_hdf5()
