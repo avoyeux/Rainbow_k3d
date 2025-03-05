@@ -16,8 +16,9 @@ import ipywidgets
 import numpy as np
 
 # IMPORTs sub
-from typing import Any, overload, Literal
 from astropy.io import fits
+from matplotlib import colors as mcolors
+from typing import Any, overload, Literal
 
 # IMPORTs personal
 from codes.animation.animation_dataclasses import *
@@ -40,100 +41,63 @@ class Setup:
     def __init__(
             self,
             filepath: str | None = None,
-            sun: bool = False,
-            with_feet: bool = True,
-            all_data: bool = False,
-            no_duplicate: bool = False,
+            choices: list[str] = ['sdo pov', 'sun', 'no duplicate', 'fit'],
             time_interval: int = 24,
-            all_data_integration: bool = False,
-            no_duplicate_integration: bool = False,
-            line_of_sight_SDO: bool = False,
-            line_of_sight_STEREO: bool = False,
-            pov_sdo: bool = False,
-            pov_stereo: bool = False,
-            processes: int | None = None,
-            polynomial: bool = False,
-            polynomial_order: int | list[int] = [4],
+            polynomial_order: list[int] = [4],
             with_fake_data: bool = False,
-            test_points: bool = False, # todo will take it out when Dr. Auchere has already seen it
+            processes: int | None = None,
+            verbose: int | None = None,
+            flush: int | None = None,
     ) -> None:
-        """ # todo update docstring
-        To setup the instance attributes needed for the 3D visualisation of the Rainbow filament
-        data.
+        """
+        To setup the necessary data for the visualisation.
 
         Args:
-            filename (str, optional): the HDF5 filename containing all the cube data.
-                Defaults to 'order0321.h5'.
-            sun (bool, optional): choosing to add the sun visualisation. Defaults to False.
-            with_feet (bool, optional): choosing the data sets that have the feet manually added.
-                Defaults to True.
-            all_data (bool, optional): choosing to visualise the data that also contains the
-                duplicates. Defaults to False.
-            no_duplicate (bool, optional): choosing to visualise the data with no duplicate at
-                all. Defaults to False.
-            time_interval (int, optional): the time interval for the time integration (in hours).
+            filepath (str | None, optional): the filepath to the HDF5 file. If None, it will use
+                the config file. Defaults to None.
+            choices (list[str], optional): the choices for the visualisation.
+                Defaults to ['sdo pov', 'sun', 'no duplicate', 'fit'].
+            time_interval (int, optional): time interval use for the data integration (in hours).
                 Defaults to 24.
-            all_data_integration (bool, optional): choosing to visualise the time integrated data
-                with duplicates. Defaults to False.
-            no_duplicate_integration (bool, optional): choosing to visualise the time integrated
-                data without any duplicates. Defaults to False.
-            line_of_sight_SDO (bool, optional): deciding to visualise the line of sight data from
-                SDO's position. Defaults to False.
-            line_of_sight_STEREO (bool, optional): deciding to visualise the line of sight data
-                from STEREO's position. Defaults to False.
-            pov_sdo (bool, optional): choosing to take SDO's point of view when looking at the
-                data. Defaults to False.
-            pov_stereo (bool, optional): choosing to take STEREO B's point of view when looking at
-                the data. Defaults to False.
-            processes (int, optional): the number of processes used in the multiprocessing.
-                Defaults to 5.
-            polynomial (bool, optional): choosing to visualise the polynomial data fits.
-                Defaults to False.
-            polynomial_order (int | list[int], optional): the polynomial orders that you want to
-                visualise (if polynomial is set to True). Defaults to [5].
+            polynomial_order (list[int], optional): the polynomial order(s) used for the fitting.
+                Defaults to [4].
+            with_fake_data (bool, optional): using a file that contains the real and the fact data.
+                Used to find the dataset paths. Defaults to False.
+            processes (int | None, optional): the number of processes used for the multiprocessing.
+                If None, it will use the config file. Defaults to None.
+            verbose (int | None, optional): the verbosity level for the prints. If None, it will
+                use the config file. Defaults to None.
+            flush (int | None, optional): deciding to flush the buffer each time there is a print.
+                If None, it will use the config file. Defaults to None.
         """
 
-        # todo need to make the __init__ cleaner.
-        # FEET
-        self.feet = ' with feet' if with_feet else ''
-        
-        # ATTRIBUTES
+        # CONSTANTs
         self.solar_r = 6.96e5
-        self.sun = sun
-        self.all_data = all_data
-        self.no_duplicate = no_duplicate
-        self.time_interval = time_interval
-        self.all_data_integration = all_data_integration
-        self.no_duplicate_integration = no_duplicate_integration
-        self.line_of_sight_SDO = line_of_sight_SDO
-        self.line_of_sight_STEREO = line_of_sight_STEREO
-        self.pov_sdo = pov_sdo
-        self.pov_stereo = pov_stereo
-        self.polynomial = polynomial
-        if isinstance(polynomial_order, list):
-            self.polynomial_order = polynomial_order
-        else:
-            self.polynomial_order = [polynomial_order]
 
-        self.with_fake_data = with_fake_data
-
-        # DATA filepath
+        # CONFIGURATION attributes
         if filepath is None and with_fake_data:
             self.filepath: str = config.path.data.fusion
         elif filepath is None:
             self.filepath: str = config.path.data.real
         else:
             self.filepath = filepath
-
         self.processes = config.run.processes if processes is None else processes
-        self.test_points = test_points
+        self.verbose = config.run.verbose if verbose is None else verbose
+        self.flush = config.run.flush if flush is None else flush
+
+        # ATTRIBUTEs other
+        self.time_interval = time_interval
+        self.polynomial_order = polynomial_order
+        self.with_fake_data = with_fake_data
 
         # ATTRIBUTES new
+        self.choices = self._choices(choices)
         self.plot_polynomial_colours = [
             next(Plot.random_hexadecimal_int_color_generator())
             for _ in self.polynomial_order
         ]
-
+        self.feet = ' with feet' if self.choices['with feet'] else ''
+        
         # PLACEHOLDERs
         self.radius_index: float
 
@@ -155,6 +119,39 @@ class Setup:
         # PATHs update
         return paths
 
+    def _choices(self, plot_choices: list[str]) -> dict[str, bool]:
+        """
+        Checks and formats the choices given by the user.
+
+        Args:
+            plot_choices (list[str]): the choices given by the user.
+
+        Raises:
+            ValueError: if the choice is not recognised.
+
+        Returns:
+            dict[str, bool]: the formatted choices.
+        """
+
+        # CHOICES
+        possibilities = [ 
+            'sun', 'all data', 'no duplicate', 'all data integration', 'no duplicate integration',
+            'line of sight sdo', 'line of sight stereo', 'pov sdo', 'pov stereo', 'fit',
+            'with feet', 'test points', 'test cube',
+        ]
+        choices_kwargs = {
+            key: False 
+            for key in possibilities
+        }
+
+        # DICT reformatting
+        for key in plot_choices: 
+            if key in possibilities: 
+                choices_kwargs[key] = True
+            else: 
+                raise ValueError(f"\033[1;choices argument '{key}' not recognised.\033[0m") 
+        return choices_kwargs
+
     @Decorators.running_time
     def get_data(self) -> CubesData:
         """
@@ -171,38 +168,72 @@ class Setup:
         self.radius_index = self.solar_r / self.constants.dx
 
         # CHOICES data
-        if self.all_data: 
+        if self.choices['all data']: 
             path = init_path + 'Filtered/All data' + self.feet
-            cubes.all_data = self.get_cube_info(HDF5File, path, interpolate=False)
+            cubes.all_data = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='red',
+                opacity=0.6,
+                interpolate=False,
+            )
 
-        if self.no_duplicate: 
+        if self.choices['no duplicate']: 
             path = init_path + 'Filtered/No duplicates' + self.feet
-            cubes.no_duplicate = self.get_cube_info(HDF5File, path, interpolate=False)
+            cubes.no_duplicate = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='orange',
+                opacity=0.8,
+                interpolate=False,
+            )
 
-        if self.all_data_integration: 
+        if self.choices['all data integration']: 
             path = (
                 init_path + 'Time integrated/All data' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
-            cubes.integration_all_data = self.get_cube_info(HDF5File, path, opacity=0.4)
+            cubes.integration_all_data = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='red',
+                opacity=0.4,
+            )
 
-        if self.no_duplicate_integration:
+        if self.choices['no duplicate integration']:
             path = (
                 init_path + 'Time integrated/No duplicates' + self.feet +
                 f'/Time integration of {round(float(self.time_interval), 1)} hours'
             )
-            cubes.integration_no_duplicate = self.get_cube_info(HDF5File, path, opacity=0.6)
+            cubes.integration_no_duplicate = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='red',
+                opacity=0.5,
+            )
 
-        if self.line_of_sight_SDO:
+        if self.choices['line of sight sdo']:
             path = init_path + 'Filtered/SDO line of sight'
-            cubes.los_sdo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
+            cubes.los_sdo = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='blue',
+                opacity=0.15,
+                interpolate=False,
+            )
         
-        if self.line_of_sight_STEREO:
+        if self.choices['line of sight stereo']:
             path = init_path + 'Filtered/STEREO line of sight'
-            cubes.los_stereo = self.get_cube_info(HDF5File, path, opacity=0.15, interpolate=False)
+            cubes.los_stereo = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='blue',
+                opacity=0.15,
+                interpolate=False,
+            )
         
         # POVs sdo, stereo
-        if self.pov_sdo:
+        if self.choices['pov sdo']:
             # SDO positions
             sdo_positions: np.ndarray = HDF5File['SDO positions'][...]
 
@@ -210,7 +241,7 @@ class Setup:
             cubes.sdo_pos = (
                 sdo_positions[self.constants.time_indexes] / self.constants.dx
             ).astype('float32')
-        if self.pov_stereo:
+        if self.choices['pov stereo']:
             # STEREO positions
             stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
 
@@ -218,18 +249,24 @@ class Setup:
             cubes.stereo_pos = (
                 stereo_positions[self.constants.time_indexes] / self.constants.dx
             ).astype('float32')
-            #TODO: will need to add the POV center
+            # todo will need to add the POV center
 
         if self.with_fake_data:
             cubes.fake_cube = self.get_cube_info(
                 HDF5File=HDF5File,
                 group_path='Fake/Filtered/All data',
+                colour='purple',
+                opacity=0.6,
                 interpolate=False,
                 fake_cubes=True,
             )
 
-        # ADD shape
-        cubes.add_shape()  # * had to as there seems to be a bug in the k3d module
+            if self.choices['test cube']:
+                cubes.test_cube = self.get_test_cube(
+                    HDF5File=HDF5File,
+                    opacity=0.7,
+                    colour='yellow',
+                )
         return cubes
 
     def get_sdo_fov(self) -> float:
@@ -279,6 +316,7 @@ class Setup:
             group_path: str,
             opacity: float = ...,
             interpolate: bool = ...,
+            colour: str = ...,
             *,
             fake_cubes: Literal[False] = ...,
         ) -> CubeInfo: ...
@@ -290,6 +328,7 @@ class Setup:
             group_path: str,
             opacity: float = ...,
             interpolate: bool = ...,
+            colour: str = ...,
             *,
             fake_cubes: Literal[True] = ...,
         ) -> FakeCubeInfo: ...
@@ -300,19 +339,25 @@ class Setup:
             group_path: str,
             opacity: float = 1.,
             interpolate: bool = True,
+            colour: str = 'blue',
             fake_cubes: bool = False,
         ) -> CubeInfo | FakeCubeInfo:
-        """ # todo update docstring
+        """
         Gives the protuberance and polynomial fit information for a chosen cube 'type'.
 
         Args:
             HDF5File (h5py.File): the HDF5 file where the data is stored.
-            group_path (str): the HDF5 group absolute path (i.e. represents the cube 'type').
-            interpolate (bool, optional): If there exists polynomial data for that cube 'type'.
+            group_path (str): the group path to the group where the needed datasets are stored.
+            opacity (float, optional): the opacity of the voxels in the visualisation.
+                Defaults to 1..
+            interpolate (bool, optional): if there is interpolation data in the group to visualise.
                 Defaults to True.
+            colour (str, optional): the colour of the voxels in the visualisation.
+                Defaults to 'blue'.
+            fake_cubes (bool, optional): if the data comes from a 'fake cube'. Defaults to False.
 
         Returns:
-            CubeInfo: the chosen cube 'type' information with the corresponding polynomials'.
+            CubeInfo | FakeCubeInfo: the protuberance and polynomial fit information.
         """
 
         # BORDERs as index
@@ -325,7 +370,7 @@ class Setup:
         data_values: h5py.Dataset = HDF5File[group_path + '/values']
 
         # INTERPOLATION data
-        if self.polynomial and interpolate:
+        if self.choices['fit'] and interpolate:
             polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)
 
             for i, order in enumerate(self.polynomial_order):
@@ -348,6 +393,7 @@ class Setup:
             # FORMATTING data
             cube_info = CubeInfo(
                 group_path=group_path,
+                colour=colour,
                 opacity=opacity,
                 xt_min_index=xt_min_index,
                 yt_min_index=yt_min_index,
@@ -360,6 +406,7 @@ class Setup:
             cube_info = FakeCubeInfo(
                 group_path=group_path,
                 opacity=opacity,
+                colour=colour,
                 xt_min_index=xt_min_index,
                 yt_min_index=yt_min_index,
                 zt_min_index=zt_min_index,
@@ -371,6 +418,57 @@ class Setup:
         
         print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
+    
+    def get_test_cube(self, HDF5File: h5py.File, opacity: float, colour: str) -> TestCubeInfo:
+        """
+        Gives the test cube information.
+
+        Args:
+            HDF5File (h5py.File): the HDF5 file where the data is stored.
+            opacity (float): the opacity of the voxels in the visualisation.
+            colour (str): the colour of the voxels in the visualisation.
+
+        Returns:
+            TestCubeInfo: the test cube information.
+        """
+
+        # PATH group
+        group_path = 'Test data/Sun surface'  # ? make it as an argument?
+
+        # BORDERs as index
+        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx
+        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx
+        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx
+
+        # COO data
+        data_coords: h5py.Dataset = HDF5File[group_path + '/coords']
+        data_values: h5py.Dataset = HDF5File[group_path + '/values']
+
+        # FORMATTING data
+        cube_info = TestCubeInfo(
+            group_path=group_path,
+            opacity=opacity,
+            colour=colour,
+            xt_min_index=xt_min_index,
+            yt_min_index=yt_min_index,
+            zt_min_index=zt_min_index,
+            dataset_coords=data_coords,
+            dataset_values=data_values,
+        )
+        return cube_info
+
+    def color_str_to_hex(self, colour: str) -> int:
+        """
+        Converts a colour string to hexadecimal int value.
+
+        Args:
+            colour (str): the colour name to convert.
+
+        Returns:
+            int: the corresponding hexadecimal int value.
+        """
+
+        return int(mcolors.to_hex(mcolors.CSS4_COLORS[colour])[1:], 16)
 
     def close(self) -> None:
         """
@@ -400,24 +498,23 @@ class K3dAnimation(Setup):
             texture_resolution: int = 960,  
             **kwargs,
         ) -> None:
-        """ # todo update docstring
+        """
         To visualise the data in k3d. The fetching and naming of the data is done in the parent
         class.
 
         Args:
-            compression_level (int, optional): the compression used in k3d. The higher the value,
-                the more compressed it is (max is 9). Defaults to 9.
-            plot_height (int, optional): the hight in pixels of the jupyter display plot.
+            compression_level (int, optional): the compression level used in k3d. The higher the
+                value, the more compressed it is (max is 9). Defaults to 9.
+            plot_height (int, optional): the height in pixels of the jupyter display plot.
                 Defaults to 1260.
             sleep_time (int | float, optional): the sleep time used when playing through the cubes.
                 Used when trying to save screenshots of the display. Defaults to 2.
-            camera_fov (int | float | str, optional): the field of view, in degrees. Can be also a
-                string if the field of view needs to represent 'sdo' or 'stereo'. Defaults to 0.23.
             camera_zoom_speed (int | float, optional): the zoom speed when trying to zoom in on the
                 display. Defaults to 0.7.
-            camera_pos (tuple[int | float, int | float, int | float] | None, optional): the
-                index position of the camera. Automatically set if 'pov_sdo' or 'pov_stereo' is set
-                to True. Defaults to None.
+            camera_pos (tuple[int | float, int | float, int | float] | None, optional): the index
+                position of the camera. Automatically set if 'pov_sdo' or 'pov_stereo' is chosen.
+                Defaults to None.
+            camera_fov (float, optional): the field of view, in degrees. Defaults to 0.23.
             up_vector (tuple[int, int, int], optional): the up vector when displaying the
                 protuberance. Defaults to (0, 0, 1).
             visible_grid (bool, optional): deciding to make the k3d grid visible or not.
@@ -426,9 +523,7 @@ class K3dAnimation(Setup):
                 Defaults to False.
             texture_resolution (int, optional): the resolution of the sun's texture, i.e. how many
                 points need to be displayed phi direction. Defaults to 960.
-
-        Raises:
-            ValueError: if 'camera_fov' string value is not recognised.
+            **kwargs: the other arguments to pass to the parent class.
         """
         
         # PARENT init
@@ -439,7 +534,7 @@ class K3dAnimation(Setup):
         self.sleep_time = sleep_time  # sets the time between each frames (in seconds)
         self.camera_zoom_speed = camera_zoom_speed  # zoom speed of the camera 
         self.camera_pos = camera_pos  # position of the camera multiplied by 1au
-        self.camera_fov = self.get_sdo_fov() if self.pov_sdo else camera_fov  # fov in degrees
+        self.camera_fov = self.get_sdo_fov() if self.choices['pov sdo'] else camera_fov  # in deg
         self.up_vector = up_vector  # up vector for the camera
         self.visible_grid = visible_grid  # setting the grid to be visible or not
         self.texture_resolution = texture_resolution
@@ -484,7 +579,7 @@ class K3dAnimation(Setup):
         }
 
         # SUN add
-        if self.sun:
+        if self.choices['sun']:
             self.add_sun()
             points = k3d.points(
                 positions=self.sun_points,
@@ -496,30 +591,35 @@ class K3dAnimation(Setup):
             )
             self.plot += points
 
-        # BORDERs add
-
-        if self.test_points:
+        if self.choices['test points']:
             cube = self.find_first_cube()
-            point = k3d.points(
-                positions=np.array([cube.xt_min_index, cube.yt_min_index, cube.zt_min_index]),
-                point_size=5,
-                colors=[0xff0000],
-                shader='3d',
-                name='BORDERs',
-            )
-            point2 = k3d.points(
-                positions=np.array([
-                    cube.xt_min_index + 62,
-                    cube.yt_min_index + 65,
-                    cube.zt_min_index + 150,
-                ]),
-                point_size=5,
-                colors=[0xff0000],
-                shader='3d',
-                name='BORDERs2',
-            )
-            self.plot += point
-            self.plot += point2
+            if cube is not None:
+                point = k3d.points(
+                    positions=np.array([cube.xt_min_index, cube.yt_min_index, cube.zt_min_index]),
+                    point_size=5,
+                    colors=[0xff0000],
+                    shader='3d',
+                    name='BORDERs',
+                )
+                point2 = k3d.points(
+                    positions=np.array([
+                        cube.xt_min_index + 62,
+                        cube.yt_min_index + 65,
+                        cube.zt_min_index + 150,
+                    ]),
+                    point_size=5,
+                    colors=[0xff0000],
+                    shader='3d',
+                    name='BORDERs2',
+                )
+                self.plot += point
+                self.plot += point2
+
+        # TEST CUBE add
+        if self.cubes.test_cube is not None:
+            # VOXELs create
+            self.plot_test_cube = self.create_voxels(self.cubes.test_cube, **kwargs)
+            for plot in self.plot_test_cube: self.plot += plot
 
         # ALL DATA add
         if self.cubes.all_data is not None:
@@ -600,23 +700,20 @@ class K3dAnimation(Setup):
 
     def create_voxels(
             self,
-            cube: CubeInfo | FakeCubeInfo,
+            cube: CubeInfo | FakeCubeInfo | TestCubeInfo,
             index: int = 0,
-            color_map: list[int] = [0x0000ff],
             **kwargs,
         ) -> list[VoxelType]:
         """
-        Creates the k3d.plot.voxels() for a given cube 'type'.
+        Creates the initial k3d voxels and the corresponding polynomial fit voxels for the
+        visualisation.  
 
         Args:
-            cube (CubeInfo | FakeCubeInfo): the cube and polynomial fit information.
-            index (int, optional): the chosen index to initially plot. Defaults to 0.
-            opacity (float, optional): the voxel opacity in the plot. Defaults to 0.8.
-            color_map (list[int], optional): the color chosen for the voxels.
-                Defaults to [0x0000ff].
+            cube (CubeInfo | FakeCubeInfo | TestCubeInfo): the cube information to visualise.
+            index (int, optional): the index of the time value to visualise. Defaults to 0.
 
         Returns:
-            list[VoxelType]: the k3d.plot.voxels() created.
+            list[VoxelType]: the corresponding voxels for the k3d visualisation.
         """
 
         # PLACEHOLDER voxels
@@ -631,7 +728,7 @@ class K3dAnimation(Setup):
             voxels=cube[index][0].transpose((2, 1, 0)),
             name=cube.name,
             opacity=cube.opacity,
-            color_map=color_map,
+            color_map=[self.color_str_to_hex(cube.colour)],
             translation=translation,
             **kwargs,
         )
@@ -753,7 +850,7 @@ class K3dAnimation(Setup):
         Add the Sun in the visualisation.
         The Sun is just made up of small spheres positioned at the Sun's surface.
         """
-        # TODO: re-add the choice where I can decide to add a texture.
+        # todo re-add the choice where I can decide to add a texture.
 
         # COORDs spherical
         N = self.texture_resolution  # number of points in the theta direction
