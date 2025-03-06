@@ -177,9 +177,9 @@ class OrthographicalProjection:
 
         # CHOICES
         possibilities = [  # ? does the cartesian option still work?
-            'integration', 'no duplicates', 'sdo image', 'sdo mask', 'test data',
+            'integration', 'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data',
             'envelope', 'fit', 'fit envelope', 'test data', 'line of sight', 'all data'
-        ]
+        ]   
         plot_choices_kwargs = {
             key: False 
             for key in possibilities
@@ -355,9 +355,21 @@ class OrthographicalProjection:
                     line_of_sight_path,
                 )
                 # ? add the stereo line of sight just to see the intersection ?
-            if self.plot_choices['test data']:
-                test_path = 'Fake/Filtered/All data'
-                data_pointers.test_data = self.get_fake_cube_information(H5PYFile, test_path)
+            if self.plot_choices['fake data']:
+                fake_path = 'Fake/Filtered/All data'
+                data_pointers.fake_data = self.get_cubes_information(
+                    H5PYFile=H5PYFile,
+                    group_path=fake_path,
+                    cube_type='fake',
+                )
+
+            if self.plot_choices['test cube']:
+                test_path = 'Test data/Sun surface'
+                data_pointers.test_cube = self.get_cubes_information(
+                    H5PYFile=H5PYFile,
+                    group_path=test_path,
+                    cube_type='test',
+                )
 
             while True:
                 # INFO process 
@@ -435,14 +447,25 @@ class OrthographicalProjection:
                         sdo_pos=sdo_image_info.sdo_pos,
                     )
                 
-                if data_pointers.test_data is not None:
-                    projection_data.test_data = self.format_cube(
-                        data=data_pointers.test_data,
+                if data_pointers.fake_data is not None:
+                    projection_data.fake_data = self.format_cube(
+                        data=data_pointers.fake_data,
                         index=process,
-                        name='test data',
+                        name='fake data',
                         colour='black',
                         sdo_pos=sdo_image_info.sdo_pos,
                     )
+                    rho, theta = projection_data.fake_data
+
+                if data_pointers.test_cube is not None:
+                    projection_data.test_cube = self.format_cube(
+                        data=data_pointers.test_cube,
+                        index=process,
+                        name='test cube',
+                        colour='yellow',
+                        sdo_pos=sdo_image_info.sdo_pos,
+                    )
+                    rho, theta = projection_data.test_cube
 
                 if self.plot_choices['fit']:
 
@@ -491,7 +514,7 @@ class OrthographicalProjection:
 
     def format_cube(
             self,
-            data: CubePointer,
+            data: CubePointer | TestCubePointer | FakeCubePointer,
             index: int,
             name: str,
             colour: str,
@@ -501,9 +524,9 @@ class OrthographicalProjection:
         To format the cube data for the projection.
 
         Args:
-            data (CubePointer): the data cube to be formatted.
-            index (int): the index of the data cube.
-            colour (str): the colour of the data cube.
+            data (CubePointer | TestCubePointer | FakeCubePointer): the data cube to be formatted.
+            index (int): the index of the corresponding real data cube.
+            colour (str): the colour of the data cube for the plot.
             sdo_pos (np.ndarray): the position of the SDO satellite.
 
         Returns:
@@ -524,11 +547,13 @@ class OrthographicalProjection:
         return ProjectedCube(data=cube, name=name, colour=colour)
 
     def get_global_constants(self, H5PYFile: h5py.File, init_path: str) -> GlobalConstants:
-        """ # todo update docstring
+        """
         To get the global constants of the data.
 
         Args:
             H5PYFile (h5py.File): the HDF5 file containing the data.
+            init_path (str): the beginning value of the path (depends if the HDF5 file also has
+                fake and/or test data).
 
         Returns:
             GlobalConstants: the global constants of the data.
@@ -547,17 +572,59 @@ class OrthographicalProjection:
             dates=dates,
         )
         return constants
+    
+    @overload
+    def get_cubes_information(
+            self,
+            H5PYFile: h5py.File,
+            group_path: str,
+            *,
+            cube_type: Literal['real'] = ...,
+        ) -> CubePointer: ...
+    
+    @overload
+    def get_cubes_information(
+            self,
+            H5PYFile: h5py.File,
+            group_path: str,
+            *,
+            cube_type: Literal['test'] = ...,
+        ) -> TestCubePointer: ...
+    
+    @overload
+    def get_cubes_information(
+            self,
+            H5PYFile: h5py.File,
+            group_path: str,
+            *,
+            cube_type: Literal['fake'] = ...,
+        ) -> FakeCubePointer: ...
+    
+    @overload # fallback
+    def get_cubes_information(
+            self,
+            H5PYFile: h5py.File,
+            group_path: str,
+            cube_type: str = 'real',
+        ) -> CubePointer | TestCubePointer | FakeCubePointer: ...
 
-    def get_cubes_information(self, H5PYFile: h5py.File, group_path: str) -> CubePointer:
-        """
+    def get_cubes_information(
+            self,
+            H5PYFile: h5py.File,
+            group_path: str,
+            cube_type: str = 'real',
+        ) -> CubePointer | TestCubePointer | FakeCubePointer:
+        """ # todo update docstring
         To get the information about the data cubes.
 
         Args:
             H5PYFile (h5py.File): the HDF5 file containing the data.
             group_path (str): the path to the group containing the data.
+            test_cube (bool, optional): if the data is test data. Only used for the IDE to infer
+                the return type. Defaults to False.
 
         Returns:
-            CubePointer: the information about the data cubes.
+            CubePointer | TestCubePointer: the information about the data cubes.
         """
 
         # BORDERs
@@ -565,13 +632,35 @@ class OrthographicalProjection:
         yt_min = float(H5PYFile[group_path + '/yt_min'][...])
         zt_min = float(H5PYFile[group_path + '/zt_min'][...])
 
-        # FORMAT data
-        cube_info = CubePointer(
-            xt_min=xt_min,
-            yt_min=yt_min,
-            zt_min=zt_min,
-            pointer=H5PYFile[group_path + '/coords'],
-        )
+        if cube_type == 'real':
+            # FORMAT data
+            cube_info = CubePointer(
+                xt_min=xt_min,
+                yt_min=yt_min,
+                zt_min=zt_min,
+                pointer=H5PYFile[group_path + '/coords'],
+            )
+        elif cube_type == 'test':
+            # FORMAT data
+            cube_info = TestCubePointer(
+                xt_min=xt_min,
+                yt_min=yt_min,
+                zt_min=zt_min,
+                pointer=H5PYFile[group_path + '/coords'],
+            )
+        else:
+            # FAKE time indexes
+            time_indexes: np.ndarray = H5PYFile['Fake/Time indexes'][...]
+
+            # FORMAT cube
+            cube_info = FakeCubePointer(
+                xt_min=xt_min,
+                yt_min=yt_min,
+                zt_min=zt_min,
+                pointer=H5PYFile[group_path + '/coords'],
+                real_time_indexes=self.constants.time_indexes,
+                fake_time_indexes=time_indexes,
+            )
         return cube_info
     
     def get_fake_cube_information(self, H5PYFile: h5py.File, group_path: str) -> FakeCubePointer:
@@ -1088,11 +1177,21 @@ class Plotting(OrthographicalProjection):
                             **self.plot_kwargs['fit envelope'],
                         )
 
-        # TEST plot
-        if projection_data.test_data is not None:
-            # PLOT contours test data
+        # PLOT fake data
+        if projection_data.fake_data is not None:
+            # PLOT contours fake data
             self.plot_contours(
-                projection=projection_data.test_data,
+                projection=projection_data.fake_data,
+                d_theta=self.constants.d_theta,
+                dx=self.constants.dx,
+                image_shape=image_shape,
+            )
+
+        # PLOT test cube
+        if projection_data.test_cube is not None:
+            # PLOT contours test cube
+            self.plot_contours(
+                projection=projection_data.test_cube,
                 d_theta=self.constants.d_theta,
                 dx=self.constants.dx,
                 image_shape=image_shape,
@@ -1178,11 +1277,10 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
-        verbose=2,
         polynomial_order=[4],
         plot_choices=[
-            'no duplicates', 'sdo image', 'sdo mask', 'integration', 'line of sight', 'test data',
-            'fit',
+            'no duplicates', 'sdo image', 'sdo mask', 'integration', 'line of sight', 'fake data',
+            'fit', 'test cube',
         ],
         with_fake_data=True,
         flush=True,

@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 
 # IMPORTS sub
-from typing import overload, Iterator, Literal
+from typing import Any, overload, Iterator, Literal
 from dataclasses import dataclass, field
 
 
@@ -42,7 +42,6 @@ class CubeInformation:
     # VALUEs
     coords: np.ndarray
     order: int | None = None 
-
 
 
 ### CARTESIAN TO POLAR ###
@@ -140,12 +139,24 @@ class CubePointer:
     pointer: h5py.Dataset
 
     def __getitem__(self, item: int) -> np.ndarray:
+        """
+        To get the data cube from the corresponding pointer.
+
+        Args:
+            item (int): the index of the data cube to get.
+
+        Returns:
+            np.ndarray: the corresponding data cube.
+        """
         data_filter = self.pointer[0, :] == item
         return self.pointer[1:, data_filter].astype('float64')
     
 
 @dataclass(slots=True, repr=False, eq=False)
 class FakeCubePointer(CubePointer):
+    """
+    Class to store the pointer to the fake data cubes used in the polynomial projection module.
+    """
 
     # INDEXes time
     real_time_indexes: np.ndarray
@@ -159,6 +170,15 @@ class FakeCubePointer(CubePointer):
         self.value_to_index = {value: index for index, value in enumerate(self.fake_time_indexes)}
 
     def __getitem__(self, item: int) -> np.ndarray:
+        """
+        To get the fake data cube corresponding to the real data cube gotten from the 'item' index.
+
+        Args:
+            item (int): the index of the real data cube to get the corresponding fake data cube.
+
+        Returns:
+            np.ndarray: the corresponding fake data cube.
+        """
         
         # INDEX real to fake
         time_index = int(self.real_time_indexes[item])
@@ -167,6 +187,28 @@ class FakeCubePointer(CubePointer):
         # FILTER
         data_filter = self.pointer[0, :] == fake_index
         return self.pointer[1:, data_filter].astype('float64')
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class TestCubePointer(CubePointer):
+    """
+    Class to store the pointer to the test data cube used in the polynomial projection module.
+    """
+
+    def __getitem__(self, item: Any) -> np.ndarray:
+        """
+        To get the test data cube from the corresponding pointer.
+        This dunder method was created only so that the class can be used like it's Parent or 
+        the FakeCubePointer class.
+
+        Args:
+            item (Any): can be anything as it is not used.
+
+        Returns:
+            np.ndarray: the test data cube.
+        """
+
+        return self.pointer[...].astype('float64')
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -179,7 +221,8 @@ class CubesPointers:
     no_duplicates: CubePointer | None = field(default=None, init=False)
     integration: CubePointer | None = field(default=None, init=False)
     line_of_sight: CubePointer | None = field(default=None, init=False)
-    test_data: FakeCubePointer | None = field(default=None, init=False)
+    fake_data: FakeCubePointer | None = field(default=None, init=False)
+    test_cube: TestCubePointer | None = field(default=None, init=False)
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -210,7 +253,7 @@ class ProjectedCube:
     name: str
     colour: str
 
-    def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)
+    def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)  # ? why did I add this?
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -227,7 +270,8 @@ class ProjectionData:
     integration: ProjectedCube | None = None
     line_of_sight: ProjectedCube | None = None
     fits: list[PolynomialInformation] | None = None
-    test_data: ProjectedCube | None = None
+    fake_data: ProjectedCube | None = None
+    test_cube: ProjectedCube | None = None
 
     def __getattr__(self, name: str) -> np.ndarray:
         """
@@ -240,7 +284,9 @@ class ProjectionData:
             np.ndarray: the ProjectedCube.data attribute.
         """
 
-        names = ['all_data', 'no_duplicates', 'integration', 'line_of_sight', 'test_data']
+        names = [
+            'all_data', 'no_duplicates', 'integration', 'line_of_sight', 'fake_data', 'test_cube',
+        ]
         if name in names:
             cube = getattr(self, name)
             if cube is not None:
@@ -303,10 +349,13 @@ class EnvelopeInformation:
     middle: EnvelopeMiddleInformation
 
     @overload
-    def __getitem__(self, item: Literal[0]) -> EnvelopeLimitInformation: ...
+    def __getitem__(self, item: Literal[0] | Literal[1]) -> EnvelopeLimitInformation: ...
 
     @overload
     def __getitem__(self, item: Literal[2]) -> EnvelopeMiddleInformation: ...
+
+    @overload # fallback
+    def __getitem__(self, item: int) -> EnvelopeLimitInformation | EnvelopeMiddleInformation: ...
 
     def __getitem__(self, item: int) -> EnvelopeLimitInformation | EnvelopeMiddleInformation:
 
