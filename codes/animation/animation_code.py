@@ -258,14 +258,17 @@ class Setup:
                 colour='purple',
                 opacity=0.6,
                 interpolate=False,
-                fake_cubes=True,
+                cube_type='fake',
             )
 
             if self.choices['test cube']:
-                cubes.test_cube = self.get_test_cube(
+                cubes.test_cube = self.get_cube_info(
                     HDF5File=HDF5File,
-                    opacity=0.7,
+                    group_path='Test data/Sun surface',
                     colour='yellow',
+                    opacity=0.7,
+                    interpolate=False,
+                    cube_type='test',
                 )
         return cubes
 
@@ -318,7 +321,7 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             *,
-            fake_cubes: Literal[False] = ...,
+            cube_type: Literal['real'] = ...,
         ) -> CubeInfo: ...
 
     @overload
@@ -330,8 +333,31 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             *,
-            fake_cubes: Literal[True] = ...,
+            cube_type: Literal['fake'] = ...,
         ) -> FakeCubeInfo: ...
+
+    @overload
+    def get_cube_info(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            opacity: float = ...,
+            interpolate: bool = ...,
+            colour: str = ...,
+            *,
+            cube_type: Literal['test'] = ...,
+        ) -> TestCubeInfo: ...
+
+    @overload # fallback
+    def get_cube_info(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            opacity: float = ...,
+            interpolate: bool = ...,
+            colour: str = ...,
+            cube_type: str = ...,
+        ) -> CubeInfo | FakeCubeInfo | TestCubeInfo: ...
 
     def get_cube_info(
             self,
@@ -340,8 +366,8 @@ class Setup:
             opacity: float = 1.,
             interpolate: bool = True,
             colour: str = 'blue',
-            fake_cubes: bool = False,
-        ) -> CubeInfo | FakeCubeInfo:
+            cube_type: str = 'real',
+        ) -> CubeInfo | FakeCubeInfo | TestCubeInfo:
         """
         Gives the protuberance and polynomial fit information for a chosen cube 'type'.
 
@@ -354,10 +380,11 @@ class Setup:
                 Defaults to True.
             colour (str, optional): the colour of the voxels in the visualisation.
                 Defaults to 'blue'.
-            fake_cubes (bool, optional): if the data comes from a 'fake cube'. Defaults to False.
+            cube_type (str, optional): the type of cube to visualise. Defaults to 'real'.
 
         Returns:
-            CubeInfo | FakeCubeInfo: the protuberance and polynomial fit information.
+            CubeInfo | FakeCubeInfo | TestCubeInfo: the protuberance and polynomial fit
+                information.
         """
 
         # BORDERs as index
@@ -389,8 +416,8 @@ class Setup:
         else:
             polynomials = None
 
-        if not fake_cubes:
-            # FORMATTING data
+        # FORMATTING data
+        if cube_type == 'real':
             cube_info = CubeInfo(
                 group_path=group_path,
                 colour=colour,
@@ -402,7 +429,7 @@ class Setup:
                 dataset_values=data_values,
                 polynomials=polynomials,
             )
-        else:
+        elif cube_type == 'fake':
             cube_info = FakeCubeInfo(
                 group_path=group_path,
                 opacity=opacity,
@@ -415,48 +442,21 @@ class Setup:
                 time_indexes_real=self.constants.time_indexes,
                 time_indexes_fake=HDF5File['Fake/Time indexes'][...],
             )
-        
+        else:
+            cube_info = TestCubeInfo(
+                group_path=group_path,
+                opacity=opacity,
+                colour=colour,
+                xt_min_index=xt_min_index,
+                yt_min_index=yt_min_index,
+                zt_min_index=zt_min_index,
+                dataset_coords=data_coords,
+                dataset_values=data_values,
+            )
+
         print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
     
-    def get_test_cube(self, HDF5File: h5py.File, opacity: float, colour: str) -> TestCubeInfo:
-        """
-        Gives the test cube information.
-
-        Args:
-            HDF5File (h5py.File): the HDF5 file where the data is stored.
-            opacity (float): the opacity of the voxels in the visualisation.
-            colour (str): the colour of the voxels in the visualisation.
-
-        Returns:
-            TestCubeInfo: the test cube information.
-        """
-
-        # PATH group
-        group_path = 'Test data/Sun surface'  # ? make it as an argument?
-
-        # BORDERs as index
-        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx
-        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx
-        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx
-
-        # COO data
-        data_coords: h5py.Dataset = HDF5File[group_path + '/coords']
-        data_values: h5py.Dataset = HDF5File[group_path + '/values']
-
-        # FORMATTING data
-        cube_info = TestCubeInfo(
-            group_path=group_path,
-            opacity=opacity,
-            colour=colour,
-            xt_min_index=xt_min_index,
-            yt_min_index=yt_min_index,
-            zt_min_index=zt_min_index,
-            dataset_coords=data_coords,
-            dataset_values=data_values,
-        )
-        return cube_info
-
     def color_str_to_hex(self, colour: str) -> int:
         """
         Converts a colour string to hexadecimal int value.
