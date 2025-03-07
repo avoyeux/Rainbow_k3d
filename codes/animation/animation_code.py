@@ -137,7 +137,7 @@ class Setup:
         possibilities = [ 
             'sun', 'all data', 'no duplicate', 'all data integration', 'no duplicate integration',
             'line of sight sdo', 'line of sight stereo', 'pov sdo', 'pov stereo', 'fit',
-            'with feet', 'test points', 'test cube',
+            'with feet', 'test points', 'test cube', 'fake data',
         ]
         choices_kwargs = {
             key: False 
@@ -251,7 +251,7 @@ class Setup:
             ).astype('float32')
             # todo will need to add the POV center
 
-        if self.with_fake_data:
+        if self.choices['fake data']:
             cubes.fake_cube = self.get_cube_info(
                 HDF5File=HDF5File,
                 group_path='Fake/Filtered/All data',
@@ -261,15 +261,15 @@ class Setup:
                 cube_type='fake',
             )
 
-            if self.choices['test cube']:
-                cubes.test_cube = self.get_cube_info(
-                    HDF5File=HDF5File,
-                    group_path='Test data/Sun surface',
-                    colour='yellow',
-                    opacity=0.7,
-                    interpolate=False,
-                    cube_type='test',
-                )
+        if self.choices['test cube']:
+            cubes.test_cube = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path='Test data/Sun surface',
+                colour='yellow',
+                opacity=0.7,
+                interpolate=False,
+                cube_type='test',
+            )
         return cubes
 
     def get_sdo_fov(self) -> float:
@@ -412,7 +412,7 @@ class Setup:
                     name=f'{order}th ' + group_path.split('/')[1],
                     color_hex=self.plot_polynomial_colours[i],
                 )
-                print(f'FETCHED -- {polynomials[i].name} data.')
+                print(f'FETCHED -- {polynomials[i].name}.')
         else:
             polynomials = None
 

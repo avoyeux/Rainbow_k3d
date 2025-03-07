@@ -1283,5 +1283,4 @@ if __name__ == '__main__':
             'fit', 'test cube',
         ],
         with_fake_data=True,
-        flush=True,
     )

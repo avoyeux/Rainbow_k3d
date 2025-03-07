@@ -323,7 +323,7 @@ class BaseHDF5Protuberance(BaseHdf5Creator):
             x_min, y_min, z_min = np.min(coords, axis=1)
         else:
             _, x_min, y_min, z_min = np.min(coords, axis=1)
-        x_min = x_min if x_min <= self.volume.xt_min else self.volume.xt_min
+        x_min = x_min if x_min <= self.volume.xt_min else self.volume.xt_min  # ? why like this?
         y_min = y_min if y_min <= self.volume.yt_min else self.volume.yt_min
         z_min = z_min if z_min <= self.volume.zt_min else self.volume.zt_min
         new_borders = self.create_borders((x_min, y_min, z_min))
