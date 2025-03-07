@@ -27,7 +27,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
 
     def __init__(
             self,
-            nb_of_points: int,
+            angle_step: float,
             sphere_radius: tuple[float, float],
             torus_radius: tuple[float, float],
             increase_factor: float = 1.,
@@ -42,8 +42,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
         To initialise the CreateFakeData class.
 
         Args:
-            nb_of_points (int): defines the initial precision in the creation of the fake data.
-                The higher the number, the more 'points' the initial data will have.
+            angle_step (float): the step in radian between each point for the fake data.
             sphere_radius (tuple[float, float]): the max and min radius of the fake ball in km.
             torus_radius (tuple[float, float]): the main and minor radius of the fake torus in km.
             increase_factor (float, optional): the multiplying factor by which the initial cube
@@ -75,7 +74,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
 
         # PARENTs
         super().__init__(
-            nb_of_points=nb_of_points,
+            angle_step=angle_step,
             sphere_radius=sphere_radius,
             increase_factor=increase_factor,
             torus_radius=torus_radius,
@@ -454,10 +453,10 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = CreateFakeData(
-        nb_of_points=int(2e3),
+        angle_step=1.5e-3,
         create_new_hdf5=False,
         torus_radius=(7.8e5, 2e4),
-        sphere_radius=(6.92e5, 6.96e5),
-        increase_factor=1.,  # ! not 100% sur if it works properly, but should be. Will test later.
+        sphere_radius=(6.95e5, 7e5),
+        increase_factor=2.5,  # ! not 100% sur if it works properly, but should be. Will test later.
     )
     instance.create_hdf5()

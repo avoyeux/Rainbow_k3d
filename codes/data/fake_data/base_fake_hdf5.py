@@ -42,6 +42,9 @@ class FakeCubeBorders:
     max_indexes: tuple[int, int, int] = field(init=False)
 
     def __post_init__(self) -> None:
+        """
+        To update the cartesian and spherical border value given the increase factor.
+        """
 
         # BORDERs increase
         self._border_increase()
@@ -107,21 +110,22 @@ class BaseFakeHDF5:
 
     def __init__(
             self,
-            nb_of_points: int,
+            angle_step: float,
             sphere_radius: tuple[float, float],
             torus_radius: tuple[float, float],
             increase_factor: float,
         ) -> None:
         """
+        To initialize the fake cube creation.
 
         Args:
-            nb_of_points (int): _description_
-            sphere_radius (tuple[float, float]): _description_
-            increase_factor (float): _description_
+            angle_step (float): the step in rad for the angles.
+            sphere_radius (tuple[float, float]): the min and max radius of the sphere in km.
+            increase_factor (float): the factor to increase the cube borders.
         """
         
         # ATTRIBUTES from arguments
-        self.nb_of_points = nb_of_points
+        self.angle_step = angle_step  # in rad
         self.sphere_radius = sphere_radius  # in km
         self.torus_radius = torus_radius  # the main and width radius of the torus in km
         self.increase_factor = increase_factor
@@ -174,12 +178,8 @@ class BaseFakeHDF5:
         
         # COORDs spherical
         radius = np.arange(min(self.sphere_radius), max(self.sphere_radius), self.cube_info.dx)
-        phi = np.linspace(min(self.cube_info.phi), max(self.cube_info.phi), self.nb_of_points * 2)
-        theta = np.linspace(
-            start=min(self.cube_info.theta),
-            stop=max(self.cube_info.theta),
-            num=self.nb_of_points,
-        )
+        phi = self.modulo_angle(self.cube_info.phi, step_coef=0.5)  # ? why not -np.pi?
+        theta = self.modulo_angle(self.cube_info.theta)
         radius, phi, theta = np.meshgrid(radius, phi, theta)
 
         # COORDs cartesian
@@ -187,7 +187,31 @@ class BaseFakeHDF5:
         y = radius * np.sin(theta) * np.sin(phi)
         z = radius * np.cos(theta)
         return np.stack((x.ravel(), y.ravel(), z.ravel()), axis=0)
-    
+
+    def modulo_angle(self, angle: tuple[float, float], step_coef: float = 1.) -> np.ndarray:
+        """
+        To make sure the direction of the angle is always the right one.
+        This translate to making sure that the modulo of the angle is taken from the right 
+        reference.
+
+        Args:
+            angle (tuple[float, float]): the min and max angle in rad.
+            step_coef (float, optional): the coefficient to multiply the step. Defaults to 1..
+
+        Returns:
+            np.ndarray: the corresponding angle in rad.
+        """
+
+        # MODULO from 0 to 2 * np.pi
+        angle_array = np.array(angle)
+        reference = angle[1]
+        new_angle = (angle_array - reference) % (2 * np.pi)
+        
+        # ANGLEs range
+        angles = np.arange(min(new_angle), max(new_angle), self.angle_step * step_coef)
+        angles += reference
+        return angles % (2 * np.pi)
+
     def fake_torus(self) -> np.ndarray:
         """
         To create a fake torus data in cartesian reprojected carrington coordinates.
@@ -197,8 +221,8 @@ class BaseFakeHDF5:
         """
 
         # COORDs range
-        phi = np.linspace(0, 2 * np.pi, self.nb_of_points * 2)
-        theta = np.linspace(0, 2 * np.pi, self.nb_of_points)
+        phi = np.arange(0, 2 * np.pi, self.angle_step / 2)
+        theta = np.arange(0, 2 * np.pi, self.angle_step)
         theta, phi = np.meshgrid(theta, phi)
 
         # COORDs cartesian in km
