@@ -12,6 +12,7 @@ import datetime
 import numpy as np
 
 # IMPORTs sub
+from typing import final
 from dataclasses import dataclass
 
 
@@ -54,6 +55,7 @@ class BaseHdf5Creator:
         # ATTRIBUTEs
         self.compression_min_size = 3 * 1024
 
+    @final
     def add_group(
             self,
             parent_group: h5py.File | h5py.Group,
@@ -99,6 +101,7 @@ class BaseHdf5Creator:
             # DATASET as values but no dict
             self.add_dataset(parent_group=parent_group, info=info, name=name)
 
+    @final
     def add_dataset(
             self,
             parent_group: h5py.File | h5py.Group,
