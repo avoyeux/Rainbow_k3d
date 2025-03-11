@@ -28,6 +28,7 @@ path:
             data: &datacode !join [*pathcode, 'data']
             fake_data: !join [*datacode, 'fake_data']
             fusion_data: !join [*datacode, 'fusion_data']
+            fit: !join [*datacode, 'polynomial_fit']
             quick_data: !join [*datacode, 'quick_visualisation_data']
 
         # PATHs data directories
@@ -91,7 +92,7 @@ path:
 
 # RUN configuration
 run:
-    processes: 6
+    processes: 1
     verbose: 2
     flush: False
 
