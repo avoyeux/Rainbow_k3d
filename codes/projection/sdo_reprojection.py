@@ -19,11 +19,9 @@ import matplotlib.pyplot as plt
 # IMPORTS personal
 from common import config, Decorators, Plot
 from codes.projection.base_reprojection import BaseReprojection
-from codes.projection.extract_envelope import ExtractEnvelope, CreateFitEnvelope
+from codes.projection.extract_envelope import ExtractEnvelope
 from codes.projection.cartesian_to_polar import CartesianToPolar
 from codes.projection.projection_dataclasses import *
-from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
-
 from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProcessedPolynomial
 
 # PLACEHOLDERs type annotation
@@ -86,12 +84,12 @@ class OrthographicalProjection(BaseReprojection):
 
         # CONFIG values
         if processes is None:
-            self.processes: int = config.run.processes
+            self.processes: int = config.run.processes  #type:ignore
         else:
             self.processes = processes if processes > 1 else 1
-        self.verbose: int = config.run.verbose if verbose is None else verbose
-        self.flush: bool = config.run.flush if flush is None else flush
-        self.in_local = True if 'Documents' in config.root_path else False
+        self.verbose: int = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.flush: bool = config.run.flush if flush is None else flush  #type:ignore
+        self.in_local = True if 'Documents' in config.root_path else False  #type:ignore
 
         # PARENT
         super().__init__()
@@ -130,7 +128,7 @@ class OrthographicalProjection(BaseReprojection):
         # GLOBAL data
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
 
-    def filepath_setup(self, filepath: str | None) -> str:
+    def filepath_setup(self, filepath: str | None) -> str:  #type:ignore
         """
         To setup the data filepath (using the config.yml file if filepath is None).
 
@@ -142,7 +140,7 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         if filepath is None:
-            filepath = config.path.data.fusion if self.with_fake_data else config.path.data.real
+            filepath: str = config.path.data.fusion if self.with_fake_data else config.path.data.real  #type:ignore
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -155,9 +153,9 @@ class OrthographicalProjection(BaseReprojection):
 
         # PATHs save
         paths = {
-            'sdo': config.path.dir.data.sdo,
-            'sdo times': config.path.data.sdo_timestamp,
-            'save': os.path.join(config.path.dir.data.result.projection, self.foldername),
+            'sdo': config.path.dir.data.sdo, #type:ignore
+            'sdo times': config.path.data.sdo_timestamp, #type:ignore
+            'save': os.path.join(config.path.dir.data.result.projection, self.foldername), #type:ignore
         }
 
         # PATHs update
@@ -278,7 +276,7 @@ class OrthographicalProjection(BaseReprojection):
 
         # STATS data
         with h5py.File(self.filepath, 'r') as H5PYFile:
-            indexes: np.ndarray = H5PYFile[init_path + 'Time indexes'][...]
+            indexes: np.ndarray = H5PYFile[init_path + 'Time indexes'][...] #type:ignore
 
         if self.multiprocessing:
             # INFO multiprocessing
@@ -286,7 +284,7 @@ class OrthographicalProjection(BaseReprojection):
             nb_processes = min(self.processes, data_len)
 
             # SETUP multiprocessing
-            processes: list[mp.Process] = [None] * nb_processes
+            processes: list[mp.Process] = [None] * nb_processes #type:ignore
             manager = mp.Manager()
             input_queue = manager.Queue()
             for i in range(data_len): input_queue.put(i)
@@ -391,7 +389,7 @@ class OrthographicalProjection(BaseReprojection):
                 process_constants = ProcessConstants(
                     ID=process,
                     time_index=time_index,
-                    date=self.constants.dates[time_index].decode('utf8'),
+                    date=self.constants.dates[time_index].decode('utf8'), #type:ignore
                 )
                 projection_data = ProjectionData(ID=process)
 
@@ -478,7 +476,7 @@ class OrthographicalProjection(BaseReprojection):
 
                 if self.plot_choices['fit']:
 
-                    polynomials_info: list[PolynomialInformation] = (
+                    polynomials_info: list[FitWithEnvelopes] = (
                         [None] * len(self.polynomial_order)
                     )#type: ignore
 
@@ -523,10 +521,17 @@ class OrthographicalProjection(BaseReprojection):
                             integration_time=self.integration_time,
                             number_of_points=250,
                             with_fake_data=self.with_fake_data,
+                            create_envelope=self.plot_choices['fit envelope'],
                         )
-                        polynomial_instance.reprocessed_fit(process)
+                        results = polynomial_instance.reprocessed_fit_n_envelopes(process)
 
-                    projection_data.fits = polynomials_info
+                        # DATA save
+                        polynomials_info[i] = results
+
+                        # HDF5 close
+                        polynomial_instance.close()
+
+                    projection_data.fits_n_envelopes = polynomials_info
                     
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
@@ -548,9 +553,9 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         # DATA open
-        dx = float(H5PYFile['dx'][...])
-        time_indexes: np.ndarray = H5PYFile[init_path + 'Time indexes'][...]
-        dates: np.ndarray = H5PYFile['Dates'][...]
+        dx = float(H5PYFile['dx'][...])  #type:ignore
+        time_indexes: np.ndarray = H5PYFile[init_path + 'Time indexes'][...]  #type:ignore
+        dates: np.ndarray = H5PYFile['Dates'][...]  #type:ignore
 
         # FORMAT data
         constants = GlobalConstants(
@@ -616,9 +621,9 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         # BORDERs
-        xt_min = float(H5PYFile[group_path + '/xt_min'][...])
-        yt_min = float(H5PYFile[group_path + '/yt_min'][...])
-        zt_min = float(H5PYFile[group_path + '/zt_min'][...])
+        xt_min = float(H5PYFile[group_path + '/xt_min'][...]) #type:ignore
+        yt_min = float(H5PYFile[group_path + '/yt_min'][...]) #type:ignore
+        zt_min = float(H5PYFile[group_path + '/zt_min'][...]) #type:ignore
 
         if cube_type == 'real':
             # FORMAT data
@@ -626,7 +631,7 @@ class OrthographicalProjection(BaseReprojection):
                 xt_min=xt_min,
                 yt_min=yt_min,
                 zt_min=zt_min,
-                pointer=H5PYFile[group_path + '/coords'],
+                pointer=H5PYFile[group_path + '/coords'], #type:ignore
             )
         elif cube_type == 'test':
             # FORMAT data
@@ -634,18 +639,18 @@ class OrthographicalProjection(BaseReprojection):
                 xt_min=xt_min,
                 yt_min=yt_min,
                 zt_min=zt_min,
-                pointer=H5PYFile[group_path + '/coords'],
+                pointer=H5PYFile[group_path + '/coords'], #type:ignore
             )
         else:
             # FAKE time indexes
-            time_indexes: np.ndarray = H5PYFile['Fake/Time indexes'][...]
+            time_indexes: np.ndarray = H5PYFile['Fake/Time indexes'][...]  #type:ignore
 
             # FORMAT cube
             cube_info = FakeCubePointer(
                 xt_min=xt_min,
                 yt_min=yt_min,
                 zt_min=zt_min,
-                pointer=H5PYFile[group_path + '/coords'],
+                pointer=H5PYFile[group_path + '/coords'],  #type:ignore
                 real_time_indexes=self.constants.time_indexes,
                 fake_time_indexes=time_indexes,
             )
@@ -817,7 +822,7 @@ class OrthographicalProjection(BaseReprojection):
         if lines == []: return None
 
         # COORDs polar
-        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines)
+        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines) #type:ignore
         for i, line in enumerate(lines):
             nw_lines[i] = ((
                 [
@@ -973,41 +978,29 @@ class Plotting(OrthographicalProjection):
                 image_shape=image_shape,
             )
         
-        # ! haven't checked this if statement yet
-        if projection_data.fits is not None:
+        if projection_data.fits_n_envelopes is not None:
 
-            for i in range(len(projection_data.fits)):
+            for i, fit_n_envelope in enumerate(projection_data.fits_n_envelopes):
                 
-                # POLAR values
-                polar_r = projection_data.fits[i].polar_r
-                polar_theta = projection_data.fits[i].polar_theta
-                ang = projection_data.fits[i].angles
-
                 # PLOT
                 sc = plt.scatter(
-                    polar_theta,
-                    polar_r / 10**3,
+                    fit_n_envelope.fit_polar_theta,
+                    fit_n_envelope.fit_polar_r / 10**3,
                     label=f'{self.polynomial_order[i]}th order polynomial',
-                    c=np.rad2deg(ang),
+                    c=np.rad2deg(fit_n_envelope.fit_angles),  # ? aren't they already in deg??
                     **self.plot_kwargs['fit'],
                 )
                 cbar = plt.colorbar(sc)
                 cbar.set_label(r'$\theta$ (degrees)')
 
                 # ENVELOPE polynomial
-                if self.plot_choices['fit envelope']:
-                    # ENVELOPE get
-                    envelopes = CreateFitEnvelope.get(
-                        coords=np.stack([polar_r, polar_theta], axis=0),
-                        radius = 3e4,
-                    )
+                if fit_n_envelope.envelopes is not None:
 
                     # PLOT envelope
-                    for label, new_envelope in enumerate(envelopes):
-                        r_env, theta_env = new_envelope
+                    for label, new_envelope in enumerate(fit_n_envelope.envelopes):
                         plt.plot(
-                            theta_env,
-                            r_env / 1e3,
+                            new_envelope.polar_theta,
+                            new_envelope.polar_r / 1e3,
                             label='fit envelope' if label==0 else None,
                             **self.plot_kwargs['fit envelope'],
                         )

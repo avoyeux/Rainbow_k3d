@@ -225,23 +225,6 @@ class CubesPointers:
     test_cube: TestCubePointer | None = field(default=None, init=False)
 
 
-@dataclass(slots=True, frozen=True, repr=False, eq=False)
-class PolynomialInformation:
-    """
-    To store the polynomial information in polar coordinates and with the angle values.
-    """
-
-    order: int
-
-    xt_min: float  # todo need to decide what to do with the recurent xt_min, yt_min, ...
-    yt_min: float
-    zt_min: float
-    
-    polar_r: np.ndarray
-    polar_theta: np.ndarray
-    angles: np.ndarray
-
-
 @dataclass(slots=True, repr=False, eq=False)
 class ProjectedCube:
 
@@ -254,6 +237,32 @@ class ProjectedCube:
     colour: str
 
     def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)  # ? why did I add this?
+
+@dataclass(slots=True, repr=False, eq=False)
+class FitEnvelopes:
+    """
+    To format the result of the fit and envelope processing.
+    """
+    
+    order: int
+    polar_r: np.ndarray
+    polar_theta: np.ndarray
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class FitWithEnvelopes:
+    """
+    To format the results of the envelope processing.
+    """
+
+    # FIT processed
+    fit_order: int
+    fit_polar_r: np.ndarray
+    fit_polar_theta: np.ndarray
+    fit_angles: np.ndarray
+
+    # ENVELOPEs
+    envelopes: list[FitEnvelopes] | None
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -269,7 +278,7 @@ class ProjectionData:
     no_duplicates: ProjectedCube | None = None
     integration: ProjectedCube | None = None
     line_of_sight: ProjectedCube | None = None
-    fits: list[PolynomialInformation] | None = None
+    fits_n_envelopes: list[FitWithEnvelopes] | None = None
     fake_data: ProjectedCube | None = None
     test_cube: ProjectedCube | None = None
 
