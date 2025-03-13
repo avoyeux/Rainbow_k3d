@@ -151,7 +151,7 @@ class BaseReprojection:
         coords, _ = data
 
         # ANGLES
-        angles = self.get_angles(coords)
+        angles = self.get_angles(coords)  # todo need to change it so that I take the middle point
 
         # POLAR pos
         rho_polar, theta_polar = self.get_polar_image(data)

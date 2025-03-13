@@ -712,9 +712,9 @@ class GetPolynomialFit:
         params = self.get_params(cube_index)
 
         # COORDs
-        return self.get_coords(self.t_fine, params)
+        return self.get_coords(params)
 
-    def get_coords(self, t_fine: np.ndarray, params: np.ndarray) -> np.ndarray:
+    def get_coords(self, params: np.ndarray) -> np.ndarray:
         """
         Gives the coordinates of the polynomial fit given the polynomial parameters defined for a
         given cumulative distance 't_fine'.
@@ -731,9 +731,9 @@ class GetPolynomialFit:
         params_x, params_y, params_z = params
 
         # COORDs
-        x = self.nth_order_polynomial(t_fine, *params_x)
-        y = self.nth_order_polynomial(t_fine, *params_y)
-        z = self.nth_order_polynomial(t_fine, *params_z)
+        x = self.nth_order_polynomial(self.t_fine, *params_x)
+        y = self.nth_order_polynomial(self.t_fine, *params_y)
+        z = self.nth_order_polynomial(self.t_fine, *params_z)
         return np.stack([x, y, z], axis=0)
     
     def close(self):

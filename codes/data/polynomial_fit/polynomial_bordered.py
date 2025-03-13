@@ -101,7 +101,7 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
         params = self.get_params(cube_index)
 
         # COORDs cartesian
-        coords = self.get_coords(self.t_fine, params)
+        coords = self.get_coords(params)
         coords = self.to_cartesian(coords)
         
         # FILTER inside the Sun
@@ -118,10 +118,10 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
         new_t = self.t_fine[~to_filter]
 
         # RANGE filtered polynomial
-        t_fine = np.linspace(np.min(new_t), np.max(new_t), self.number_of_points)
+        self.t_fine = np.linspace(np.min(new_t), np.max(new_t), self.number_of_points)
 
         # COORDs new        
-        coords = self.get_coords(t_fine, params)
+        coords = self.get_coords(params)
 
         # DATA reformatting
         information = CubeInformation(
