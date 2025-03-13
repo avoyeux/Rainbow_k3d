@@ -12,17 +12,18 @@ import numpy as np
 
 # IMPORTs sub
 from typing import Protocol
+from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import config, Decorators
 from codes.projection.base_reprojection import BaseReprojection
-from codes.data.polynomial_fit.base_polynomial_fit import GetPolynomialFit
-from codes.projection.projection_dataclasses import CubeInformation
 from codes.projection.extract_envelope import CreateFitEnvelope
+from codes.projection.projection_dataclasses import FitWithEnvelopes, FitEnvelopes
+from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
 
 # API public
-__all__ = ['ReprojectionProcessedPolynomial', 'Fitting2D']
+__all__ = ['ReprojectionProcessedPolynomial']
 
 
 
@@ -36,162 +37,231 @@ class PolynomialCallable(Protocol):
     def __call__(self, t: np.ndarray, *coeffs: int | float) -> np.ndarray: ...
 
 
-class ReprojectionProcessedPolynomial(GetPolynomialFit, BaseReprojection):
+@dataclass(slots=True, repr=False, eq=False)
+class BaseProcessing:
     """
-    # todo change this docstring later
-    This is to get the params of the polynomial fit envelope to then cut the envelope at the sun
-    disk and recreate the image that is in the coronal monsoon paper.
+    Base to create and easily access the uniform coordinates for the fit and the envelope.
     """
 
-    def __init__(
-            self,
-            filepath: str,
-            dx: float,
-            index: int,
-            sdo_pos: np.ndarray,
-            polynomial_order: int,
-            integration_time: int,
-            number_of_points: int,
-            data_type: str = 'No duplicates',
-            with_fake_data: bool = False,
-        ) -> None:
-        
-        # PARENTs
-        super().__init__(
-            filepath=filepath,
-            polynomial_order=polynomial_order,
-            integration_time=integration_time,
-            number_of_points=number_of_points,  #maybe change this to 0 if not needed.
-            data_type=data_type,
-            with_fake_data=with_fake_data,
-        )
-        BaseReprojection.__init__(self)
+    # DATA unprocessed
+    polar_r: np.ndarray
+    polar_theta: np.ndarray
 
-        # ATTRIBUTEs
-        self.paths = self.paths_setup()
-        self.dx = dx
-        self.index = index
-        self.sdo_pos = sdo_pos
-        self.nb_of_points = number_of_points
-        self.polynomial_order = 8
+    # PARAMETERs
+    nb_of_points: int
 
-        # ! I need to redefine self.t_fine
+    # PLACEHOLDERs
+    cumulative_distance: np.ndarray = field(init=False)
+    polar_r_normalised: np.ndarray = field(init=False)
+    polar_theta_normalised: np.ndarray = field(init=False)
+
+    def normalise_coords(self) -> None:
+        """
+        Normalise the coordinates so that they are between 0 and 1. As such, the cumulative
+        distance won't only depend on one axis.
+        """
+
+        # COORDs
+        coords = np.stack([self.polar_r, self.polar_theta], axis=0)
+
+        # NORMALISE
+        min_vals = np.min(coords, axis=1, keepdims=True)
+        max_vals = np.max(coords, axis=1, keepdims=True)
+        coords = (coords - min_vals) / (max_vals - min_vals)
+
+        # COORDs update
+        self.polar_r_normalised, self.polar_theta_normalised = coords
     
-    def paths_setup(self) -> dict[str, str]:
-
-        # PATHs formatting
-        paths = {
-            'save': config.path.dir.code.fit, # todo change this later or take it way.
-        }
-        return paths
-
-    @Decorators.running_time
-    def reprocessed_fit(self, process: int) -> CubeInformation:  # ? do I need processes as arg ?
-
-        # PARAMs polynomial
-        params = self.get_params(cube_index=process)
-
-        # COORDs cartesian
-        coords = self.get_coords(self.t_fine, params)
-        coords = CubeInformation(
-            xt_min=self.polynomial_info.xt_min,
-            yt_min=self.polynomial_info.yt_min,
-            zt_min=self.polynomial_info.zt_min,
-            coords=coords,
-        )
-        coords = self.cartesian_pos(coords, self.dx)
-        print(f'coords shape is {coords.coords.shape}', flush=True)
-
-        # TEST PLOTTING
-        self.get_envelope_params(coords.coords)
-
-        # ! I am still not sure how to take into account the angles nor the interpolation for when
-        # ! recreating the image inside the envelope (c.f. Coronal monsoon paper).
-
-
-    def get_envelope_params(self, coords: np.ndarray) -> None:
+    def cumulative_distance_normalised(self) -> None:
+        """
+        To calculate the cumulative distance of the data and normalise it.
+        """
         
-        # COORDs cartesian to polar  # ? add somewhere else as it could be reused later ?
-        polar_r, polar_theta = self.get_polar_image(self.matrix_rotation(coords, self.sdo_pos))
+        # COORDs
+        coords = np.stack([self.polar_theta_normalised, self.polar_r_normalised], axis=0)
 
-        # ENVELOPE
-        envelopes_polar = CreateFitEnvelope.get(
-            coords=np.stack([polar_r, polar_theta], axis=0),  # * be careful, order changed
-            radius=3e4,
-        )
-        print(f"the shapes of the envelope curves are {' - '.join([str(envelope.shape) for envelope in envelopes_polar])}", flush=True)
+        # DISTANCE cumulative
+        t = np.empty(coords.shape[1], dtype='float64')
+        t[0] = 0
+        for i in range(1, coords.shape[1]):
+            t[i] = t[i - 1] + np.linalg.norm(coords[:, i] - coords[:, i - 1])
+        t /= t[-1]  # normalise
 
-        envelopes = []
-        new_envelopes = []
-        for i, envelope in enumerate(envelopes_polar):
-            fitting_method = Fitting2D(
-                polar_coords=envelope,
-                index=self.index,
-                polynomial_order=self.polynomial_order,
-                nb_of_points=self.nb_of_points,
-            )
-            params, coords = fitting_method.fit_data()
-            envelopes.append(envelope)
-            new_envelopes.append(coords)
-        self.plot(np.stack([polar_r, polar_theta], axis=0), old_envelope=envelopes, new_envelope=new_envelopes)
-
-            # todo will need to add stuff here but for now lets just plot the result
-        
-    def plot(
-            self,
-            fit: np.ndarray,
-            old_envelope: list[np.ndarray],
-            new_envelope: list[np.ndarray],
-        ) -> None:
-
-        print(f'starting plot for {self.index:03d}', flush=True)
-        filename = f'd_envelope_fit_results_{self.index:03d}.png'
-        plt.figure(figsize=(10, 20))
-        self.plot_sub(old_envelope, 'Old envelope')
-        self.plot_sub(new_envelope, 'New envelope')
-        plt.plot(fit[0], fit[1], label='Fit points')
-        plt.legend()
-        plt.savefig(os.path.join(self.paths['save'], filename), dpi=500)
-        plt.close()
-
-    def plot_sub(self, curves: list[np.ndarray], label: str) -> None:
-
-        curve = curves[0]
-        plt.plot(curve[0], curve[1], label=label)
-        curve = curves[1]
-        plt.plot(curve[0], curve[1])
+        # DISTANCE update
+        self.cumulative_distance = t
 
 
-class Fitting2D:
+@dataclass(slots=True, repr=False, eq=False)
+class ProcessedFit(BaseProcessing):
     """
-    # todo change this docstring later.
-    To fit a polynomial on the 2D envelopes to then use the result in the 
-    reprojectionprocessedpolynomial class.
+    To process the fit results so that the coordinates are uniformly positioned on the curve.
     """
 
-    def __init__(
-            self,
-            polar_coords: np.ndarray,
-            index: int,
-            polynomial_order: int,
-            nb_of_points: int,
-            verbose: bool | None = None,
-            flush: bool | None = None,
-        ) -> None:
-        
-        # CONFIG attributes
-        self.verbose = config.run.verbose if verbose is None else verbose
-        self.flush = config.run.flush if flush is None else flush
-        
-        # ATTRIBUTEs from args
-        self.index = index
-        self.polar_coords = self.reorder_data(polar_coords)
-        self.nb_of_points = nb_of_points
-        self.polynomial_order = polynomial_order
+    # DATA unprocessed
+    angles: np.ndarray
 
-        # NEW attributes
-        self.params_init = np.random.rand(polynomial_order + 1)
+    def __post_init__(self) -> None:
+
+        # COORDs re-ordered (for the cumulative distance)
+        self.reorder_data()
+
+        # COORDs normalised
+        self.normalise_coords()
+
+        # DISTANCE cumulative
+        self.cumulative_distance_normalised()
+
+        # COORDs uniform
+        self.uniform_coords()
+
+    def reorder_data(self) -> None:
+        """
+        To reorder the data so that the cumulative distance is calculated properly for the fit.
+        That means that the first axis to order should be the polar theta one.
+        """
+        
+        # RE-ORDER
+        coords = np.stack([self.polar_theta, self.polar_r, self.angles], axis=0)
+
+        # SORT on first axis
+        sorted_indexes = np.lexsort(coords[::-1])  # as lexsort sorts on last axis.
+        sorted_coords = coords[:, sorted_indexes]
+
+        # COORDs update
+        self.polar_theta, self.polar_r, self.angles = sorted_coords
+
+    def uniform_coords(self) -> None:
+        """
+        To uniformly space the coordinates on the curve.
+        """
+
+        # INTERPOLATE  # ? do I need to use the normalised values here ?
+        polar_r_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.polar_r)
+        polar_theta_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.polar_theta)
+        angles_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.angles)
+
+        # UNIFORM
+        t_fine = np.linspace(0, 1, self.nb_of_points)
+        self.polar_r = polar_r_interp(t_fine)
+        self.polar_theta = polar_theta_interp(t_fine)
+        self.angles = angles_interp(t_fine)
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class ProcessedEnvelope(BaseProcessing):
+    """
+    To process the fit envelope results so that the coordinates are uniformly positioned on the
+    and are bordered.
+    """
+
+    # PARAMETERs
+    polynomial_order: int
+
+    # PLACEHOLDERs
+    success: bool = field(init=False)
+    new_t_fine: np.ndarray = field(init=False)  # ! take it away after the plot tests are done
+    polynomial_parameters: np.ndarray = field(init=False)
+    polynomial_callable: PolynomialCallable = field(init=False)
+
+    def __post_init__(self) -> None:
+
+        # SETUP polynomial
         self.polynomial_callable = self.nth_order_polynomial_generator()
+
+        # COORDs re-ordered (for the cumulative distance)
+        self.reorder_data()
+
+        # COORDs normalised
+        self.normalise_coords()
+
+        # DISTANCE cumulative
+        self.cumulative_distance_normalised()
+
+        # FIT parameters
+        self.scipy_curve_fit()
+
+        # BORDERs cut
+        self.bordered_envelope()
+
+    def reorder_data(self) -> None:
+        """
+        To reorder the data so that the cumulative distance is calculated properly for the fit.
+        That means that the first axis to order should be the polar theta one.
+        """
+        
+        # RE-ORDER
+        coords = np.stack([self.polar_theta, self.polar_r], axis=0)
+
+        # SORT on first axis
+        sorted_indexes = np.lexsort(coords[::-1])  # as lexsort sorts on last axis.
+        sorted_coords = coords[:, sorted_indexes]
+
+        # COORDs update
+        self.polar_theta, self.polar_r = sorted_coords
+
+    def scipy_curve_fit(self) -> None:
+        """
+        To fit a polynomial on the data using scipy's curve_fit.
+        """
+
+        # PARAMs initialisation
+        params_init = np.random.rand(self.polynomial_order + 1)
+
+        try:
+            # FITTING scipy
+            params_x, _ = scipy.optimize.curve_fit(
+                f=self.polynomial_callable,
+                xdata=self.cumulative_distance,
+                ydata=self.polar_r, 
+                p0=params_init,
+            )
+            params_y, _ = scipy.optimize.curve_fit(
+                f=self.polynomial_callable,
+                xdata=self.cumulative_distance,
+                ydata=self.polar_theta,
+                p0=params_init,
+            )
+            params = np.stack([params_x, params_y], axis=0).astype('float64')
+
+            # FLAG success
+            self.success = True
+
+        except Exception:
+            # FAIL save
+            params = np.empty((2, 0))  # todo change this to None later
+
+            # FLAG fail
+            self.success = False
+
+        # PARAMs update
+        self.polynomial_parameters = params
+    
+    def bordered_envelope(self) -> None:
+        """
+        To cut the envelope at the sun disk.
+        """
+
+        # CURVE longer
+        t_fine = np.linspace(-0.2, 1.2, int(1e4))
+        self.polar_r = self.polynomial_callable(t_fine, *self.polynomial_parameters[0])
+        self.polar_theta = self.polynomial_callable(t_fine, *self.polynomial_parameters[1])
+
+        # BORDERs cut
+        conditions = (
+            (self.polar_r < 698 * 1e3) |  # * final plot borders
+            (self.polar_r > 870 * 1e3) |
+            (self.polar_theta < 255) |
+            (self.polar_theta > 295)
+        )
+        new_t = t_fine[~conditions]
+
+        # CURVE bordered
+        self.new_t_fine = np.linspace(new_t.min(), new_t.max(), self.nb_of_points)
+        self.polar_r = self.polynomial_callable(self.new_t_fine, *self.polynomial_parameters[0])
+        self.polar_theta = self.polynomial_callable(
+            self.new_t_fine,
+            *self.polynomial_parameters[1],
+        )
 
     def nth_order_polynomial_generator(self) -> PolynomialCallable:
         """
@@ -217,21 +287,204 @@ class Fitting2D:
             """
 
             # INIT
-            result: np.ndarray = 0
+            result: np.ndarray = 0 #type:ignore
 
             # POLYNOMIAL
             for i in range(self.polynomial_order + 1): result += coeffs[i] * t ** i
             return result
         return nth_order_polynomial
 
-    def reorder_data(self, coords: np.ndarray) -> np.ndarray:
 
-        return coords[[1, 0], :]
-        # ! the axis representing the polar angle needs to come first.
+class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReprojection):
+    """
+    # todo change this docstring later
+    This is to get the params of the polynomial fit envelope to then cut the envelope at the sun
+    disk and recreate the image that is in the coronal monsoon paper.
+    """
+
+    def __init__(
+            self,
+            filepath: str,
+            dx: float,
+            index: int,
+            sdo_pos: np.ndarray,
+            polynomial_order: int,
+            integration_time: int,
+            number_of_points: int,
+            data_type: str = 'No duplicates',
+            with_fake_data: bool = False,
+            create_envelope: bool = True
+        ) -> None:
+        
+        # PARENTs
+        super().__init__(
+            filepath=filepath,
+            polynomial_order=polynomial_order,
+            integration_time=integration_time,
+            number_of_points=250,
+            dx=dx,
+            data_type=data_type,
+            with_fake_data=with_fake_data,
+        )
+        BaseReprojection.__init__(self)
+
+        # ATTRIBUTEs
+        self.paths = self.paths_setup()
+        self.dx = dx
+        self.index = index
+        self.sdo_pos = sdo_pos
+        self.nb_of_points = number_of_points
+        self.polynomial_order = polynomial_order
+        self.create_envelope = create_envelope
+    
+    def paths_setup(self) -> dict[str, str]:
+        """
+        To format the needed paths for the class.
+
+        Returns:
+            dict[str, str]: the formatted paths.
+        """
+
+        # PATHs formatting
+        paths = {
+            'save': config.path.dir.code.fit, #type:ignore # todo change this later or take it way.
+        }
+        return paths
 
     @Decorators.running_time
-    def fit_data(self) -> tuple[np.ndarray, np.ndarray]:
+    def reprocessed_fit_n_envelopes(self, process: int) -> FitWithEnvelopes:
+
+        # FIT processed borders 3D
+        fit_processed_3d = self.reprocessed_polynomial(process)
+
+        # FIT polar 2D
+        fit_2D_polar = self.get_polar_image_angles(
+            self.matrix_rotation(
+                data=self.cartesian_pos(fit_processed_3d, self.dx).coords,
+                sdo_pos=self.sdo_pos,
+            ))
+        
+        # FIT uniform processing
+        fit_2D_uniform = ProcessedFit(
+            polar_r=fit_2D_polar[0],
+            polar_theta=fit_2D_polar[1],
+            angles=fit_2D_polar[2],
+            nb_of_points=self.nb_of_points,
+        )
+        coords_uniform = np.stack([fit_2D_uniform.polar_r, fit_2D_uniform.polar_theta], axis=0)
+
+        if self.create_envelope:
+            # ENVELOPE
+            envelopes_polar = CreateFitEnvelope.get(
+                coords=coords_uniform,
+                radius=3e4,
+            )
+            
+            envelopes = []
+            new_envelopes = []
+            for i, envelope in enumerate(envelopes_polar):
+
+                fitting_method = Fitting2D(
+                    polar_coords=envelope,
+                    index=self.index,
+                    polynomial_order=9,
+                    nb_of_points=self.nb_of_points,
+                    identifier=i,
+                )
+                envelope = fitting_method.fit_data()
+                envelopes.append(envelope)
+        else:
+            envelopes = None
+        
+        # DATA format
+        fit_n_envelopes = FitWithEnvelopes(
+            fit_order=self.polynomial_order,
+            fit_polar_r=fit_2D_uniform.polar_r,
+            fit_polar_theta=fit_2D_uniform.polar_theta,
+            fit_angles=fit_2D_uniform.angles,
+            envelopes=envelopes,
+        )
+        return fit_n_envelopes
+        # self.plot(coords_uniform, old_envelope=envelopes, new_envelope=new_envelopes)
+    
+    def plot(
+            self,
+            fit: np.ndarray,
+            old_envelope: list[np.ndarray],
+            new_envelope: list[np.ndarray],
+        ) -> None:
         """
+        To visualise the results of the fitting (only used during the results).
+
+        Args:
+            fit (np.ndarray): the fit results.
+            old_envelope (list[np.ndarray]): the old envelope gotten directly from the fit.
+            new_envelope (list[np.ndarray]): the new envelope gotten from processing the old one.
+        """
+
+        filename = f'envelope_fit_results_{self.index:03d}.png'
+        plt.figure(figsize=(10, 20))
+        self.plot_sub(old_envelope,'black', 'Old envelope')
+        self.plot_sub(new_envelope, 'purple', 'New envelope')
+        plt.scatter(fit[1], fit[0], color='red', label='Fit points')
+        plt.legend()
+        plt.savefig(os.path.join(self.paths['save'], filename), dpi=500)
+        plt.close()
+        print(f'SAVED - {filename}', flush=True)
+
+    def plot_sub(self, curves: list[np.ndarray], colour: str, label: str) -> None:
+
+        curve = curves[0]
+        plt.scatter(curve[1], curve[0], color=colour, label=label)
+        curve = curves[1]
+        plt.scatter(curve[1], curve[0], color=colour)
+
+
+class Fitting2D:
+    """
+    # todo change this docstring later.
+    To fit a polynomial on the 2D envelopes.
+    """
+
+    def __init__(
+            self,
+            polar_coords: np.ndarray,
+            index: int,
+            polynomial_order: int,
+            nb_of_points: int,
+            verbose: bool | None = None,
+            flush: bool | None = None,
+            identifier: int = 0,
+            step: int = 10,
+        ) -> None:
+        
+        # CONFIG attributes
+        self.verbose = config.run.verbose if verbose is None else verbose #type:ignore
+        self.flush = config.run.flush if flush is None else flush #type:ignore
+        
+        # ATTRIBUTEs from args
+        self.index = index
+        self.polar_coords = polar_coords
+        self.nb_of_points = nb_of_points
+        self.polynomial_order = polynomial_order
+        self.identifier = identifier
+        self.step = step
+
+        # NEW attributes
+        self.paths = self.paths_setup()
+        self.params_init = np.random.rand(polynomial_order + 1)
+
+    def paths_setup(self) -> dict[str, str]:
+
+        # PATHs formatting
+        paths = {
+            'save': config.path.dir.code.fit, #type:ignore # todo change this later or take it way.
+        }
+        return paths
+
+    @Decorators.running_time
+    def fit_data(self) -> FitEnvelopes:
+        """ #todo update docstring
         To fit a polynomial on the data.
         The polynomial is processed so that it has a pre-defined number of points and borders
         defined in polar coordinates from SDO's perspective.
@@ -254,111 +507,76 @@ class Fitting2D:
                 )
             coords = np.empty((2, 0))
             params = np.empty((2, 0))
+
+            # DATA format
+            envelope = FitEnvelopes(
+                order=self.polynomial_order,
+                polar_r=coords[0],  # ? does that even work ?
+                polar_theta=coords[1],
+            )
         else:
-            # DISTANCE cumulative
-            t = np.empty(self.polar_coords.shape[1], dtype='float64')
-            t[0] = 0
-            for i in range(1, self.polar_coords.shape[1]):
-                t[i] = t[i - 1] + np.linalg.norm(
-                    self.polar_coords[:, i] - self.polar_coords[:, i - 1]
-                )
-            t /= t[-1]  # normalise
-
-            # FITTING processed
-            params, coords = self.processed_fit(t)
-        return params, coords[[1, 0], :]
-
-    def processed_fit(self, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        To process the polynomial fit positions so that the final result is a curve with a set
-        number of points and borders defined in polar coordinates from SDO's perspective.
-
-        Args:
-            t (np.ndarray): the cumulative distance.
-
-        Returns:
-            tuple[np.ndarray, np.ndarray]: the parameters and the coordinates of the polynomial
-                fit.
-        """
-
-        # PARAMs polynomial fit
-        params = self.scipy_curve_fit(t=t)
-
-        # CURVE re-creation
-        t_fine = np.linspace(-0.3, 1.3, int(1e5))
-        curve = self.get_coords(t_fine, params)
-        print(f'curve shape is {curve.shape}')
-        print(f'curve[0] min is {curve[0].min()} and max is {curve[0].max()}')
-        print(f'curve[1] min is {curve[1].min()} and max is {curve[1].max()}', flush=True)
-
-        # BORDERs cut
-        conditions = (  # ! make sure that the values are in degrees and not rad
-            (curve[0] < 245) |  # * final plot borders
-            (curve[0] > 295) |
-            (curve[1] < 698 * 1e3) | 
-            (curve[1] > 870 * 1e3)
-        )
-        new_t = t_fine[~conditions]
-
-        # CURVE final (has a defined number of points)
-        new_t_fine = np.linspace(new_t.min(), new_t.max(), self.nb_of_points)
-        curve = self.get_coords(new_t_fine, params)
-        return params, curve
-
-    def scipy_curve_fit(self, t: np.ndarray) -> np.ndarray:
-        """
-        To fit a polynomial on the data using scipy's curve_fit.
-
-        Args:
-            t (np.ndarray): the cumulative distance.
-
-        Returns:
-            np.ndarray: the parameters of the polynomial fit.
-        """
-
-        try:
-            # FITTING scipy
-            x, y = self.polar_coords
-            params_x, _ = scipy.optimize.curve_fit(
-                f=self.polynomial_callable,
-                xdata=t,
-                ydata=x, 
-                p0=self.params_init,
+            # ENVELOPE processing
+            processed_envelope = ProcessedEnvelope(
+                polar_r=self.polar_coords[0],
+                polar_theta=self.polar_coords[1],
+                nb_of_points=self.nb_of_points,
+                polynomial_order=self.polynomial_order,
             )
-            params_y, _ = scipy.optimize.curve_fit(
-                f=self.polynomial_callable,
-                xdata=t,
-                ydata=y,
-                p0=self.params_init,
+            coords = np.stack([processed_envelope.polar_r, processed_envelope.polar_theta], axis=0)
+            params = processed_envelope.polynomial_parameters
+
+            envelope = FitEnvelopes(
+                order=self.polynomial_order,
+                polar_r=processed_envelope.polar_r,
+                polar_theta=processed_envelope.polar_theta,
             )
-            params = np.stack([params_x, params_y], axis=0).astype('float64')
-        except Exception:
-            # FAIL print
-            if self.verbose > 1:
-                print(
-                    f"\033[1;31mFor cube {self.index:03d}, the polynomial fit failed. Going to " 
-                    "next cube.\033[0m",
-                    flush=self.flush,
-                )
-            params = np.empty((2, 0))
-        return params
 
-    def get_coords(self, t: np.ndarray, params: np.ndarray) -> np.ndarray:
-        """
-        Gives the coordinates of the polynomial fit given the time and the parameters.
+            # # PLOT tests
+            # self.plot_fitting_results(
+            #     t=processed_envelope.new_t_fine,
+            #     t_init=processed_envelope.cumulative_distance,
+            #     fit_x=processed_envelope.polar_r,
+            #     fit_y=processed_envelope.polar_theta,
+            # )
+            # CHECK success
+            if not processed_envelope.success:
+                if self.verbose > 0:
+                    print(
+                        f"\033[1;31mFor cube {self.index:03d}, the polynomial fit failed. Going "
+                        "to next cube.\033[0m",
+                        flush=self.flush,
+                    )
+        return envelope 
 
-        Args:
-            t (np.ndarray): the cumulative distance.
-            params (np.ndarray): the parameters of the polynomial fit.
+    def plot_fitting_results(
+            self,
+            t: np.ndarray,
+            t_init: np.ndarray,
+            fit_x: np.ndarray,
+            fit_y: np.ndarray,
+        ) -> None:
 
-        Returns:
-            np.ndarray: the coordinates of the polynomial fit.
-        """
+        # PLOT
+        filename = f'fit_results_{self.identifier}_{self.index:03d}_x.png'
+        self.plotting_sub(filename, t_init, t, self.polar_coords[0], fit_x)
 
-        # PARAMs
-        params_x, params_y = params
+        filename = f'fit_results_{self.identifier}_{self.index:03d}_y.png'
+        self.plotting_sub(filename, t_init, t, self.polar_coords[1], fit_y)
 
-        # COORDs
-        x = self.polynomial_callable(t, *params_x)
-        y = self.polynomial_callable(t, *params_y)
-        return np.stack([x, y], axis=0)
+    def plotting_sub(
+            self,
+            filename: str,
+            t_init: np.ndarray,
+            t: np.ndarray,
+            points: np.ndarray,
+            fit: np.ndarray,
+        ) -> None:
+
+        plt.figure(figsize=(10, 20))
+        plt.scatter(t_init, points, label='Points')
+        plt.scatter(t, fit, label='Fit')
+        plt.legend()
+        plt.savefig(os.path.join(self.paths['save'], filename), dpi=500)
+        plt.close()
+
+        print(f'SAVED - {filename}', flush=True)
