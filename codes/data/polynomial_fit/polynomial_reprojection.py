@@ -1,6 +1,8 @@
 """
-To border the polynomial fit results given positions in the polar reprojected plot.
-# todo will need to change this docstring when I start properly structuring the corresponding code.
+To get the fully processed fit results and the corresponding processed envelopes.
+The processed polynomial fit was made so that the extremities stop at the Sun surface (when
+possible). The envelope is processed so that the extremities stop at the Sun disk surface as seen
+by SDO (when possible).
 """
 
 # IMPORTs
@@ -24,6 +26,8 @@ from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolyn
 
 # API public
 __all__ = ['ReprojectionProcessedPolynomial']
+
+# ! the fit envelope doesn't seem to go the edges of the fit.
 
 
 
@@ -135,7 +139,7 @@ class ProcessedFit(BaseProcessing):
         To uniformly space the coordinates on the curve.
         """
 
-        # INTERPOLATE  # ? do I need to use the normalised values here ?
+        # INTERPOLATE
         polar_r_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.polar_r)
         polar_theta_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.polar_theta)
         angles_interp = scipy.interpolate.interp1d(self.cumulative_distance, self.angles)
@@ -295,11 +299,92 @@ class ProcessedEnvelope(BaseProcessing):
         return nth_order_polynomial
 
 
+class Fitting2D:
+    """
+    To fit a polynomial on the 2D envelopes.
+    To fit is done so that the extremities of the envelope are elongated and can be cut when
+    intersecting the Sun disk as seen from SDO.
+    """
+
+    def __init__(
+            self,
+            polar_coords: np.ndarray,
+            polynomial_order: int,
+            nb_of_points: int,
+        ) -> None:
+        """
+        To initialise the class.
+        The fit_data method should be called to get the results.
+
+        Args:
+            polar_coords (np.ndarray): the polar coordinates of the envelope.
+            polynomial_order (int): the order of the polynomial to fit.
+            nb_of_points (int): the number of points to have in the final fit.
+        """
+        
+        # ATTRIBUTEs from args
+        self.polar_coords = polar_coords
+        self.nb_of_points = nb_of_points
+        self.polynomial_order = polynomial_order
+
+        # NEW attributes
+        self.fit_success: bool
+        self.params_init = np.random.rand(polynomial_order + 1)
+
+        # CHECK params
+        self.enough_params = self.params_init.size < self.polar_coords.shape[1]
+
+    def fit_data(self) -> FitEnvelopes:
+        """
+        To fit a polynomial on the data.
+        The polynomial is processed so that it has a pre-defined number of points and borders
+        defined in polar coordinates from SDO's perspective.
+
+        Returns:
+            FitEnvelopes: the polar coordinates of the processed fit envelope.
+        """
+
+        # CHECK nb of coords
+        if not self.enough_params:
+            
+            # FIT not possible
+            coords = np.empty((2, 0))
+            params = np.empty((2, 0))
+
+            # DATA format
+            envelope = FitEnvelopes(
+                order=self.polynomial_order,
+                polar_r=coords[0],  # ? does that even work ?
+                polar_theta=coords[1],
+            )
+        else:
+            # ENVELOPE processing
+            processed_envelope = ProcessedEnvelope(
+                polar_r=self.polar_coords[0],
+                polar_theta=self.polar_coords[1],
+                nb_of_points=self.nb_of_points,
+                polynomial_order=self.polynomial_order,
+            )
+            coords = np.stack([processed_envelope.polar_r, processed_envelope.polar_theta], axis=0)
+
+            # ENVELOPE fit
+            envelope = FitEnvelopes(
+                order=self.polynomial_order,
+                polar_r=processed_envelope.polar_r,
+                polar_theta=processed_envelope.polar_theta,
+            )
+
+            # SAVE success
+            self.fit_success = processed_envelope.success
+        return envelope 
+
+
 class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReprojection):
     """
-    # todo change this docstring later
-    This is to get the params of the polynomial fit envelope to then cut the envelope at the sun
-    disk and recreate the image that is in the coronal monsoon paper.
+    To get the processed polynomial 3D fit results and create the corresponding 2D envelopes.
+    The processed polynomial fit was made so that the extremities stop at the Sun surface (when 
+    possible). The envelope is processed so that the extremities stop at the Sun disk surface as
+    seen by SDO (when possible).
     """
 
     def __init__(
@@ -313,8 +398,37 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             number_of_points: int,
             data_type: str = 'No duplicates',
             with_fake_data: bool = False,
-            create_envelope: bool = True
+            create_envelope: bool = True,
+            verbose: bool | None = None,
+            flush: bool | None = None,
         ) -> None:
+        """
+        To initialise the class.
+        The reprocessed_fit_n_envelopes method should be called to get the results.
+
+        Args:
+            filepath (str): the filepath to the hdf5 file containing the fit results.
+            dx (float): the voxel resolution in km.
+            index (int): the index of the cube to consider.
+            sdo_pos (np.ndarray): the position of SDO in heliographic coordinates.
+            polynomial_order (int): the order of the polynomial fit to consider.
+            integration_time (int): the integration time to consider when choosing the polynomial
+                fit parameters (in hours).
+            number_of_points (int): the number of points to consider in the final polynomial fit.
+            data_type (str, optional): the data type to consider when looking for the corresponding
+                polynomial fit. Defaults to 'No duplicates'.
+            with_fake_data (bool, optional): when the HDF5 file also contains fake data (as the
+                default path change). Defaults to False.
+            create_envelope (bool, optional): to create the envelope or not. Defaults to True.
+            verbose (bool | None, optional): the verbosity level in the prints. When None, the
+                config file value is taken. Defaults to None.
+            flush (bool | None, optional): to flush the prints or not. When None, the config file
+                value is taken. Defaults to None.
+        """
+
+        # CONFIGURATION attributes
+        self.verbose: bool = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.flush: bool = config.run.flush if flush is None else flush  #type:ignore
         
         # PARENTs
         super().__init__(
@@ -352,10 +466,16 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         return paths
 
     @Decorators.running_time
-    def reprocessed_fit_n_envelopes(self, process: int) -> FitWithEnvelopes:
+    def reprocessed_fit_n_envelopes(self) -> FitWithEnvelopes:
+        """
+        To reprocess the fit results and create the corresponding envelopes.
+
+        Returns:
+            FitWithEnvelopes: the processed fit results and the corresponding envelopes.
+        """
 
         # FIT processed borders 3D
-        fit_processed_3d = self.reprocessed_polynomial(process)
+        fit_processed_3d = self.reprocessed_polynomial(self.index)
 
         # FIT polar 2D
         fit_2D_polar = self.get_polar_image_angles(
@@ -381,18 +501,19 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             )
             
             envelopes = []
-            new_envelopes = []
-            for i, envelope in enumerate(envelopes_polar):
-
+            for envelope in envelopes_polar:
+                
+                # FIT envelope
                 fitting_method = Fitting2D(
                     polar_coords=envelope,
-                    index=self.index,
                     polynomial_order=9,
                     nb_of_points=self.nb_of_points,
-                    identifier=i,
                 )
                 envelope = fitting_method.fit_data()
                 envelopes.append(envelope)
+
+                # LOG success
+                if self.verbose > 0: print(self.success_log(fitting_method), flush=self.flush)
         else:
             envelopes = None
         
@@ -406,7 +527,36 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         )
         return fit_n_envelopes
         # self.plot(coords_uniform, old_envelope=envelopes, new_envelope=new_envelopes)
-    
+
+    def success_log(self, instance: Fitting2D) -> str:
+        """
+        To log the success of the fit.
+
+        Args:
+            instance (Fitting2D): the instance of the Fitting2D class.
+
+        Returns:
+            str: the log message.
+        """
+
+        # LOG setup
+        log: str = ''
+
+        # CHECK params
+        if not instance.enough_params:
+                log += (
+                    f"\033[1;31mFor cube {self.index:03d}, not enough points for the polynomial "
+                    "fit (shape: {instance.polar_coords.shape[0]}). Going to next cube.\033[0m"
+                )
+
+        # CHECK fit completion
+        if not instance.fit_success:
+            log += (
+                f"\033[1;31mFor cube {self.index:03d}, the polynomial fit failed. Going to next "
+                "cube.\033[0m"
+            )
+        return log
+
     def plot(
             self,
             fit: np.ndarray,
@@ -433,150 +583,16 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         print(f'SAVED - {filename}', flush=True)
 
     def plot_sub(self, curves: list[np.ndarray], colour: str, label: str) -> None:
+        """
+        To plot the curves so that only one label is shown for the two plt.scatter.
+
+        Args:
+            curves (list[np.ndarray]): the curves to plot.
+            colour (str): the colour of the points.
+            label (str): the label to show.
+        """
 
         curve = curves[0]
         plt.scatter(curve[1], curve[0], color=colour, label=label)
         curve = curves[1]
         plt.scatter(curve[1], curve[0], color=colour)
-
-
-class Fitting2D:
-    """
-    # todo change this docstring later.
-    To fit a polynomial on the 2D envelopes.
-    """
-
-    def __init__(
-            self,
-            polar_coords: np.ndarray,
-            index: int,
-            polynomial_order: int,
-            nb_of_points: int,
-            verbose: bool | None = None,
-            flush: bool | None = None,
-            identifier: int = 0,
-            step: int = 10,
-        ) -> None:
-        
-        # CONFIG attributes
-        self.verbose = config.run.verbose if verbose is None else verbose #type:ignore
-        self.flush = config.run.flush if flush is None else flush #type:ignore
-        
-        # ATTRIBUTEs from args
-        self.index = index
-        self.polar_coords = polar_coords
-        self.nb_of_points = nb_of_points
-        self.polynomial_order = polynomial_order
-        self.identifier = identifier
-        self.step = step
-
-        # NEW attributes
-        self.paths = self.paths_setup()
-        self.params_init = np.random.rand(polynomial_order + 1)
-
-    def paths_setup(self) -> dict[str, str]:
-
-        # PATHs formatting
-        paths = {
-            'save': config.path.dir.code.fit, #type:ignore # todo change this later or take it way.
-        }
-        return paths
-
-    @Decorators.running_time
-    def fit_data(self) -> FitEnvelopes:
-        """ #todo update docstring
-        To fit a polynomial on the data.
-        The polynomial is processed so that it has a pre-defined number of points and borders
-        defined in polar coordinates from SDO's perspective.
-
-        Returns:
-            tuple[np.ndarray, np.ndarray]: the parameters and the coordinates of the polynomial
-                fit.
-        """
-
-        # SETUP
-        nb_parameters = self.params_init.size
-
-        # CHECK nb of coords
-        if nb_parameters >= self.polar_coords.shape[1]:
-            if self.verbose > 0:
-                print(
-                    f"\033[1;31mFor cube {self.index:03d}, not enough points for the polynomial "
-                    f"fit (shape: {self.polar_coords.shape[0]}). Going to next cube.\033[0m",
-                    flush=self.flush,
-                )
-            coords = np.empty((2, 0))
-            params = np.empty((2, 0))
-
-            # DATA format
-            envelope = FitEnvelopes(
-                order=self.polynomial_order,
-                polar_r=coords[0],  # ? does that even work ?
-                polar_theta=coords[1],
-            )
-        else:
-            # ENVELOPE processing
-            processed_envelope = ProcessedEnvelope(
-                polar_r=self.polar_coords[0],
-                polar_theta=self.polar_coords[1],
-                nb_of_points=self.nb_of_points,
-                polynomial_order=self.polynomial_order,
-            )
-            coords = np.stack([processed_envelope.polar_r, processed_envelope.polar_theta], axis=0)
-            params = processed_envelope.polynomial_parameters
-
-            envelope = FitEnvelopes(
-                order=self.polynomial_order,
-                polar_r=processed_envelope.polar_r,
-                polar_theta=processed_envelope.polar_theta,
-            )
-
-            # # PLOT tests
-            # self.plot_fitting_results(
-            #     t=processed_envelope.new_t_fine,
-            #     t_init=processed_envelope.cumulative_distance,
-            #     fit_x=processed_envelope.polar_r,
-            #     fit_y=processed_envelope.polar_theta,
-            # )
-            # CHECK success
-            if not processed_envelope.success:
-                if self.verbose > 0:
-                    print(
-                        f"\033[1;31mFor cube {self.index:03d}, the polynomial fit failed. Going "
-                        "to next cube.\033[0m",
-                        flush=self.flush,
-                    )
-        return envelope 
-
-    def plot_fitting_results(
-            self,
-            t: np.ndarray,
-            t_init: np.ndarray,
-            fit_x: np.ndarray,
-            fit_y: np.ndarray,
-        ) -> None:
-
-        # PLOT
-        filename = f'fit_results_{self.identifier}_{self.index:03d}_x.png'
-        self.plotting_sub(filename, t_init, t, self.polar_coords[0], fit_x)
-
-        filename = f'fit_results_{self.identifier}_{self.index:03d}_y.png'
-        self.plotting_sub(filename, t_init, t, self.polar_coords[1], fit_y)
-
-    def plotting_sub(
-            self,
-            filename: str,
-            t_init: np.ndarray,
-            t: np.ndarray,
-            points: np.ndarray,
-            fit: np.ndarray,
-        ) -> None:
-
-        plt.figure(figsize=(10, 20))
-        plt.scatter(t_init, points, label='Points')
-        plt.scatter(t, fit, label='Fit')
-        plt.legend()
-        plt.savefig(os.path.join(self.paths['save'], filename), dpi=500)
-        plt.close()
-
-        print(f'SAVED - {filename}', flush=True)
