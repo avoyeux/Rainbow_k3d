@@ -34,11 +34,12 @@ path:
         # PATHs data directories
         data: 
             path: &datapath !join [*rootpath, 'data_files']
-
+            
             hdf5: &datahdf5 !join [*datapath, 'hdf5_files']
             mp4: !join [*datapath, 'mp4_saves']
             synoptic_maps: !join [*datapath, 'synoptic_maps'] # ! subdirectories are not given here
             sdo: !join [*datapath, 'sdo']
+            temp: !join [*datapath, 'temporary']
 
             cubes:
                 path: &datacubes !join [*datapath, 'cubes']
@@ -92,13 +93,14 @@ path:
 
 # RUN configuration
 run:
-    processes: 1
+    processes: 5
     verbose: 2
     flush: False
+    test_plots: True
 
     # DEBUG configuration
     debug:
-        tests: True  # ! need to implement this somewhere
+        tests: False  # ! need to implement this somewhere
         
         processes: 10
         verbose: 1

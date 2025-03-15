@@ -163,7 +163,6 @@ class ProcessedEnvelope(BaseProcessing):
 
     # PLACEHOLDERs
     success: bool = field(init=False)
-    new_t_fine: np.ndarray = field(init=False)  # ! take it away after the plot tests are done
     polynomial_parameters: np.ndarray = field(init=False)
     polynomial_callable: PolynomialCallable = field(init=False)
 
@@ -260,10 +259,10 @@ class ProcessedEnvelope(BaseProcessing):
         new_t = t_fine[~conditions]
 
         # CURVE bordered
-        self.new_t_fine = np.linspace(new_t.min(), new_t.max(), self.nb_of_points)
-        self.polar_r = self.polynomial_callable(self.new_t_fine, *self.polynomial_parameters[0])
+        new_t_fine = np.linspace(new_t.min(), new_t.max(), self.nb_of_points)
+        self.polar_r = self.polynomial_callable(new_t_fine, *self.polynomial_parameters[0])
         self.polar_theta = self.polynomial_callable(
-            self.new_t_fine,
+            new_t_fine,
             *self.polynomial_parameters[1],
         )
 
@@ -401,6 +400,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             create_envelope: bool = True,
             verbose: bool | None = None,
             flush: bool | None = None,
+            test_plots: bool | None = None,
         ) -> None:
         """
         To initialise the class.
@@ -424,12 +424,15 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 config file value is taken. Defaults to None.
             flush (bool | None, optional): to flush the prints or not. When None, the config file
                 value is taken. Defaults to None.
+            test_plots (bool | None, optional): to plot the results or not. When None, the config
+                file value is taken. Defaults to None.
         """
 
         # CONFIGURATION attributes
-        self.verbose: bool = config.run.verbose if verbose is None else verbose  #type:ignore
         self.flush: bool = config.run.flush if flush is None else flush  #type:ignore
-        
+        self.verbose: bool = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.plots: bool = config.run.test_plots if test_plots is None else test_plots #type:ignore
+
         # PARENTs
         super().__init__(
             filepath=filepath,
@@ -461,7 +464,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
 
         # PATHs formatting
         paths = {
-            'save': config.path.dir.code.fit, #type:ignore # todo change this later or take it way.
+            'save': config.path.dir.data.temp, #type:ignore # todo change this later or take it way.
         }
         return paths
 
@@ -500,7 +503,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 radius=3e4,
             )
             
-            envelopes = []
+            envelopes: list[FitEnvelopes] = []
             for envelope in envelopes_polar:
                 
                 # FIT envelope
@@ -513,9 +516,19 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 envelopes.append(envelope)
 
                 # LOG success
-                if self.verbose > 0: print(self.success_log(fitting_method), flush=self.flush)
+                if self.verbose > 0:
+                    log = self.success_log(fitting_method)
+                    if log != '': print(self.success_log(fitting_method), flush=self.flush)
+            
+            # PLOT for testing
+            if self.plots:
+                self.plot(
+                    fit=coords_uniform,
+                    old_envelope=[envelope for envelope in envelopes_polar],
+                    new_envelope=envelopes,
+                )
         else:
-            envelopes = None
+            envelopes = None  #type:ignore
         
         # DATA format
         fit_n_envelopes = FitWithEnvelopes(
@@ -526,7 +539,6 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             envelopes=envelopes,
         )
         return fit_n_envelopes
-        # self.plot(coords_uniform, old_envelope=envelopes, new_envelope=new_envelopes)
 
     def success_log(self, instance: Fitting2D) -> str:
         """
@@ -546,7 +558,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         if not instance.enough_params:
                 log += (
                     f"\033[1;31mFor cube {self.index:03d}, not enough points for the polynomial "
-                    "fit (shape: {instance.polar_coords.shape[0]}). Going to next cube.\033[0m"
+                    f"fit (shape: {instance.polar_coords.shape[0]}). Going to next cube.\033[0m"
                 )
 
         # CHECK fit completion
@@ -561,7 +573,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             self,
             fit: np.ndarray,
             old_envelope: list[np.ndarray],
-            new_envelope: list[np.ndarray],
+            new_envelope: list[FitEnvelopes],
         ) -> None:
         """
         To visualise the results of the fitting (only used during the results).
@@ -572,15 +584,27 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             new_envelope (list[np.ndarray]): the new envelope gotten from processing the old one.
         """
 
+        # SETUP
         filename = f'envelope_fit_results_{self.index:03d}.png'
         plt.figure(figsize=(10, 20))
+
+        # PLOT envelopes
         self.plot_sub(old_envelope,'black', 'Old envelope')
-        self.plot_sub(new_envelope, 'purple', 'New envelope')
+        self.plot_sub(
+            curves=[
+                np.stack([envelope.polar_r, envelope.polar_theta], axis=0)
+                for envelope in new_envelope
+            ],
+            colour='green',
+            label='New envelope',
+        )
+
+        # PLOT fit
         plt.scatter(fit[1], fit[0], color='red', label='Fit points')
         plt.legend()
         plt.savefig(os.path.join(self.paths['save'], filename), dpi=500)
         plt.close()
-        print(f'SAVED - {filename}', flush=True)
+        print(f'SAVED - {filename}', flush=self.flush)
 
     def plot_sub(self, curves: list[np.ndarray], colour: str, label: str) -> None:
         """
