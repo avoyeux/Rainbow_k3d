@@ -76,14 +76,14 @@ class Setup:
 
         # CONFIGURATION attributes
         if filepath is None and with_fake_data:
-            self.filepath: str = config.path.data.fusion
+            self.filepath: str = config.path.data.fusion  #type:ignore
         elif filepath is None:
-            self.filepath: str = config.path.data.real
+            self.filepath: str = config.path.data.real  #type:ignore
         else:
             self.filepath = filepath
-        self.processes = config.run.processes if processes is None else processes
-        self.verbose = config.run.verbose if verbose is None else verbose
-        self.flush = config.run.flush if flush is None else flush
+        self.processes = config.run.processes if processes is None else processes  #type:ignore
+        self.verbose = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.flush = config.run.flush if flush is None else flush  #type:ignore
 
         # ATTRIBUTEs other
         self.time_interval = time_interval
@@ -114,7 +114,7 @@ class Setup:
         """
 
         # PATHs save
-        paths = {'sdo': config.path.dir.data.sdo}
+        paths = {'sdo': config.path.dir.data.sdo}  #type:ignore
 
         # PATHs update
         return paths
@@ -235,7 +235,7 @@ class Setup:
         # POVs sdo, stereo
         if self.choices['pov sdo']:
             # SDO positions
-            sdo_positions: np.ndarray = HDF5File['SDO positions'][...]
+            sdo_positions: np.ndarray = HDF5File['SDO positions'][...]  #type:ignore
 
             # DATA formatting
             cubes.sdo_pos = (
@@ -243,7 +243,7 @@ class Setup:
             ).astype('float32')
         if self.choices['pov stereo']:
             # STEREO positions
-            stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]
+            stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]  #type:ignore
 
             # DATA formatting
             cubes.stereo_pos = (
@@ -301,12 +301,12 @@ class Setup:
         """
         
         # DATA setup
-        time_indexes: np.ndarray = HDF5File[init_path + 'Time indexes'][...]
-        dates_bytes: np.ndarray = HDF5File['Dates'][...]
-        dates_str = [dates_bytes[number].decode('utf-8') for number in time_indexes]
+        time_indexes: np.ndarray = HDF5File[init_path + 'Time indexes'][...]  #type:ignore
+        dates_bytes: np.ndarray = HDF5File['Dates'][...]  #type:ignore
+        dates_str = [dates_bytes[number].decode('utf-8') for number in time_indexes]  #type:ignore
 
         constants = CubesConstants(
-            dx=float(HDF5File['dx'][...]),
+            dx=float(HDF5File['dx'][...]),  #type:ignore
             time_indexes=time_indexes,
             dates=dates_str,
         )
@@ -333,7 +333,7 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             *,
-            cube_type: Literal['fake'] = ...,
+            cube_type: Literal['fake'],
         ) -> FakeCubeInfo: ...
 
     @overload
@@ -345,7 +345,7 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             *,
-            cube_type: Literal['test'] = ...,
+            cube_type: Literal['test'],
         ) -> TestCubeInfo: ...
 
     @overload # fallback
@@ -388,22 +388,22 @@ class Setup:
         """
 
         # BORDERs as index
-        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx
-        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx
-        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx
+        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx#type:ignore
+        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx#type:ignore
+        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx#type:ignore
 
         # COO data
-        data_coords: h5py.Dataset = HDF5File[group_path + '/coords']
-        data_values: h5py.Dataset = HDF5File[group_path + '/values']
+        data_coords: h5py.Dataset = HDF5File[group_path + '/coords']  #type:ignore
+        data_values: h5py.Dataset = HDF5File[group_path + '/values']  #type:ignore
 
         # INTERPOLATION data
         if self.choices['fit'] and interpolate:
-            polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)
+            polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)  #type:ignore
 
             for i, order in enumerate(self.polynomial_order):
                 # DATA get
                 dataset_path = group_path + f'/{order}th order polynomial/coords'
-                interp_coords: h5py.Dataset = HDF5File[dataset_path]
+                interp_coords: h5py.Dataset = HDF5File[dataset_path]  #type:ignore
 
                 # DATA formatting
                 polynomials[i] = PolynomialData(
@@ -440,7 +440,7 @@ class Setup:
                 dataset_coords=data_coords,
                 dataset_values=data_values,
                 time_indexes_real=self.constants.time_indexes,
-                time_indexes_fake=HDF5File['Fake/Time indexes'][...],
+                time_indexes_fake=HDF5File['Fake/Time indexes'][...],  #type:ignore
             )
         else:
             cube_info = TestCubeInfo(

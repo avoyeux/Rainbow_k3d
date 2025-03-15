@@ -481,37 +481,6 @@ class OrthographicalProjection(BaseReprojection):
                     )#type: ignore
 
                     for i, poly_order in enumerate(self.polynomial_order):
-                        # polynomial_instance = ProcessedBorderedPolynomialFit(
-                        #     filepath=self.filepath,
-                        #     polynomial_order=poly_order,
-                        #     integration_time=self.integration_time,
-                        #     number_of_points=250,
-                        #     dx=self.constants.dx,
-                        #     with_fake_data=self.with_fake_data,
-                        # )
-                        # initial_data = polynomial_instance.reprocessed_polynomial(process)
-
-                        # polar_r, polar_theta, angles = self.get_polar_image_angles(
-                        #     self.matrix_rotation(
-                        #         data=self.cartesian_pos(initial_data, self.constants.dx).coords,
-                        #         sdo_pos=sdo_image_info.sdo_pos,
-                        #     ))
-
-                        # # DATA formatting
-                        # polynomial_information = PolynomialInformation(
-                        #     order=poly_order,
-                        #     xt_min=initial_data.xt_min,
-                        #     yt_min=initial_data.yt_min,
-                        #     zt_min=initial_data.zt_min,
-                        #     polar_r=polar_r,
-                        #     polar_theta=polar_theta,
-                        #     angles=angles,
-                        # )
-                        # polynomials_info[i] = polynomial_information
-
-                        # # HDF5 close
-                        # polynomial_instance.close()
-
                         polynomial_instance = ReprojectionProcessedPolynomial(
                             filepath=self.filepath,
                             dx=self.constants.dx,
@@ -523,7 +492,7 @@ class OrthographicalProjection(BaseReprojection):
                             with_fake_data=self.with_fake_data,
                             create_envelope=self.plot_choices['fit envelope'],
                         )
-                        results = polynomial_instance.reprocessed_fit_n_envelopes(process)
+                        results = polynomial_instance.reprocessed_fit_n_envelopes()
 
                         # DATA save
                         polynomials_info[i] = results
@@ -987,7 +956,7 @@ class Plotting(OrthographicalProjection):
                     fit_n_envelope.fit_polar_theta,
                     fit_n_envelope.fit_polar_r / 10**3,
                     label=f'{self.polynomial_order[i]}th order polynomial',
-                    c=np.rad2deg(fit_n_envelope.fit_angles),  # ? aren't they already in deg??
+                    c=np.rad2deg(fit_n_envelope.fit_angles),
                     **self.plot_kwargs['fit'],
                 )
                 cbar = plt.colorbar(sc)
