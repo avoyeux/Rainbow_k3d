@@ -93,10 +93,10 @@ path:
 
 # RUN configuration
 run:
-    processes: 5
+    processes: 10
     verbose: 2
     flush: False
-    test_plots: True
+    test_plots: False
 
     # DEBUG configuration
     debug:

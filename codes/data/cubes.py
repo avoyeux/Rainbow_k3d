@@ -25,7 +25,7 @@ from astropy import units as u
 from typing import Any, Callable
 
 # IMPORTs personal
-from codes.data.get_polynomial import Polynomial
+from codes.data.polynomial_fit.base_polynomial_fit import Polynomial
 from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 
@@ -46,9 +46,9 @@ class DataSaver(BaseHDF5Protuberance):
         self,
         filename: str | None = None,
         processes: int | None = None, 
-        integration_time: int | list[int] = [24],
+        integration_time: list[int] = [24],
         polynomial_points: int = int(1e6), 
-        polynomial_order: int | list[int] = [3, 4, 5],
+        polynomial_order: list[int] = [3, 4, 5],
         feet_lonlat: tuple[tuple[int | float, int | float], ...] = ((-177, 14.5), (-163.5, -16.5)),
         feet_sigma: int | float = 1e-4,
         south_leg_sigma: int | float = 5,
@@ -59,18 +59,20 @@ class DataSaver(BaseHDF5Protuberance):
         compression_lvl: int = 9,
         fake_hdf5: bool = False, 
     ) -> None:
-        """ #todo: update docstring
+        """
         To create the cubes with and/or without feet in an HDF5 file.
 
         Args:
-            filename (str): the filename of the file to be saved.
-            processes (int): the number of processes used in the multiprocessed parts
-            integration_time (int | list[int], optional): the time or times in hours used in the
-                time integration of the data. Defaults to [24].
+            filename (str | None, optional): the filename of the file to be saved. When None, gets
+                the value from the config file. Defaults to None.
+            processes (int | None, optional): the number of processes used in the multiprocessing.
+                When None, gets the value from the config file. Defaults to None.
+            integration_time (list[int], optional): the time(s) in hours used in the time
+                integration of the data. Defaults to [24].
             polynomial_points (int, optional): the number of points used when recreating the
                 polynomial gotten from the curve fitting of the data. Defaults to int(1e6).
-            polynomial_order (int | list[int], optional): the order or orders used for the
-                polynomial that fits the data. Defaults to [3, 4, 5].
+            polynomial_order (list[int], optional): the order(s) used for the polynomial fit of the
+                data. Defaults to [3, 4, 5].
             feet_lonlat (tuple[tuple[int | float, int | float], ...], optional): the positions of
                 the feet in re-projected Heliographic Carrington coordinates.
                 Defaults to ((-177, 14.5), (-163.5, -16.5)).
@@ -84,6 +86,11 @@ class DataSaver(BaseHDF5Protuberance):
                 the raw coordinates of the polynomial curve are also saved, where as only the
                 indexes that can be directly used as coords in a sparse.COO object.
                 Defaults to False.
+            no_feet (bool, optional): deciding to not add the feet to the data. Defaults to False.
+            compression (bool, optional): deciding to use 'gzip' compression in the HDF5 file.
+                Defaults to True.
+            compression_lvl (int, optional): the level of compression used in the HDF5 file.
+                Defaults to 9.
             fake_hdf5 (bool, optional): deciding to use the fake data to create the HDF5 file.
                 Defaults to False.
         """
@@ -91,9 +98,9 @@ class DataSaver(BaseHDF5Protuberance):
         # FILENAME setup
         if filename is None:
             if fake_hdf5:
-                filename = os.path.basename(config.path.data.fake)
+                filename = os.path.basename(config.path.data.fake)  #type:ignore
             else:
-                filename = os.path.basename(config.path.data.real)
+                filename = os.path.basename(config.path.data.real)  #type:ignore
 
         # PARENT
         super().__init__(filename, compression, compression_lvl)
@@ -103,17 +110,11 @@ class DataSaver(BaseHDF5Protuberance):
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
 
         # MULTIPROCESSING setup
-        self.processes = int(config.run.processes if processes is None else processes)
+        self.processes = int(config.run.processes if processes is None else processes) #type:ignore
 
         # ARGUMENTs
-        if isinstance(integration_time, int):
-            self.integration_time = [integration_time * 3600]
-        else:
-            self.integration_time = [time * 3600 for time in integration_time]
-        if isinstance(polynomial_order, list):
-            self.polynomial_order = polynomial_order
-        else:
-            self.polynomial_order = [polynomial_order]
+        self.integration_time = [time * 3600 for time in integration_time]
+        self.polynomial_order = polynomial_order
         self.polynomial_points = polynomial_points
         self.feet_sigma = feet_sigma
         self.south_leg_sigma = south_leg_sigma
@@ -147,15 +148,15 @@ class DataSaver(BaseHDF5Protuberance):
 
         # PATHs keep
         paths = {
-            'cubes': config.path.dir.data.cubes.karine,
-            'intensities': config.path.dir.data.stereo.int,
-            'sdo': config.path.dir.data.sdo,
-            'stereo info': config.path.data.stereob_info,
-            'save': config.path.dir.data.hdf5,
+            'cubes': config.path.dir.data.cubes.karine,  #type:ignore
+            'intensities': config.path.dir.data.stereo.int,  #type:ignore
+            'sdo': config.path.dir.data.sdo,  #type:ignore
+            'stereo info': config.path.data.stereob_info,  #type:ignore
+            'save': config.path.dir.data.hdf5,  #type:ignore
         }
 
         # PATHS update
-        if self.fake_hdf5: paths['cubes'] = config.path.dir.data.cubes.fake
+        if self.fake_hdf5: paths['cubes'] = config.path.dir.data.cubes.fake  #type:ignore
         return paths
     
     def setup_patterns(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -207,7 +208,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # DATEs
         date_filepaths = sorted(glob.glob(os.path.join(self.paths['intensities'], '*.png')))
-        dates: list[str] = [None] * len(date_filepaths)
+        dates: list[str] = [None] * len(date_filepaths)  #type:ignore
         for i, filepath in enumerate(date_filepaths):
             filename_match = self.date_pattern.match(os.path.basename(filepath))
             if filename_match:
@@ -510,7 +511,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * nb_processes
+        processes: list[mp.Process] = [None] * nb_processes  #type:ignore
         for i in range(nb_processes):
             p = mp.Process(target=function, args=(input_queue, output_queue))
             p.start()
@@ -518,11 +519,11 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        coordinates: list[np.ndarray] = [None] * self.max_cube_numbers
+        coordinates: list[np.ndarray] = [None] * self.max_cube_numbers  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
             coordinates[identifier] = result
-        coordinates = np.stack(coordinates, axis=0)
+        coordinates: np.ndarray = np.stack(coordinates, axis=0)
         return coordinates
     
     @staticmethod
@@ -883,7 +884,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * nb_processes
+        processes: list[mp.Process] = [None] * nb_processes  #type:ignore
         for i in range(nb_processes):
             p = mp.Process(target=self.time_integration_sub, args=(input_queue, output_queue))
             p.start()
@@ -980,8 +981,8 @@ class DataSaver(BaseHDF5Protuberance):
             sparse.COO: the corresponding sparse data.
         """
 
-        data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]
-        data_data: np.ndarray = H5PYFile[group_path + '/values'][...]
+        data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]  #type:ignore
+        data_data: np.ndarray = H5PYFile[group_path + '/values'][...]  #type:ignore
         data_shape = np.max(data_coords, axis=1) + 1
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
@@ -1014,7 +1015,7 @@ class DataSaver(BaseHDF5Protuberance):
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
 
                 # ADD polynomial
-                self.add_polynomial(H5PYFile[group_path], data)
+                self.add_polynomial(H5PYFile[group_path], data)  #type:ignore
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1037,7 +1038,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(processes_nb): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb
+        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
         for i in range(processes_nb): 
             p = mp.Process(
                 target=self.raw_cubes_sub,
@@ -1048,11 +1049,11 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        rawCubes: list[sparse.COO] = [None] * filepaths_nb
+        rawCubes: list[sparse.COO] = [None] * filepaths_nb  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
             rawCubes[identifier] = result 
-        rawCubes = sparse.stack(rawCubes, axis=0)
+        rawCubes: sparse.COO = sparse.stack(rawCubes, axis=0)
 
         self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless or is it?
         return rawCubes
@@ -1133,7 +1134,7 @@ class DataSaver(BaseHDF5Protuberance):
         
         # SKYCOORDs setup
         skycoords = self.carrington_skyCoords(data, borders)
-        data = [None] * len(skycoords)
+        data: list[np.ndarray] = [None] * len(skycoords)  #type:ignore
         for i, skycoord in enumerate(skycoords):
             x = skycoord.cartesian.x.value
             y = skycoord.cartesian.y.value
@@ -1143,7 +1144,7 @@ class DataSaver(BaseHDF5Protuberance):
             # (x, y, z) -> (t, x, y, z)
             time_row = np.full((1, cube.shape[1]), self.time_indexes[i])
             data[i] = np.vstack([time_row, cube])
-        data = np.hstack(data).astype('float32')
+        data: np.ndarray = np.hstack(data).astype('float32')
 
         # DATA formatting
         raw = {
@@ -1294,7 +1295,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(processes_nb): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb
+        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
         for i in range(processes_nb):
             process = mp.Process(
                 target=self.skyCoords_slice,
@@ -1361,7 +1362,8 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = DataSaver(
-        polynomial_order=[4],
+        integration_time=[12, 18, 24],
+        polynomial_order=[4, 6],
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
