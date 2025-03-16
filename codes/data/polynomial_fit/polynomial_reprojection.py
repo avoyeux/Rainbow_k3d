@@ -7,6 +7,7 @@ by SDO (when possible).
 
 # IMPORTs
 import os
+import h5py
 import scipy
 
 # IMPORTs alias
@@ -253,7 +254,7 @@ class ProcessedEnvelope(BaseProcessing):
         conditions = (
             (self.polar_r < 698 * 1e3) |  # * final plot borders
             (self.polar_r > 870 * 1e3) |
-            (self.polar_theta < 255) |
+            (self.polar_theta < 245) |
             (self.polar_theta > 295)
         )
         new_t = t_fine[~conditions]
@@ -509,7 +510,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 # FIT envelope
                 fitting_method = Fitting2D(
                     polar_coords=envelope,
-                    polynomial_order=9,
+                    polynomial_order=6,
                     nb_of_points=self.nb_of_points,
                 )
                 envelope = fitting_method.fit_data()
@@ -522,7 +523,9 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             
             # PLOT for testing
             if self.plots:
+                cube_date = self.get_cube_date()
                 self.plot(
+                    date=cube_date,
                     fit=coords_uniform,
                     old_envelope=[envelope for envelope in envelopes_polar],
                     new_envelope=envelopes,
@@ -568,9 +571,27 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 "cube.\033[0m"
             )
         return log
+    
+    def get_cube_date(self) -> str:
+        """
+        To get the date of the cube.
+
+        Returns:
+            str: the date of the cube.
+        """
+
+        # DATA from file
+        dates: h5py.Dataset = self.file['Dates']  #type:ignore
+        cube_numbers: h5py.Dataset = self.file['Real/Time indexes']  #type:ignore     
+
+        # DATA cube
+        cube_number = cube_numbers[self.index]
+        date: str = dates[cube_number].decode('utf-8')
+        return date
 
     def plot(
             self,
+            date: str,
             fit: np.ndarray,
             old_envelope: list[np.ndarray],
             new_envelope: list[FitEnvelopes],
@@ -579,13 +600,14 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         To visualise the results of the fitting (only used during the results).
 
         Args:
+            date (str): the date of the cube.
             fit (np.ndarray): the fit results.
             old_envelope (list[np.ndarray]): the old envelope gotten directly from the fit.
             new_envelope (list[np.ndarray]): the new envelope gotten from processing the old one.
         """
 
         # SETUP
-        filename = f'envelope_fit_results_{self.index:03d}.png'
+        filename = f'envelope_fit_results_{date}.png'
         plt.figure(figsize=(10, 20))
 
         # PLOT envelopes

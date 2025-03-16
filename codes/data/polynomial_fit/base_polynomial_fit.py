@@ -654,7 +654,7 @@ class GetPolynomialFit:
 
         # FILE read
         H5PYFile = h5py.File(self.filepath, 'r')
-        return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order)
+        return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order) #type:ignore
 
     def get_params(self, cube_index: int) -> np.ndarray:
         """
