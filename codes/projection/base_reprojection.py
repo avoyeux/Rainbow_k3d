@@ -6,7 +6,7 @@ To store the parent class containing the reprojection methods.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.projection_dataclasses import (
+from codes.projection.helpers.projection_dataclasses import (
     CubeInformation, CubePointer, TestCubePointer, FakeCubePointer, ProjectedCube
 )
 
@@ -101,7 +101,7 @@ class BaseReprojection:
         theta_polar = np.rad2deg((theta_polar + 2 * np.pi) % (2 * np.pi))
 
         # UNITs to km
-        rho_polar = np.tan(rho_polar) / z_norm  # todo need to re-understand why I put this here
+        rho_polar = np.tan(rho_polar) / z_norm  # ? why did I put this here ?
         return np.stack([rho_polar, theta_polar], axis=0)
     
     def get_angles(self, coords: np.ndarray) -> np.ndarray:
@@ -166,12 +166,14 @@ class BaseReprojection:
             colour: str,
             sdo_pos: np.ndarray,
         ) -> ProjectedCube:
-        """ # todo update docstring
+        """
         To format the cube data for the projection.
 
         Args:
             data (CubePointer | TestCubePointer | FakeCubePointer): the data cube to be formatted.
+            dx (float): the pixel size of the data cube in km.
             index (int): the index of the corresponding real data cube.
+            name (str): the name of the data used as a label in the final plot.
             colour (str): the colour of the data cube for the plot.
             sdo_pos (np.ndarray): the position of the SDO satellite.
 

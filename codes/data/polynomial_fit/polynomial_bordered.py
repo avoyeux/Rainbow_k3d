@@ -9,7 +9,7 @@ from the initial borders of the cube are also removed.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.projection_dataclasses import CubeInformation
+from codes.projection.helpers.projection_dataclasses import CubeInformation
 from codes.data.polynomial_fit.base_polynomial_fit import GetPolynomialFit
 
 

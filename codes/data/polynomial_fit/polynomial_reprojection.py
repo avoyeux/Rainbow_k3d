@@ -21,8 +21,8 @@ import matplotlib.pyplot as plt
 # IMPORTs personal
 from common import config, Decorators
 from codes.projection.base_reprojection import BaseReprojection
-from codes.projection.extract_envelope import CreateFitEnvelope
-from codes.projection.projection_dataclasses import FitWithEnvelopes, FitEnvelopes
+from codes.projection.helpers.extract_envelope import CreateFitEnvelope
+from codes.projection.helpers.projection_dataclasses import FitWithEnvelopes, FitEnvelopes
 from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
 
 # API public

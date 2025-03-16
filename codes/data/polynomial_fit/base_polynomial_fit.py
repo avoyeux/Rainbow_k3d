@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 # IMPORTs personal
 from common import Decorators, MultiProcessing
-from codes.projection.projection_dataclasses import HDF5GroupPolynomialInformation
+from codes.projection.helpers.projection_dataclasses import HDF5GroupPolynomialInformation
 
 # PLACEHOLDERs type annotation
 LockProxy = Any

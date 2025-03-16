@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 # IMPORTS personal
 from common import config, Decorators, Plot
 from codes.projection.base_reprojection import BaseReprojection
-from codes.projection.extract_envelope import ExtractEnvelope
-from codes.projection.cartesian_to_polar import CartesianToPolar
-from codes.projection.projection_dataclasses import *
+from codes.projection.helpers.extract_envelope import ExtractEnvelope
+from codes.projection.helpers.cartesian_to_polar import CartesianToPolar
+from codes.projection.helpers.projection_dataclasses import *
 from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProcessedPolynomial
 
 # PLACEHOLDERs type annotation

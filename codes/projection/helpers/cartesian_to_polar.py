@@ -23,7 +23,7 @@ from typing import Any
 
 # IMPORTs personal
 from common import config
-from codes.projection.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
+from codes.projection.helpers.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any
@@ -46,7 +46,7 @@ class CartesianToPolar:
             colour: str = 'black',
             **kwargs,
         ) -> None:
-        """ # todo update docstring
+        """
         To change an SDO fits image to the polar representation centred on the Sun's disk.
         The image borders will depend on the specified method.
         The result of the processing is gotten from the .coordinates_cartesian_to_polar() after
@@ -60,6 +60,7 @@ class CartesianToPolar:
             theta_offset (int | float, optional): the offset needed to get the wanted polar angle.
                 Defaults to 0.
             plot (bool, optional): Rough plot to see if the code works properly. Defaults to False.
+            colour (str, optional): the colour for the SDO image mask plot. Defaults to 'black'.
         """
 
         # ATTRIBUTEs
@@ -137,7 +138,7 @@ class CartesianToPolar:
         """
 
         # PATHs formatting
-        paths = {'sdo': config.path.dir.data.sdo}
+        paths = {'sdo': config.path.dir.data.sdo}  #type:ignore
         return paths
     
     def _open_data(self) -> ImageInfo:
