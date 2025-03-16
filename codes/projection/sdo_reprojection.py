@@ -27,6 +27,8 @@ from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProces
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
+# todo try different integration times at the same time.
+
 
 
 class OrthographicalProjection(BaseReprojection):
@@ -97,7 +99,7 @@ class OrthographicalProjection(BaseReprojection):
         # SERVER connection
         if self.in_local:
             from common.server_connection import SSHMirroredFilesystem
-            self.SSHMirroredFilesystem = SSHMirroredFilesystem
+            self.connection = SSHMirroredFilesystem(verbose=self.verbose)
 
         # CONSTANTs
         self.solar_r = 6.96e5  # in km
@@ -208,7 +210,7 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         # ENVELOPE get
-        envelope_data = ExtractEnvelope.get(  # todo look at the function to see if any changes are needed
+        envelope_data = ExtractEnvelope.get(
             polynomial_order=6,
             number_of_points=int(1e5),
             borders=self.projection_borders,
@@ -302,7 +304,7 @@ class OrthographicalProjection(BaseReprojection):
         else:
             self.data_setup(index_list=indexes)
 
-        if self.in_local: self.SSHMirroredFilesystem.cleanup(verbose=self.verbose)
+        if self.in_local: self.connection.cleanup(verbose=self.verbose)
     
     def data_setup(
             self,
@@ -319,9 +321,6 @@ class OrthographicalProjection(BaseReprojection):
             index_list (np.ndarray | None): the list of indexes of the data cubes that still need
                 processing. Only used when not multiprocessing.
         """
-
-        # CONNECTION to server
-        if self.in_local: self.connection = self.SSHMirroredFilesystem(verbose=self.verbose)
 
         # INIT no multiprocessing
         process_id = 0
@@ -1079,7 +1078,6 @@ if __name__ == '__main__':
             'no duplicates', 'integration', 'line of sight',
             'fit', 'fit envelope',
             'sdo image', 'sdo mask',
-            'fake data', 'test cube',
         ],
         with_fake_data=True,
     )
