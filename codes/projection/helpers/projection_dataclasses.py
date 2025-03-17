@@ -148,6 +148,7 @@ class CubePointer:
         Returns:
             np.ndarray: the corresponding data cube.
         """
+        
         data_filter = self.pointer[0, :] == item
         return self.pointer[1:, data_filter].astype('float64')
     
@@ -219,7 +220,7 @@ class CubesPointers:
 
     all_data: CubePointer | None = field(default=None, init=False)
     no_duplicates: CubePointer | None = field(default=None, init=False)
-    integration: CubePointer | None = field(default=None, init=False)
+    integration: list[CubePointer] | None = field(default=None, init=False)
     line_of_sight: CubePointer | None = field(default=None, init=False)
     fake_data: FakeCubePointer | None = field(default=None, init=False)
     test_cube: TestCubePointer | None = field(default=None, init=False)
@@ -255,8 +256,12 @@ class FitWithEnvelopes:
     To format the results of the envelope processing.
     """
 
-    # FIT processed
+    # METADATA
+    colour: str
     fit_order: int
+    integration_time: int
+
+    # FIT processed
     fit_polar_r: np.ndarray
     fit_polar_theta: np.ndarray
     fit_angles: np.ndarray
@@ -276,7 +281,7 @@ class ProjectionData:
     sdo_mask: PolarImageInfo | None = None
     all_data: ProjectedCube | None = None
     no_duplicates: ProjectedCube | None = None
-    integration: ProjectedCube | None = None
+    integration: list[ProjectedCube] | None = None
     line_of_sight: ProjectedCube | None = None
     fits_n_envelopes: list[FitWithEnvelopes] | None = None
     fake_data: ProjectedCube | None = None

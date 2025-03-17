@@ -7,6 +7,7 @@ representation of the data.
 # IMPORTS
 import os
 import h5py
+import time
 
 # IMPORTS alias
 import numpy as np
@@ -27,7 +28,7 @@ from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProces
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
-# todo try different integration times at the same time.
+# ? should I also create the image where there is no initial data when also plotting the integration?
 
 
 
@@ -42,10 +43,10 @@ class OrthographicalProjection(BaseReprojection):
     def __init__(
             self,
             processes: int | None = None,
-            integration_time_hours: int = 24,
+            integration_time: list[int] = [24],
             filepath: str | None = None,
             with_feet: bool = False,
-            polynomial_order: int | list[int] = [4],
+            polynomial_order: list[int] = [4],
             plot_choices: str | list[str] = [
                 'sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data',
             ], 
@@ -61,15 +62,14 @@ class OrthographicalProjection(BaseReprojection):
         Args:
             processes (int | None, optional): the number of parallel processes used in the
                 multiprocessing. When None, uses the config file. Defaults to None.
-            integration_time_hours (int, optional): the integration time used for the data to be
+            integration_time (list[int], optional): the integration time(s) used for the data to be
                 reprojected. Defaults to 24.
             filepath (str | None, optional): the filepath of the HDF5 containing all the relevant
                 3D data. When None, uses the config file. Defaults to None.
             with_feet (bool, optional): deciding to use the data with or without added feet.
                 Defaults to False.
-            polynomial_order (int | list[int], optional): the order(s) of the polynomial
-                function(s) that represent the fitting of the integrated 3D volume.
-                Defaults to [4].
+            polynomial_order (list[int], optional): the order(s) of the polynomial function(s) that
+                represent the fitting of the integrated 3D volume. Defaults to [4].
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
                 the reprojection. The possible choices are:
                 ['sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
@@ -79,7 +79,7 @@ class OrthographicalProjection(BaseReprojection):
             verbose (int | None, optional): gives the verbosity in the outputted prints. The higher
                 the value, the more prints. Starts at 0 for no prints. When None, uses the config
                 file. Defaults to None.
-            flush (bool | None, optional): used in the 'flush' kwarg of the print() class.\
+            flush (bool | None, optional): used in the 'flush' kwarg of the print() class.
                 Decides to force the print buffer to be emptied (i.e. forces the prints). When
                 None, uses the config file. Defaults to None.
         """
@@ -111,12 +111,9 @@ class OrthographicalProjection(BaseReprojection):
         # ATTRIBUTEs
         self.with_fake_data = with_fake_data
         self.plot_choices = self.plot_choices_creation(plot_choices)        
-        self.integration_time = integration_time_hours
+        self.integration_time = integration_time
         self.multiprocessing = True if self.processes > 1 else False
-        if isinstance(polynomial_order, list):
-            self.polynomial_order = sorted(polynomial_order)
-        else:
-            self.polynomial_order = [polynomial_order]
+        self.polynomial_order = sorted(polynomial_order)
 
         # PATHs setup
         self.feet = ' with feet' if with_feet else ''
@@ -142,7 +139,10 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         if filepath is None:
-            filepath: str = config.path.data.fusion if self.with_fake_data else config.path.data.real  #type:ignore
+            if self.with_fake_data:
+                filepath: str = config.path.data.fusion  #type:ignore
+            else:
+                filepath: str = config.path.data.real  #type:ignore
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -157,7 +157,7 @@ class OrthographicalProjection(BaseReprojection):
         paths = {
             'sdo': config.path.dir.data.sdo, #type:ignore
             'sdo times': config.path.data.sdo_timestamp, #type:ignore
-            'save': os.path.join(config.path.dir.data.result.projection, self.foldername), #type:ignore
+            'save': os.path.join(config.path.dir.data.result.projection, self.foldername),#type:ignore
         }
 
         # PATHs update
@@ -219,9 +219,9 @@ class OrthographicalProjection(BaseReprojection):
 
         # COLOURS plot
         colour_generator = Plot.different_colours(omit=['white', 'red'])
-        colours = [
+        colours = [  # todo change this if I also want different integration times
             next(colour_generator)
-            for _ in self.polynomial_order
+            for _ in self.integration_time
         ]
 
         # SETUP plots kwargs
@@ -240,7 +240,6 @@ class OrthographicalProjection(BaseReprojection):
             },
             'fit envelope': {
                 'linestyle': '--',
-                'color': 'yellow',
                 'alpha': 0.8,
                 'zorder':4,
             },
@@ -342,14 +341,19 @@ class OrthographicalProjection(BaseReprojection):
                 filtered_path = init_path + 'Filtered/All data'
                 data_pointers.all_data = self.get_cubes_information(H5PYFile, filtered_path)
             if self.plot_choices['integration']:
-                time_integrated_path = (
+                time_integrated_paths = [
                     init_path + 'Time integrated/No duplicates' 
-                    + f'/Time integration of {self.integration_time}.0 hours' 
-                )
-                data_pointers.integration = self.get_cubes_information(
-                    H5PYFile,
-                    time_integrated_path,
-                )
+                    + f'/Time integration of {integration_time}.0 hours'
+                    for integration_time in self.integration_time
+                ]
+                data_pointers.integration = [
+                    self.get_cubes_information(
+                        H5PYFile,
+                        path,
+                    )
+                    for path in time_integrated_paths
+                ]
+                    
             if self.plot_choices['line of sight']:
                 line_of_sight_path = init_path + 'Filtered/SDO line of sight'
                 data_pointers.line_of_sight = self.get_cubes_information(
@@ -394,7 +398,7 @@ class OrthographicalProjection(BaseReprojection):
 
                 # SDO information
                 filepath = self.sdo_timestamps[process_constants.date[:-3]]
-                if self.in_local: filepath = self.connection.mirror(filepath, strip_level=1)
+                if self.in_local: filepath = self.get_file_from_server(filepath)
                 sdo_image_info = self.sdo_image(filepath, colour='') 
 
                 if self.plot_choices['sdo image']: projection_data.sdo_image = sdo_image_info
@@ -444,15 +448,18 @@ class OrthographicalProjection(BaseReprojection):
                     )
 
                 if data_pointers.integration is not None: 
-                    projection_data.integration = self.format_cube(
-                        data=data_pointers.integration,
-                        dx=self.constants.dx,
-                        index=process,
-                        name='integration',
-                        colour='red',
-                        sdo_pos=sdo_image_info.sdo_pos,
-                    )
-                
+                    projection_data.integration = [
+                        self.format_cube(
+                            data=integration,
+                            dx=self.constants.dx,
+                            index=process,
+                            name=f'{self.integration_time[i]}hours integration',
+                            colour=self.plot_kwargs['colours'][i],
+                            sdo_pos=sdo_image_info.sdo_pos,
+                        )
+                        for i, integration in enumerate(data_pointers.integration)
+                    ]
+                    
                 if data_pointers.fake_data is not None:
                     projection_data.fake_data = self.format_cube(
                         data=data_pointers.fake_data,
@@ -474,30 +481,36 @@ class OrthographicalProjection(BaseReprojection):
                     )
 
                 if self.plot_choices['fit']:
-
+                    
+                    # RESULTs formatting
+                    index = -1
                     polynomials_info: list[FitWithEnvelopes] = (
-                        [None] * len(self.polynomial_order)
-                    )#type: ignore
+                        [None] * len(self.polynomial_order) * len(self.integration_time)
+                    )  #type: ignore
 
-                    for i, poly_order in enumerate(self.polynomial_order):
-                        polynomial_instance = ReprojectionProcessedPolynomial(
-                            filepath=self.filepath,
-                            dx=self.constants.dx,
-                            index=process,
-                            sdo_pos=sdo_image_info.sdo_pos,
-                            polynomial_order=poly_order,
-                            integration_time=self.integration_time,
-                            number_of_points=250,
-                            with_fake_data=self.with_fake_data,
-                            create_envelope=self.plot_choices['fit envelope'],
-                        )
-                        results = polynomial_instance.reprocessed_fit_n_envelopes()
+                    for poly_order in self.polynomial_order:
 
-                        # DATA save
-                        polynomials_info[i] = results
+                        for i, integration_time in enumerate(self.integration_time):
+                            index += 1
+                            polynomial_instance = ReprojectionProcessedPolynomial(
+                                colour=self.plot_kwargs['colours'][i],  # todo add the colour to the final plot
+                                filepath=self.filepath,
+                                dx=self.constants.dx,
+                                index=process,
+                                sdo_pos=sdo_image_info.sdo_pos,
+                                polynomial_order=poly_order,
+                                integration_time=integration_time,
+                                number_of_points=300,  # ? should I add it as an argument ?
+                                with_fake_data=self.with_fake_data,
+                                create_envelope=self.plot_choices['fit envelope'],
+                            )
+                            results = polynomial_instance.reprocessed_fit_n_envelopes()
 
-                        # HDF5 close
-                        polynomial_instance.close()
+                            # DATA save
+                            polynomials_info[index] = results
+
+                            # HDF5 close
+                            polynomial_instance.close()
 
                     projection_data.fits_n_envelopes = polynomials_info
                     
@@ -506,6 +519,40 @@ class OrthographicalProjection(BaseReprojection):
                 self.create_fake_fits(process_constants, projection_data)
                 
         if self.in_local: self.connection.close()
+
+    def get_file_from_server(self, filepath: str, fail_count: int = 0) -> str:
+        """
+        To get the file from the server. If the file is not found, the function will try again
+        until it reaches a certain number of tries.
+
+        Args:
+            filepath (str): the server filepath to the file.
+            fail_count (int, optional): the number of times the function has failed to get the
+                file from the server. Defaults to 0.
+
+        Raises:
+            Exception: if the function has failed to get the file from the server more than a
+                certain number of times.
+
+        Returns:
+            str: the new local path to the file.
+        """
+
+        if fail_count > 10:
+            raise Exception(
+                f"\033[1;31mFailed to get the file '{filepath}' from the server. "
+                "Killing process\033[0m"
+            )
+
+        try:
+            filepath = self.connection.mirror(filepath, strip_level=1)
+        except Exception as e:
+            if self.verbose > 1: print(f'\033[1;31m{e}\nTrying again...\033[0m', flush=self.flush)
+            fail_count += 1
+            time.sleep(0.01)
+            self.get_file_from_server(filepath=filepath, fail_count=fail_count)
+        finally:
+            return filepath
 
     def get_global_constants(self, H5PYFile: h5py.File, init_path: str) -> GlobalConstants:
         """
@@ -911,13 +958,14 @@ class Plotting(OrthographicalProjection):
             )
 
         if projection_data.integration is not None:
-            # PLOT contours time integrated
-            self.plot_contours(
-                projection=projection_data.integration,
-                d_theta=self.constants.d_theta,
-                dx=self.constants.dx,
-                image_shape=image_shape,
-            )
+            for integration in projection_data.integration:
+                # PLOT contours time integrated
+                self.plot_contours(
+                    projection=integration,
+                    d_theta=self.constants.d_theta,
+                    dx=self.constants.dx,
+                    image_shape=image_shape,
+                )
         
         if projection_data.no_duplicates is not None:
             # PLOT contours no duplicates
@@ -948,20 +996,21 @@ class Plotting(OrthographicalProjection):
         
         if projection_data.fits_n_envelopes is not None:
 
-            for i, fit_n_envelope in enumerate(projection_data.fits_n_envelopes):
+            for fit_n_envelope in projection_data.fits_n_envelopes:
                 
                 # PLOT
                 sc = plt.scatter(
                     fit_n_envelope.fit_polar_theta,
                     fit_n_envelope.fit_polar_r / 10**3,
-                    label=f'{self.polynomial_order[i]}th order polynomial',
+                    label=(
+                        f"{fit_n_envelope.integration_time}h - "
+                        f"{fit_n_envelope.fit_order}th order fit"
+                    ),
                     c=np.rad2deg(fit_n_envelope.fit_angles),
                     **self.plot_kwargs['fit'],
                 )
-                cbar = plt.colorbar(sc)
-                cbar.set_label(r'$\theta$ (degrees)')
 
-                # ENVELOPE polynomial
+                # ENVELOPE fit
                 if fit_n_envelope.envelopes is not None:
 
                     # PLOT envelope
@@ -969,9 +1018,17 @@ class Plotting(OrthographicalProjection):
                         plt.plot(
                             new_envelope.polar_theta,
                             new_envelope.polar_r / 1e3,
-                            label='fit envelope' if label==0 else None,
+                            label=(
+                                f"{fit_n_envelope.integration_time}h - "
+                                f"{fit_n_envelope.fit_order}th order fit envelope"
+                                f'({new_envelope.order}th order polynomial)'
+                            ) if label==0 else None,
+                            color=fit_n_envelope.colour,
                             **self.plot_kwargs['fit envelope'],
                         )
+
+            cbar = plt.colorbar(sc)
+            cbar.set_label(r'$\theta$ (degrees)')
 
         # PLOT fake data
         if projection_data.fake_data is not None:
@@ -1009,13 +1066,15 @@ class Plotting(OrthographicalProjection):
         plt.xlabel('Polar angle [degrees]')
         plt.ylabel('Radial distance [Mm]')
         plt.legend(loc='upper right')
-        plot_name = f"sdopolarprojection_{process_constants.date}_{self.integration_time}h.png"
+
+        # PLOT save
+        plot_name = f"reprojection_{process_constants.date}.png"
         plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
         plt.close()
 
         if self.verbose > 1: 
             print(
-                f'SAVED - nb {process_constants.time_index:03d} - filename: {plot_name}',
+                f'SAVED - nb {process_constants.time_index:03d} - {plot_name}',
                 flush=self.flush,
             )
 
@@ -1073,11 +1132,12 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
+        integration_time=[12, 18],
         polynomial_order=[4],
         plot_choices=[
-            'no duplicates', 'integration', 'line of sight',
+            'integration',
             'fit', 'fit envelope',
-            'sdo image', 'sdo mask',
+            'sdo image',
         ],
         with_fake_data=True,
     )
