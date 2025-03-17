@@ -106,14 +106,14 @@ class FusionHdf5(BaseHdf5Creator):
         """
 
         # FILENAME setup
-        filename = os.path.basename(config.path.data.fusion) if filename is None else filename
+        filename = os.path.basename(config.path.data.fusion) if filename is None else filename#type:ignore
 
         # PARENT
         super().__init__(filename, compression, compression_lvl)
         
         # ATTRIBUTEs
-        self.filepath_real = config.path.data.real
-        self.filepath_fake = config.path.data.fake
+        self.filepath_real = config.path.data.real  #type:ignore
+        self.filepath_fake = config.path.data.fake_toto  #type:ignore
 
         # SETUP
         self.paths = self.paths_setup()
@@ -128,7 +128,7 @@ class FusionHdf5(BaseHdf5Creator):
         """
 
         # PATHs formatting
-        paths = {'save': config.path.dir.data.hdf5}
+        paths = {'save': config.path.dir.data.hdf5}  #type:ignore
         return paths
     
     def paths_choices(self) -> dict[str, list[str] | dict[str, list[str] | dict[str, list[str]]]]:

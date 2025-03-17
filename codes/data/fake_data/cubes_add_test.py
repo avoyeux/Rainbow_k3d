@@ -15,17 +15,10 @@ import numpy as np
 from data.cubes import DataSaver
 from common import Decorators
 
-# ! the projection error still hasn't been found. Need to make test data that copies the initial
-# Doesn't seem to be because of the feet as when I seem to be using the data without feet
-# (by setting with_feet=False in polynomial_projection.py), the error in the re-projection still
-# exists while the fake sun surface projection seem to be right.
-
-# the solar_r values are not always the same but the problem shouldn't come from there.
 # ? could the problem come from the definition of nx in the idl codes. Something like taking n and
 # ? not n+1 (as the number of discreet values is n+1 or n depending on the problem)
 
-# todo need to create some test data for which I know the position but that also depends on SDO's
-# todo position. Still thinking how to do so though.
+# ! not sure if this code is used any more
 
 
 
@@ -63,7 +56,7 @@ class AddTestingData(DataSaver):
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'a') as HDF5File:
             
             # GET dx
-            dx = float(HDF5File['dx'][...])
+            dx = float(HDF5File['dx'][...])  #type:ignore
 
             test_group_name = 'TEST data'
             if test_group_name in HDF5File:
@@ -80,7 +73,7 @@ class AddTestingData(DataSaver):
 
             # SUN index add
             path_to_copy = "Filtered/No duplicates new"
-            no_duplicates_info_info = self.get_path_info(HDF5File[path_to_copy])
+            no_duplicates_info_info = self.get_path_info(HDF5File[path_to_copy])  #type:ignore
             sun_index, borders = self.sun_to_index(
                 data_info=no_duplicates_info_info,
                 dx=dx,
@@ -154,18 +147,18 @@ class AddTestingData(DataSaver):
         }
         if name in group: del group[name]
         sun_index |= borders
-        group = self.add_group(group, sun_index, name)
+        self.add_group(group, sun_index, name)
         return group
 
     def get_path_info(self, group: h5py.Group) -> dict[str, float | np.ndarray]:
         
         data_info = {
-            'xmin': group['xmin'][...],
-            'ymin': group['ymin'][...],
-            'zmin': group['zmin'][...],
-            'coords': group['coords'][...],
+            'xmin': group['xmin'][...],  #type:ignore
+            'ymin': group['ymin'][...],  #type:ignore
+            'zmin': group['zmin'][...],  #type:ignore
+            'coords': group['coords'][...],  #type:ignore
         }
-        return data_info
+        return data_info  #type:ignore
 
     def add_sun(self, group: h5py.Group, coords: np.ndarray, name: str) -> h5py.Group:
         """
@@ -203,7 +196,7 @@ class AddTestingData(DataSaver):
             }
         }
         if name in group: del group[name]
-        group = self.add_group(group, sun, name)
+        self.add_group(group, sun, name)
         return group
     
     @Decorators.running_time

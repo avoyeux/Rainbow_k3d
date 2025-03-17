@@ -64,13 +64,13 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
 
         # CONFIGURATION attributes
         if filepath is None and create_new_hdf5:
-            self.filepath = str(config.path.data.fake_cube)
+            self.filepath = str(config.path.data.fake_cube)  #type:ignore
         elif filepath is None:
-            self.filepath = str(config.path.data.fusion)
+            self.filepath = str(config.path.data.fusion)  #type:ignore
         else:
             self.filepath = filepath
-        self.verbose = config.run.verbose if verbose is None else verbose
-        self.flush = config.run.flush if flush is None else flush
+        self.verbose = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.flush = config.run.flush if flush is None else flush  #type:ignore
 
         # PARENTs
         super().__init__(
@@ -93,7 +93,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
         self.create_new_hdf5 = create_new_hdf5
 
         # PATHs update
-        self.paths['save'] = config.path.dir.data.hdf5
+        self.paths['save'] = config.path.dir.data.hdf5  #type:ignore
 
         # ATTRIBUTEs setup
         self.volume = self.basic_data()
@@ -150,7 +150,7 @@ class CreateFakeData(BaseFakeHDF5, BaseHDF5Protuberance):
 
                 # SUN borders add
                 for key, value in borders.items():
-                    self.add_dataset(parent_group=group['Sun surface'], info=value, name=key)
+                    self.add_dataset(parent_group=group['Sun surface'], info=value, name=key)#type:ignore
 
                 if self.verbose > 0: print('Sun added.', flush=self.flush)
 

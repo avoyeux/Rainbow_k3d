@@ -469,7 +469,6 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         }
         return paths
 
-    @Decorators.running_time
     def reprocessed_fit_n_envelopes(self) -> FitWithEnvelopes:
         """
         To reprocess the fit results and create the corresponding envelopes.
@@ -535,6 +534,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         
         # DATA format
         fit_n_envelopes = FitWithEnvelopes(
+            integration_time=self.integration_time,
             fit_order=self.polynomial_order,
             fit_polar_r=fit_2D_uniform.polar_r,
             fit_polar_theta=fit_2D_uniform.polar_theta,
