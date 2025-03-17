@@ -392,6 +392,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             filepath: str,
             dx: float,
             index: int,
+            colour: str,
             sdo_pos: np.ndarray,
             polynomial_order: int,
             integration_time: int,
@@ -411,6 +412,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             filepath (str): the filepath to the hdf5 file containing the fit results.
             dx (float): the voxel resolution in km.
             index (int): the index of the cube to consider.
+            colour (str): the colour of the fit and corresponding envelope in the final plot.
             sdo_pos (np.ndarray): the position of SDO in heliographic coordinates.
             polynomial_order (int): the order of the polynomial fit to consider.
             integration_time (int): the integration time to consider when choosing the polynomial
@@ -450,6 +452,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         self.paths = self.paths_setup()
         self.dx = dx
         self.index = index
+        self.colour = colour
         self.sdo_pos = sdo_pos
         self.nb_of_points = number_of_points
         self.polynomial_order = polynomial_order
@@ -534,6 +537,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         
         # DATA format
         fit_n_envelopes = FitWithEnvelopes(
+            colour=self.colour,
             integration_time=self.integration_time,
             fit_order=self.polynomial_order,
             fit_polar_r=fit_2D_uniform.polar_r,
