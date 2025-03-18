@@ -23,12 +23,13 @@ from codes.projection.base_reprojection import BaseReprojection
 from codes.projection.helpers.extract_envelope import ExtractEnvelope
 from codes.projection.helpers.cartesian_to_polar import CartesianToPolar
 from codes.projection.helpers.projection_dataclasses import *
+from codes.projection.helpers.warp_sdo_image import WarpSdoImage
 from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProcessedPolynomial
 
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
-# ? should I also create the image where there is no initial data when also plotting the integration?
+# ? should I also create the image where there is no initial data when plotting the integration?
 
 
 
@@ -161,6 +162,7 @@ class OrthographicalProjection(BaseReprojection):
                 config.path.dir.data.result.projection,  #type:ignore
                 self.foldername,
             ),
+            'temporary': config.path.dir.data.temp,  #type:ignore
         }
 
         # PATHs update
@@ -186,7 +188,7 @@ class OrthographicalProjection(BaseReprojection):
         # CHOICES
         possibilities = [  # ? does the cartesian option still work?
             'integration', 'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data',
-            'envelope', 'fit', 'fit envelope', 'test data', 'line of sight', 'all data'
+            'envelope', 'fit', 'fit envelope', 'test data', 'line of sight', 'all data', 'warp',
         ]   
         plot_choices_kwargs = {
             key: False 
@@ -495,6 +497,8 @@ class OrthographicalProjection(BaseReprojection):
 
                         for i, integration_time in enumerate(self.integration_time):
                             index += 1
+
+                            # FIT+ENVELOPE processing
                             polynomial_instance = ReprojectionProcessedPolynomial(
                                 colour=self.plot_kwargs['colours'][i],
                                 filepath=self.filepath,
@@ -509,6 +513,20 @@ class OrthographicalProjection(BaseReprojection):
                             )
                             results = polynomial_instance.reprocessed_fit_n_envelopes()
 
+                            # todo plot_choices changes so that the data exists for the warp
+                            # WARP image
+                            if self.plot_choices['warp']:
+
+                                warped_instance = WarpSdoImage(
+                                    sdo_image=sdo_image_info.image,
+                                    extent=self.plot_kwargs['image']['extent'],
+                                    image_shape=(780, 780),
+                                    pixel_interpolation_order=3,
+                                    envelopes=results.envelopes,
+                                    nb_of_points=300,
+                                )
+                                results.warped_image = warped_instance.warped_image
+
                             # DATA save
                             polynomials_info[index] = results
 
@@ -516,7 +534,7 @@ class OrthographicalProjection(BaseReprojection):
                             polynomial_instance.close()
 
                     projection_data.fits_n_envelopes = polynomials_info
-                    
+
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
                 self.create_fake_fits(process_constants, projection_data)
@@ -903,7 +921,7 @@ class Plotting(OrthographicalProjection):
         )
 
         # SDO polar projection plotting
-        plt.figure(figsize=(18, 5))
+        plt.figure(num=1, figsize=(18, 5))
         if self.Auchere_envelope is not None: 
             
             plt.plot(
@@ -1030,6 +1048,17 @@ class Plotting(OrthographicalProjection):
                             **self.plot_kwargs['fit envelope'],
                         )
 
+                    # WARP image
+                    if fit_n_envelope.warped_image is not None:
+                        self.plot_warped_image(
+                            index=process_constants.time_index,
+                            warped_image=fit_n_envelope.warped_image,
+                            fit_order=fit_n_envelope.fit_order,
+                            envelope_order=new_envelope.order,  # todo need to find a clean solution for this
+                            integration_time=fit_n_envelope.integration_time,
+                        )
+
+            plt.figure(1)
             cbar = plt.colorbar(sc)
             cbar.set_label(r'$\theta$ (degrees)')
 
@@ -1127,16 +1156,37 @@ class Plotting(OrthographicalProjection):
             for line in lines:
                 plt.plot(line[1], line[0], color=color, **self.plot_kwargs['contour'])
 
+    def plot_warped_image(
+            self,
+            warped_image: np.ndarray,
+            index: int,
+            fit_order: int,
+            envelope_order: int,
+            integration_time: int,
+        ) -> None:
+
+        plot_name = (
+            f'warped_{index:03d}_{integration_time}h_{fit_order}fit_{envelope_order}envelope.png'
+        )
+        plt.figure(num=2, figsize=(10, 10))
+        plt.imshow(warped_image, interpolation='none')
+        plt.title('Warped SDO image')
+        plt.colorbar()
+        plt.savefig(os.path.join(self.paths['temporary'], plot_name), dpi=500)
+        plt.close(2)
+
+        if self.verbose > 0: print(f'SAVED - {plot_name}', flush=self.flush)
+
 
 
 if __name__ == '__main__':
     Plotting(
-        integration_time=[12, 18],
+        integration_time=[24],
         polynomial_order=[4],
         plot_choices=[
             'integration',
             'fit', 'fit envelope',
-            'sdo image',
+            'sdo image', 'warp',
         ],
         with_fake_data=True,
     )

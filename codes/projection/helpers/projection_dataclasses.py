@@ -245,7 +245,10 @@ class FitEnvelopes:
     To format the result of the fit and envelope processing.
     """
     
+    # METADATA
     order: int
+
+    # COORDs polar
     polar_r: np.ndarray
     polar_theta: np.ndarray
 
@@ -268,6 +271,9 @@ class FitWithEnvelopes:
 
     # ENVELOPEs
     envelopes: list[FitEnvelopes] | None
+
+    # WARPED image
+    warped_image: np.ndarray | None = field(default=None, init=False)
 
 
 @dataclass(slots=True, repr=False, eq=False)
