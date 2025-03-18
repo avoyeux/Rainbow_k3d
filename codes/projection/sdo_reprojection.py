@@ -157,7 +157,10 @@ class OrthographicalProjection(BaseReprojection):
         paths = {
             'sdo': config.path.dir.data.sdo, #type:ignore
             'sdo times': config.path.data.sdo_timestamp, #type:ignore
-            'save': os.path.join(config.path.dir.data.result.projection, self.foldername),#type:ignore
+            'save': os.path.join(
+                config.path.dir.data.result.projection,  #type:ignore
+                self.foldername,
+            ),
         }
 
         # PATHs update
@@ -493,7 +496,7 @@ class OrthographicalProjection(BaseReprojection):
                         for i, integration_time in enumerate(self.integration_time):
                             index += 1
                             polynomial_instance = ReprojectionProcessedPolynomial(
-                                colour=self.plot_kwargs['colours'][i],  # todo add the colour to the final plot
+                                colour=self.plot_kwargs['colours'][i],
                                 filepath=self.filepath,
                                 dx=self.constants.dx,
                                 index=process,
@@ -622,17 +625,16 @@ class OrthographicalProjection(BaseReprojection):
             group_path: str,
             cube_type: str = 'real',
         ) -> CubePointer | TestCubePointer | FakeCubePointer:
-        """ # todo update docstring
+        """
         To get the information about the data cubes.
 
         Args:
             H5PYFile (h5py.File): the HDF5 file containing the data.
             group_path (str): the path to the group containing the data.
-            test_cube (bool, optional): if the data is test data. Only used for the IDE to infer
-                the return type. Defaults to False.
+            cube_type (str, optional): the type of the dataclass cube used. Defaults to 'real'.
 
         Returns:
-            CubePointer | TestCubePointer: the information about the data cubes.
+            CubePointer | TestCubePointer | FakeCubePointer: the information about the data cubes.
         """
 
         # BORDERs
@@ -672,13 +674,14 @@ class OrthographicalProjection(BaseReprojection):
         return cube_info
 
     def sdo_image(self, filepath: str, colour: str) -> PolarImageInfo:
-        """ #todo update docstring
+        """
         To get the sdo image in polar coordinates and delimited by the final plot borders.
         Furthermore, needed information are also saved in the output, e.g. dx and d_theta for the
         created sdo image in polar coordinates.
 
         Args:
             filepath (str): the filepath to the corresponding sdo FITS file.
+            colour (str): the colour of the image contours in the final plot.
 
         Returns:
             PolarImageInfo: the polar SDO image information.
@@ -1081,25 +1084,21 @@ class Plotting(OrthographicalProjection):
     def plot_contours(
             self,
             projection: ProjectedCube,
-            d_theta: float, 
             dx: float,
+            d_theta: float, 
             image_shape: tuple[int, int],
         ) -> None:
-        """ # todo update docstring
+        """
         To plot the contours of the image for the protuberance as seen from SDO's pov.
 
         Args:
-            rho (np.ndarray): the distance positions of the voxels from the disk center seen by
-                SDO. The distances are in km. 
-            theta (np.ndarray): the theta polar angle position relative to the solar north pole and
-                centred on the disk center as seen from SDO.
-            image_shape (tuple[int, int]): the image shape needed for the image of the protuberance
-                as seen from SDO.
+            projection (ProjectedCube): the cube containing the information for the protuberance
+                as seen from SDO's pov.
             dx (float): the voxel resolution in km.
             d_theta (float): the theta angle resolution (as a function of the disk's perimeter) in
                 degrees.
-            color (str): the color used in the plot of the contours of the SDO image.
-            label (str): the label in the plot for the contours of the SDO image.
+            image_shape (tuple[int, int]): the image shape needed for the image of the protuberance
+                as seen from SDO.
         """
 
         # POLAR coordinates
