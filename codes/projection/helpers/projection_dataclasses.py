@@ -47,7 +47,7 @@ class CubeInformation:
 ### CARTESIAN TO POLAR ###
 
 
-@dataclass(repr=False, eq=False)
+@dataclass(slots=True, repr=False, eq=False)
 class PolarImageInfo:
     """
     To store the information gotten by creating the polar image.

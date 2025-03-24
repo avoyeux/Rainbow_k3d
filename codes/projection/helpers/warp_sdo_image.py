@@ -10,11 +10,10 @@ import scipy
 import numpy as np
 
 # IMPORTs sub
-import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import config, Decorators
+from common import Decorators
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 from codes.projection.helpers.projection_dataclasses import FitEnvelopes
 
@@ -117,7 +116,7 @@ class WarpSdoImage:
         self.extent = extent
         self.image_shape = image_shape
         self.pixel_interpolation_order = pixel_interpolation_order
-        self.envelopes = envelopes  # ! need to check which envelope is the top one
+        self.envelopes = envelopes
         self.nb_of_points = nb_of_points
 
         # ATTRIBUTEs processed
@@ -195,8 +194,26 @@ class WarpSdoImage:
         polar_theta = theta1 + vertical_axis * (theta2 - theta1)
 
         # COORDs pixel indices
-        pixels_per_km = self.sdo_image.shape[0] / (self.extent[3] - self.extent[2])
-        pixels_per_angle = self.sdo_image.shape[1] / (self.extent[1] - self.extent[0])
-        r_pixels = (self.extent[3] - polar_r) * pixels_per_km  # invert Y-axis
-        theta_pixels = (polar_theta - self.extent[0]) * pixels_per_angle
+        r_pixels, theta_pixels = self.polar_to_index(polar_r, polar_theta)
+        return r_pixels, theta_pixels
+
+    def polar_to_index(self, polar_r: np.ndarray, polar_theta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        To convert the polar coordinates to the pixel indices.
+
+        Args:
+            polar_r (np.ndarray): the radial coordinate.
+            polar_theta (np.ndarray): the angular coordinate.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: the pixel indices.
+        """
+
+        # RESOLUTION pixels
+        km_per_pixel = (abs(self.extent[3] - self.extent[2]) * 1e3) / self.sdo_image.shape[0]
+        angle_per_pixel = abs(self.extent[1] - self.extent[0]) / self.sdo_image.shape[1]
+
+        # COORDs to pixel indices
+        r_pixels = (polar_r - self.extent[2] * 1e3) / km_per_pixel
+        theta_pixels = (polar_theta - self.extent[0]) / angle_per_pixel
         return r_pixels, theta_pixels
