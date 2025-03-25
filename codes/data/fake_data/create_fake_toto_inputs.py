@@ -58,16 +58,18 @@ class CreateFakeTotoInputs:
             fake_len: int = 413,
             processes: int | None = None,
         ) -> None:
-        """ # todo update docstring
+        """
         To create the fake data inputs for Dr. Auchere's new_toto.pro code.
 
         Args:
             sphere_radius (float): the radius of the sphere in km.
             fake_len (int, optional): the number of fake data to create. Defaults to 413.
+            processes (int | None, optional): the number of processes to use. When None, it uses
+                the config file. Defaults to None.
         """
 
         # PROCESSES setup
-        self.processes = config.run.processes if processes is None else processes
+        self.processes = config.run.processes if processes is None else processes  #type:ignore
 
         # ATTRIBUTEs
         self.fake_len = fake_len
@@ -88,10 +90,10 @@ class CreateFakeTotoInputs:
 
         # PATHs formatting
         paths = {
-            'stereo files': config.path.dir.data.stereo.mask.karine,
-            'sdo files': config.path.dir.data.sdo,
-            'save fits': config.path.dir.data.fake.fits,
-            'save png': config.path.dir.data.fake.png,
+            'stereo files': config.path.dir.data.stereo.mask.karine,  #type:ignore
+            'sdo files': config.path.dir.data.sdo,  #type:ignore
+            'save fits': config.path.dir.data.fake.fits,  #type:ignore
+            'save png': config.path.dir.data.fake.png,  #type:ignore
         }
 
         # PATHs create
@@ -127,7 +129,7 @@ class CreateFakeTotoInputs:
             value = manager.Value('i', 0)
 
             # MULTIPROCESSING run
-            processes: list[mp.Process] = [None] * processes_nb
+            processes: list[mp.Process] = [None] * processes_nb  #type:ignore
             for i in range(processes_nb):
                 p = mp.Process(
                     target=self.sdo_fake_data_multiprocessing,

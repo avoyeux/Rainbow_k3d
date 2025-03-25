@@ -188,7 +188,7 @@ class ProcessedEnvelope(BaseFitProcessing):
 
         except Exception:
             # FAIL save
-            params = np.empty((2, 0))  # todo change this to None later
+            params = np.empty((2, 0))
 
             # FLAG fail
             self.success = False
@@ -442,7 +442,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
 
         # PATHs formatting
         paths = {
-            'save': config.path.dir.data.temp, #type:ignore # todo change this later or take it way.
+            'save': config.path.dir.data.temp,  #type:ignore
         }
         return paths
 

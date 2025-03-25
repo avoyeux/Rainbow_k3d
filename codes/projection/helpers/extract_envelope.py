@@ -7,11 +7,10 @@ import os
 import scipy
 
 # IMPORTs sub
-import PIL.Image
+from PIL import Image
 import scipy.interpolate
 
 # IMPORTs alias
-import PIL as pil
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -35,10 +34,9 @@ class ExtractEnvelope:
             number_of_points: int,
             borders: ImageBorders,
             image_shape: tuple[int, int],
-            plot: bool,
             verbose: int | None = None,
         ) -> None:
-        """ # todo update docstring
+        """
         To get the curve equations of the two PNGs (created by Dr. Auchere) of the envelope
         encompassing the Rainbow protuberance. From there, it also creates the middle path of that
         envelope. 
@@ -52,19 +50,18 @@ class ExtractEnvelope:
             borders (ImageBorders): the radial distance and polar angle to borders consider for the
                 image.
             image_shape (tuple[int, int]): the shape (in pixels) of the envelope image.
-            plot (bool, optional): to decide to plot the paths and middle path. Defaults to False.
-            verbose (int, optional): decides on the details in the prints. Defaults to 0.
+            verbose (int | None, optional): decides on the details in the prints. When None, it
+                takes the value from the config file. Defaults to None.
         """
 
         # CONFIG attributes
-        self.verbose: int = config.run.verbose if verbose is None else verbose
+        self.verbose: int = config.run.verbose if verbose is None else verbose  #type:ignore
 
         # ATTRIBUTES setup
         self.polynomial_order = polynomial_order
         self.number_of_points = number_of_points
         self.borders = borders
         self.image_shape = image_shape
-        self.create_plot = plot        
         
         # PATHs setup
         self.paths = self.path_setup()
@@ -79,10 +76,9 @@ class ExtractEnvelope:
             number_of_points: int,
             borders: ImageBorders,
             image_shape: tuple[int, int] = (400, 1250),
-            plot: bool = False,
             verbose: int | None = None,
         ) -> EnvelopeInformation:
-        """ # todo update docstring
+        """
         This classmethod directly gives the envelope and middle path positions in polar
         coordinates.
 
@@ -95,9 +91,8 @@ class ExtractEnvelope:
                 image.
             image_shape (tuple[int, int]): the shape (in pixels) of the envelope image.
                 Defaults to (400, 1250).
-            plot (bool, optional): to decide to plot the results of the envelope fitting and middle
-                path computation. Defaults to False.
-            verbose (int, optional): decides on the details in the prints. Defaults to 0.
+            verbose (int | None, optional): decides on the details in the prints. When None, it
+                takes the value from the config file. Defaults to None.
 
         Returns:
             EnvelopeInformation: the envelope information in polar coordinates.
@@ -108,7 +103,6 @@ class ExtractEnvelope:
             number_of_points=number_of_points,
             borders=borders,
             image_shape=image_shape,
-            plot=plot,
             verbose=verbose,
         )
         envelope = instance.get_envelope_in_polar()
@@ -123,7 +117,7 @@ class ExtractEnvelope:
         """
 
         # PATHs save
-        paths = {'envelope': config.path.dir.data.result.envelope}
+        paths = {'envelope': config.path.dir.data.result.envelope}  #type:ignore
         return paths
     
     def processing(self) -> None:
@@ -132,20 +126,20 @@ class ExtractEnvelope:
         """
 
         # SETUP
-        masks: list[np.ndarray] = [None] * 2
+        masks: list[np.ndarray] = [None] * 2  #type:ignore
         lower_path = EnvelopeLimitInformation()
         upper_path = EnvelopeLimitInformation()
         limit_paths = [lower_path, upper_path]
         envelope_filenames = ['rainbow_lower_path_v2.png', 'rainbow_upper_path_v2.png']
 
         # MIDDLE path
-        x_t_curves: list[np.ndarray] = [None] * 2
-        y_t_curves: list[np.ndarray] = [None] * 2
+        x_t_curves: list[np.ndarray] = [None] * 2  #type:ignore
+        y_t_curves: list[np.ndarray] = [None] * 2  #type:ignore
         for i, path in enumerate(os.path.join(
             self.paths['envelope'], filename) for filename in envelope_filenames
             ):
             # IMAGE open
-            im = pil.Image.open(path)
+            im = Image.open(path)
             image = np.array(im)
 
             # DATA process
@@ -174,9 +168,6 @@ class ExtractEnvelope:
             lower=lower_path,
         )
 
-        # PLOT
-        if self.create_plot: self.plot(saving_name='extract_envelope_raw.png')
-
     def get_envelope_in_polar(self) -> EnvelopeInformation:
         """
         To get the change the envelope information from the image reference frame to polar
@@ -189,9 +180,6 @@ class ExtractEnvelope:
         image_axis_curves = []
         middle_path = EnvelopeMiddleInformation()
 
-        # MIDDLE path
-        x_t_curves: list[np.ndarray] = [None] * 2
-        y_t_curves: list[np.ndarray] = [None] * 2
         for axis in range(2):
 
             # DATA re-order
@@ -225,15 +213,6 @@ class ExtractEnvelope:
             upper=upper_path,
             lower=lower_path,
         )
-
-        # PLOT
-        if self.create_plot:
-            self.plot(
-                saving_name='extract_envelope_final.png',
-                extent=(
-                    min(self.borders.polar_angle), max(self.borders.polar_angle),
-                    min(self.borders.radial_distance), max(self.borders.radial_distance),
-                ))
         return envelope_information
 
     def polar_positions(
@@ -295,8 +274,8 @@ class ExtractEnvelope:
 
         # FITs + INTERPOLATION
         x_t_function = scipy.interpolate.interp1d(cumulative_distance, x, kind='cubic')
-        y_x_coefs = np.polyfit(x, y, self.polynomial_order)
-        return mask, x_t_function, y_x_coefs[::-1], (np.min(x), np.max(x))
+        y_x_coefs: np.ndarray = np.polyfit(x, y, self.polynomial_order)
+        return mask, x_t_function, y_x_coefs[::-1], (np.min(x), np.max(x))  #type:ignore
 
     def get_polynomial_array(self, coeffs: np.ndarray, x: np.ndarray) -> np.ndarray:
         """
@@ -312,63 +291,9 @@ class ExtractEnvelope:
             np.ndarray: the results of the polynomial equation for the x values.
         """
 
-        result = 0
+        result: np.ndarray = 0  #type:ignore
         for i in range(self.polynomial_order + 1): result += coeffs[i] * x ** i
         return result
-
-    def plot(
-            self,
-            saving_name: str,
-            extent: tuple[float, float, float, float] | None = None,
-        ) -> None:
-        """
-        To plot the results of the processing of the envelope and computation of the middle path.
-
-        Args:
-            saving_name (str): the name of the png file to be saved.
-            extent (tuple[float, float, float, float] | None, optional): the extent to consider
-                when doing the plt.imshow(). The extent values should be in polar coordinates
-                (r, theta) when specified. Defaults to None.
-        """
-
-        # FIGURE setup
-        plt.figure(figsize=(12, 5))
-        plt.title('Envelope mask (yellow) vs 6th order fit.')
-
-        # CURVE middle
-        plt.plot(
-            self.middle_t_curve[0],
-            self.middle_t_curve[1],
-            linestyle='--',
-            color='black',
-            label='middle path',
-        )
-
-        # ENVELOPE
-        for path in self.envelope_y_x_curves:
-            plt.plot(
-                path[0],
-                path[1],
-                linestyle='--',
-                linewidth=0.7,
-                color='red',
-                label='envelope',
-            )
-
-        # PNG
-        plt.imshow(
-            self.masks,
-            alpha=0.5,
-            origin='lower',
-            interpolation='none',
-            aspect='auto',
-            label='mask',
-            extent=extent,
-        )
-        plt.legend()
-        plt.savefig(os.path.join(self.paths['results'], saving_name), dpi=1000)
-        plt.close()
-        if self.verbose > 0: print(f"File {saving_name} saved.")
 
 
 class CreateFitEnvelope:
@@ -418,7 +343,7 @@ class CreateFitEnvelope:
         x_direction = x[2:] - x[:-2]
         y_direction = y[2:] - y[:-2]
 
-        # VECTORs envelope #TODO: need to change this to use vector operations
+        # VECTORs envelope
         solutions = np.stack([
             self.envelope_vectors(np.array([x, y]))
             for (x, y) in zip(x_direction, y_direction)
@@ -521,13 +446,3 @@ class CreateFitEnvelope:
         # VECTOR
         solution = 1 / N_b * np.array([b_0, b_1])
         return solution
-
-
-
-if __name__=='__main__':
-    instance = Envelope(
-        polynomial_order=6,
-        number_of_points=int(1e5),
-        plot=True,
-    )
-    instance.get_curves_results()

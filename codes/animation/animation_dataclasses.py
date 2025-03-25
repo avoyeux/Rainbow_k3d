@@ -134,9 +134,6 @@ class CubeInfo(ParentInfo):
             values = self.dataset_values[...]
         else:
             values = self.dataset_values[cube_filter.ravel()]
-
-        # cube_shape = (180, 227, 236)
-        # cube_shape = (400, 400, 400)
         
         # 3D array
         cube = np.zeros(self.shape[1:], dtype='uint8')
@@ -258,34 +255,6 @@ class CubesData:
     def __enter__(self) -> Self: return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None: self.hdf5File.close()
-
-    def add_shape(self) -> None:  # todo change it so that each cube has its own max_shape
-        """
-        To add the max shape of all the different data cubes to the cubes themselves.
-        This was only done as there seems to be an error in the k3d module, forcing me to keep the
-        same cube shapes for all the data.
-        """
-
-        shapes = []
-        for attribute in self.__slots__:
-
-            if attribute in ['hdf5File', 'sdo_pos', 'stereo_pos']: continue
-            attr_value = getattr(self, attribute)
-            if attr_value is None: continue
-
-            if attribute == 'fake_cube':
-                shapes.append((1,) +  attr_value.shape)  # as test cube is 3D
-            else:
-                shapes.append(attr_value.shape)
-        shapes = np.stack(shapes, axis=0)
-        max_shape = np.max(shapes, axis=0)[1:]
-
-        for attribute in self.__slots__:
-            if attribute in ['hdf5File', 'sdo_pos', 'stereo_pos']: continue
-            attr_value = getattr(self, attribute)
-            if attr_value is None: continue
-
-            attr_value.max_shape = max_shape
 
     def close(self):
         """

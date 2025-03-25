@@ -206,16 +206,15 @@ class Polynomial:
             value: ValueProxy,
             output_queue: QueueProxy,
         ) -> None:
-        """  # todo change docstring
+        """
         To multiprocess the no duplicates uint16 voxel positions treatment.
 
         Args:
             data (dict[str, Any]): the information to get the data from a
                 multiprocessing.shared_memory.SharedMemory() object.
-            queue (mp.queues.Queue): the output queue.
-            index (tuple[int, int]): the indexes to slice the data properly.
-            position (int): the position of the process to concatenate the result in the right
-                order.
+            lock (LockProxy): the lock to properly update the shared index value.
+            value (ValueProxy): the shared index value.
+            output_queue (QueueProxy): the queue to save the results.
         """
         
         # DATA open
@@ -291,7 +290,7 @@ class Polynomial:
         }
 
         # RUN processes
-        processes: list[mp.Process] = [None] * process_nb
+        processes: list[mp.Process] = [None] * process_nb  #type:ignore
         for i in range(process_nb):
             p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
             p.start()
@@ -320,7 +319,7 @@ class Polynomial:
             output_queue: QueueProxy,
             kwargs_sub: dict[str, Any],
         ) -> None:
-        """ # todo change docstring
+        """
         Static method to multiprocess the curve fitting creation.
 
         Args:
@@ -328,7 +327,8 @@ class Polynomial:
                 multiprocessing.shared_memory.SharedMemory() object.
             sigma (dict[str, Any]): the weights (here sigma) information to access the
                 multiprocessing.shared_memory.SharedMemory() object.
-            input_queue (mp.queues.Queue): the input_queue for each process.
+            lock (LockProxy): the lock to properly update the shared index value.
+            value (ValueProxy): the shared index value.
             output_queue (mp.queues.Queue): the output_queue to save the results.
             kwargs_sub (dict[str, Any]): the kwargs for the polynomial_fit function.
         """
@@ -560,7 +560,7 @@ class Polynomial:
 
     def generate_nth_order_polynomial(
             self,
-        ) -> Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]:
+        ) -> Callable[[np.ndarray, int | float], np.ndarray]:  # ! the type annotation is wrong
         """
         To generate a polynomial function given a polynomial order.
 
@@ -582,7 +582,7 @@ class Polynomial:
             """
 
             # Initialisation
-            result: np.ndarray = 0
+            result: np.ndarray = 0  #type:ignore
 
             # Calculating the polynomial
             for i in range(self.poly_order + 1): result += coeffs[i] * t**i
@@ -606,20 +606,23 @@ class GetPolynomialFit:
             data_type: str = 'No duplicates',
             with_fake_data: bool = False,
         ) -> None:
-        """ # todo update docstring
+        """
         Initialise the class so that the pointer to the polynomial parameters is created (given
         the specified data type, integration time and polynomial order).
         After having finished using the class, the .close() method needs to be used to close the 
         HDF5 pointer.
 
         Args:
+            filepath (str): the path to the HDF5 file.
             polynomial_order (int): the polynomial order to consider.
             integration_time (int): the integration time to consider for the choosing of the 
                 polynomial fit.
-            number_of_points (int | float): the number of points to use when getting the polynomial
+            number_of_points (int): the number of points to use when getting the polynomial
                 fit positions.
             data_type (str, optional): the data type to consider when looking for the corresponding
                 polynomial fit. Defaults to 'No duplicates'.
+            with_fake_data (bool, optional): if the HDF5 also contains the fake data. Defaults to
+                False.
         """
 
         # ATTRIBUTES

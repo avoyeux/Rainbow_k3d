@@ -922,7 +922,6 @@ class DataSaver(BaseHDF5Protuberance):
             index, data, date, dates, integration_time = arguments
 
             date_min = date - integration_time / 2
-            #TODO: need to change this so that I can do the same for multiple integration times
             date_max = date + integration_time / 2
 
             # RESULTs save

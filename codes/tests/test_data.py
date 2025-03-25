@@ -52,24 +52,28 @@ class CompareCubes:
             verbose: int | None = None,
             flush: bool | None = None,
         ) -> None:
-        """ # todo update docstring
+        """
         To initialize the CompareCubes class.
 
         Args:
-            filepath (str): the filepath of the HDF5 to be tested.
-            processes (int, optional): the number of processes to be used. Defaults to 4.
-            verbose (int, optional): the verbosity level. Defaults to 1.
-            flush (bool, optional): to flush the print. Defaults to False.
+            filepath (str | None, optional): the filepath of the HDF5 to be tested. When None, it
+                uses the config file value. Defaults to None.
+            processes (int | None, optional): the number of processes to be used. When None, it
+                uses the config file value. Defaults to None.
+            verbose (int | None, optional): the verbosity level. When None, it uses the config file
+                value. Defaults to None.
+            flush (bool | None, optional): to flush the print. When None, it uses the config file
+                value. Defaults to None.
         """
 
         # CONFIGURATION values
-        self.filepath = config.path.data.real if filepath is None else filepath
+        self.filepath = config.path.data.real if filepath is None else filepath  #type:ignore
         if processes is None:
-            self.processes: int = config.run.debug.processes
+            self.processes: int = config.run.debug.processes  #type:ignore
         else:
             self.processes = processes if processes > 1 else 1
-        self.verbose = config.run.debug.verbose if verbose is None else verbose
-        self.flush = config.run.debug.flush if flush is None else flush
+        self.verbose = config.run.debug.verbose if verbose is None else verbose  #type:ignore
+        self.flush = config.run.debug.flush if flush is None else flush  #type:ignore
 
     @Decorators.running_time
     def run_checks(self) -> list[bool]:
@@ -121,7 +125,7 @@ class CompareCubes:
         output_queue = manager.Queue()
 
         # RUN
-        processes: [mp.Process] = [None] * process_nb
+        processes: [mp.Process] = [None] * process_nb  #type:ignore
         for i in range(process_nb):
             p = mp.Process(
                 target=self.check_intersection,
@@ -132,7 +136,7 @@ class CompareCubes:
         for p in processes: p.join()
 
         # RESULTs
-        results: list[bool] = [None] * (max_index + 1)
+        results: list[bool] = [None] * (max_index + 1)  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
             results[identifier] = result
@@ -152,7 +156,7 @@ class CompareCubes:
 
         try:
             # DATA get
-            data_coords: h5py.Dataset = HDF5File[group_path + '/coords']
+            data_coords: h5py.Dataset = HDF5File[group_path + '/coords']  #type:ignore
         except KeyError:
             print(f"Group {group_path} not found in the HDF5 file.")
 

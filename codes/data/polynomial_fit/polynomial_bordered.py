@@ -31,12 +31,13 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
             data_type: str = 'No duplicates',
             with_fake_data: bool = False,
         ) -> None:
-        """ # todo update docstring
+        """
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
 
         Args:
+            filepath (str): the path to the polynomial fit data.
             polynomial_order (int): the order of the polynomial fit to consider.
             integration_time (int): the integration time to consider when choosing the polynomial
                 fit parameters.
@@ -45,6 +46,8 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
             dx (float): the voxel resolution in km.
             data_type (str, optional): the data type to consider when looking for the corresponding
                 polynomial fit. Defaults to 'No duplicates'.
+            with_fake_data (bool, optional): when the HDF5 file also has fake data inside it.
+                Defaults to False.
         """
 
         # PARENT

@@ -288,7 +288,7 @@ class Setup:
         return fov_degrees # ? in my old code I divide it by 3, no clue why
     
     def get_default_data(self, HDF5File: h5py.File, init_path: str) -> CubesConstants:
-        """ # todo update docstring
+        """
         Gives the global information for the data.
 
         Args:
