@@ -197,7 +197,11 @@ class WarpSdoImage:
         r_pixels, theta_pixels = self.polar_to_index(polar_r, polar_theta)
         return r_pixels, theta_pixels
 
-    def polar_to_index(self, polar_r: np.ndarray, polar_theta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def polar_to_index(
+            self,
+            polar_r: np.ndarray,
+            polar_theta: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
         """
         To convert the polar coordinates to the pixel indices.
 

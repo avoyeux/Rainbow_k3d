@@ -105,6 +105,8 @@ class ProcessedEnvelope(BaseFitProcessing):
     """
 
     # PARAMETERs
+    feet_sigma: float
+    feet_threshold: float
     polynomial_order: int
 
     # PLACEHOLDERs
@@ -153,8 +155,15 @@ class ProcessedEnvelope(BaseFitProcessing):
         To fit a polynomial on the data using scipy's curve_fit.
         """
 
-        # PARAMs initialisation
+        # SETUP
         params_init = np.random.rand(self.polynomial_order + 1)
+        sigma = np.ones(self.cumulative_distance.size, dtype='float64')
+        feet_mask = (
+            self.cumulative_distance < self.feet_threshold
+            ) | (
+            self.cumulative_distance > 1 - self.feet_threshold
+        )
+        sigma[feet_mask] = self.feet_sigma
 
         try:
             # FITTING scipy
@@ -163,12 +172,14 @@ class ProcessedEnvelope(BaseFitProcessing):
                 xdata=self.cumulative_distance,
                 ydata=self.polar_r, 
                 p0=params_init,
+                sigma=sigma,
             )
             params_y, _ = scipy.optimize.curve_fit(
                 f=self.polynomial_callable,
                 xdata=self.cumulative_distance,
                 ydata=self.polar_theta,
                 p0=params_init,
+                sigma=sigma,
             )
             params = np.stack([params_x, params_y], axis=0).astype('float64')
 
@@ -256,6 +267,8 @@ class Fitting2D:
             polar_coords: np.ndarray,
             polynomial_order: int,
             nb_of_points: int,
+            feet_sigma: float,
+            feet_threshold: float,
         ) -> None:
         """
         To initialise the class.
@@ -264,12 +277,18 @@ class Fitting2D:
         Args:
             polar_coords (np.ndarray): the polar coordinates of the envelope.
             polynomial_order (int): the order of the polynomial to fit.
+            feet_sigma (float): the sigma to use for the feet of the envelope.
+            feet_threshold (float): the threshold representing how much of the data to consider as
+                the feet. E.G. 0.1 means that the first 10% and last 10% of the data are considered
+                as the feet.
             nb_of_points (int): the number of points to have in the final fit.
         """
         
         # ATTRIBUTEs from args
+        self.feet_sigma = feet_sigma
         self.polar_coords = polar_coords
         self.nb_of_points = nb_of_points
+        self.feet_threshold = feet_threshold
         self.polynomial_order = polynomial_order
 
         # NEW attributes
@@ -309,6 +328,8 @@ class Fitting2D:
                 polar_theta=self.polar_coords[1],
                 nb_of_points=self.nb_of_points,
                 polynomial_order=self.polynomial_order,
+                feet_sigma=self.feet_sigma,
+                feet_threshold=self.feet_threshold,
             )
             coords = np.stack([processed_envelope.polar_r, processed_envelope.polar_theta], axis=0)
 
@@ -342,6 +363,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
+            feet_sigma: float,
+            feet_threshold: float,
             data_type: str = 'No duplicates',
             with_fake_data: bool = False,
             create_envelope: bool = True,
@@ -363,6 +386,10 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             integration_time (int): the integration time to consider when choosing the polynomial
                 fit parameters (in hours).
             number_of_points (int): the number of points to consider in the final polynomial fit.
+            feet_sigma (float): the sigma to use for the feet of the envelope.
+            feet_threshold (float): the threshold representing how much of the data to consider as
+                the feet. E.G. 0.1 means that the first 10% and last 10% of the data are considered
+                as the feet.
             data_type (str, optional): the data type to consider when looking for the corresponding
                 polynomial fit. Defaults to 'No duplicates'.
             with_fake_data (bool, optional): when the HDF5 file also contains fake data (as the
@@ -399,6 +426,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         self.index = index
         self.colour = colour
         self.sdo_pos = sdo_pos
+        self.feet_sigma = feet_sigma
+        self.feet_threshold = feet_threshold
         self.nb_of_points = number_of_points
         self.polynomial_order = polynomial_order
         self.create_envelope = create_envelope
@@ -459,6 +488,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                     polar_coords=envelope,
                     polynomial_order=6,
                     nb_of_points=self.nb_of_points,
+                    feet_sigma=self.feet_sigma,
+                    feet_threshold=self.feet_threshold,
                 )
                 envelope = fitting_method.fit_data()
                 envelopes.append(envelope)

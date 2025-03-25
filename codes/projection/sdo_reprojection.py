@@ -31,6 +31,8 @@ QueueProxy = Any
 
 # todo make all plot options not dependent on each other
 # todo think about how to improve the fit envelope as right now the feet can be really wrong
+# todo do the interpolation for the integration of all the data at once
+# * the last todo is to be able to recreate the final image for Dr. Auchere's paper
 
 
 
@@ -502,7 +504,7 @@ class OrthographicalProjection(BaseReprojection):
 
                             # FIT+ENVELOPE processing
                             polynomial_instance = ReprojectionProcessedPolynomial(
-                                colour=self.plot_kwargs['colours'][i],  #type:ignore
+                                colour=self.plot_kwargs['colours'][i],
                                 filepath=self.filepath,
                                 dx=self.constants.dx,
                                 index=process,
@@ -510,6 +512,8 @@ class OrthographicalProjection(BaseReprojection):
                                 polynomial_order=poly_order,
                                 integration_time=integration_time,
                                 number_of_points=300,  # ? should I add it as an argument ?
+                                feet_sigma=0.1,
+                                feet_threshold=0.1,
                                 with_fake_data=self.with_fake_data,
                                 create_envelope=self.plot_choices['fit envelope'],
                             )

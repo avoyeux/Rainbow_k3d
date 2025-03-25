@@ -506,7 +506,7 @@ class Polynomial:
         corresponding sigma is multiplied by 4) and the fitting is tried again.
 
         Args:
-            polynomial (typing.Callable[[np.ndarray, tuple[int  |  float, ...]], np.ndarray]): the
+            polynomial (typing.Callable[[np.ndarray, tuple[int | float, ...]], np.ndarray]): the
                 function that outputs the n_th order polynomial function results.
             t (np.ndarray): the cumulative distance.
             t_mask (np.ndarray): the mask representing the south leg position.
