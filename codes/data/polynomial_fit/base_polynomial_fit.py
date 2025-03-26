@@ -13,10 +13,11 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs sub
-from typing import Any, Callable
+from typing import Any, Callable, cast
+from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import Decorators, MultiProcessing
+from common import config, Decorators, MultiProcessing
 from codes.projection.helpers.projection_dataclasses import HDF5GroupPolynomialInformation
 
 # PLACEHOLDERs type annotation
@@ -26,12 +27,43 @@ QueueProxy = Any
 
 
 
+@dataclass(slots=True, repr=False, eq=False)  # ! it is a patch, but might keep it
+class AxesOrder:
+    """
+    To get the axes order swap depending on the shape of the coords.
+    Done like this as I think I was fetching the axes order in another code before, but seems like
+    it is not true any more. Keeping it like this for now to see if I find the reason why I did it
+    it like this.
+
+    Raises:
+        ValueError: if the input shape is not of the usual shape.
+    """
+
+    # DATA shape
+    coords_shape: tuple[int, int]
+
+    # PLACEHOLDER
+    axes_order: list[int] = field(init=False)
+
+    def __post_init__(self) -> None:
+        """
+        To get the axes order depending on the shape of the coords.
+
+        Raises:
+            ValueError: if the input shape is not the usual shape.
+        """
+        if self.coords_shape[0] == 4:
+            self.axes_order = [0, 3, 2, 1]
+        elif self.coords_shape[0] == 3:
+            self.axes_order = [2, 1, 0]
+        else:
+            raise ValueError(f"\033[1;31mThe shape {self.coords_shape} is not recognised.\033[0m")
+
+
 class Polynomial:
     """
     To get the fit curve position voxels and the corresponding n-th order polynomial parameters.
     """
-
-    axes_order = [0, 3, 2, 1]
 
     def __init__(
             self, 
@@ -43,6 +75,8 @@ class Polynomial:
             processes: int, 
             precision_nb: int = int(1e6), 
             full: bool = False,
+            verbose: int | None = None,
+            flush: bool | None = None,
         ) -> None:
         """
         Initialisation of the Polynomial class. Using the get_information() instance method, you
@@ -62,9 +96,20 @@ class Polynomial:
             precision_nb (int, optional): the number of points used in the fitting.
                 Defaults to int(1e6).
             full (bool, optional): choosing to save the cartesian positions of the polynomial fit.
+            verbose (int | None, optional): the verbosity level for the prints. When None, it uses
+                the config file value. Defaults to None.
+            flush (bool | None, optional): if the print statements should be flushed. When None, it
+                uses the config file value. Defaults to None.
         """
 
-        # ARGUMENTs 
+        # CONFIG attributes
+        self.verbose = cast(int, config.run.verbose if verbose is None else verbose)  #type:ignore
+        self.flush = cast(bool, config.run.flush if flush is None else flush)  #type:ignore
+
+        # AXES ORDER init
+        self.axes_order = AxesOrder(data.coords.shape).axes_order
+
+        # ARGUMENTs
         self.data = self.reorder_data(data)
         self.poly_order = order
         self.feet_sigma = feet_sigma
@@ -76,7 +121,7 @@ class Polynomial:
 
         # ATTRIBUTEs new
         self.params_init = np.random.rand(order + 1)  # initial (random) polynomial coefficients
-    
+
     def reorder_data(self, data: sparse.COO) -> sparse.COO:
         """
         To reorder a sparse.COO array so that the axes orders change. This is done to change which
@@ -89,8 +134,8 @@ class Polynomial:
             sparse.COO: the reordered sparse.COO array.
         """
 
-        new_coords = data.coords[Polynomial.axes_order]
-        new_shape = [data.shape[i] for i in Polynomial.axes_order]
+        new_coords = data.coords[self.axes_order]
+        new_shape = [data.shape[i] for i in self.axes_order]
         return sparse.COO(coords=new_coords, data=data.data, shape=new_shape)
 
     def get_information(self) -> dict[str, str | dict[str, str | np.ndarray]]:
@@ -108,8 +153,8 @@ class Polynomial:
         polynomials, parameters = self.get_data()
 
         # AXEs swap  # * will need to change this if I cancel the ax swapping in cls.__init__
-        parameters = parameters[Polynomial.axes_order]
-        polynomials = polynomials[Polynomial.axes_order]
+        parameters = parameters[self.axes_order]
+        polynomials = polynomials[self.axes_order]
 
         # NO DUPLICATEs
         treated_polynomials = self.no_duplicates_data(polynomials)
@@ -180,7 +225,7 @@ class Polynomial:
         shm, data = MultiProcessing.create_shared_memory(data)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb
+        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
         for i in range(processes_nb):
             p = mp.Process(
                 target=self.no_duplicates_data_sub,
@@ -254,7 +299,10 @@ class Polynomial:
         """
 
         # CONSTANTs
-        self.time_len = self.data.coords[0, :].max() + 1
+        if self.data.coords.shape[0] == 4:
+            self.time_len: int = self.data.coords[0, :].max() + 1
+        else:
+            self.time_len = 1
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
@@ -287,6 +335,8 @@ class Polynomial:
             'feet_sigma': self.feet_sigma,
             'south_sigma': self.south_sigma,
             'leg_threshold': self.leg_threshold,
+            'verbose': self.verbose,
+            'flush': self.flush,
         }
 
         # RUN processes
@@ -300,8 +350,8 @@ class Polynomial:
         shm_sigma.unlink()
 
         # RESULTs formatting
-        parameters = [None] * self.time_len
-        polynomials = [None] * self.time_len
+        parameters: list[np.ndarray] = [None] * self.time_len  #type:ignore
+        polynomials: list[np.ndarray] = [None] * self.time_len  #type:ignore
         while not output_queue.empty():
             identifier, interp, params = output_queue.get()
             polynomials[identifier] = interp
@@ -344,19 +394,25 @@ class Polynomial:
                 if index < 0: break
                 value.value -= 1
 
-            # DATA filtering
-            time_filter = coords[0, :] == index
-            coords_section = coords[1:, time_filter]
-            sigma_section = sigma[time_filter]
+            if coords.shape[0] == 4:
+                # DATA filtering
+                time_filter = coords[0, :] == index
+                coords_section = coords[1:, time_filter]
+                sigma_section = sigma[time_filter]
+            else:
+                coords_section: np.ndarray = coords.copy()
+                sigma_section: np.ndarray = sigma.copy()
 
             # CHECK if enough points
             nb_parameters = len(kwargs_sub['params_init'])
             if nb_parameters >= sigma_section.shape[0]:
-                print(
-                    f"For cube index {index}, not enough points for polynomial (shape "
-                    f"{coords_section.shape})",
-                    flush=True,
-                )
+
+                if kwargs_sub['verbose'] > 0:
+                    print(
+                        f"For cube index {index}, not enough points for polynomial (shape "
+                        f"{coords_section.shape})",
+                        flush=kwargs_sub['flush'],
+                    )
                 result = np.empty((3, 0)) 
                 params = np.empty((3, 0))
             else:
@@ -421,6 +477,8 @@ class Polynomial:
             feet_sigma: int | float,
             south_sigma: int | float,
             leg_threshold: float,
+            verbose: int,
+            flush: bool,
         ) -> tuple[np.ndarray, np.ndarray]:
         """
         To get the polynomial fit of a data cube.
@@ -442,6 +500,8 @@ class Polynomial:
             south_sigma (int | float): the sigma uncertainty for the leg values.
             leg_threshold (float): the threshold value for defining which points correspond to the
                 legs.
+            verbose (int): the verbosity level for the prints.
+            flush (bool): if the print statements should be flushed.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: the polynomial position voxels and the corresponding
@@ -464,6 +524,8 @@ class Polynomial:
             feet_mask=feet_mask,
             feet_sigma=feet_sigma,
             south_sigma=south_sigma,
+            verbose=verbose,
+            flush=flush,
         )
 
         # CURVE create
@@ -476,9 +538,9 @@ class Polynomial:
 
         # BORDERs cut
         conditions_upper = (  # todo change this when the other changes are finished
-            (data[0, :] >= shape[1] - 1) |
-            (data[1, :] >= shape[2] - 1) |
-            (data[2, :] >= shape[3] - 1)
+            (data[0, :] >= shape[-3] - 1) |
+            (data[1, :] >= shape[-2] - 1) |
+            (data[2, :] >= shape[-1] - 1)
         )
         # * the top code line is wrong as I am taking away 1 pixel but for now it is just to
         # * make sure no problem arouses from floats. will need to see what to do later
@@ -499,6 +561,8 @@ class Polynomial:
             feet_mask: np.ndarray,
             feet_sigma: int | float,
             south_sigma: int | float,
+            verbose: int,
+            flush: bool,
         ) -> np.ndarray:
         """
         To try a polynomial curve fitting using scipy.optimize.curve_fit(). If scipy can't converge
@@ -518,6 +582,8 @@ class Polynomial:
             feet_sigma (int | float): the value of sigma given for the feet. This value is
                 quadrupled every time a try fails.
             south_sigma (int | float): the value of sigma given for the south leg.
+            verbose (int): the verbosity level for the prints.
+            flush (bool): if the print statements should be flushed.
 
         Returns:
             np.ndarray: the coefficients (params_x, params_y, params_z) of the polynomial.
@@ -548,11 +614,13 @@ class Polynomial:
         except Exception:
             # FITTING failed
             feet_sigma *= 4
-            print(
-                "\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, "
-                f"i.e. value is {feet_sigma}.\033[0m",
-                flush=True,
-            )
+
+            if verbose > 1:
+                print(
+                    "\033[1;31mThe curve_fit didn't work. Multiplying the value of the feet by 4, "
+                    f"i.e. value is {feet_sigma}.\033[0m",
+                    flush=flush,
+                )
             params = Polynomial.scipy_curve_fit(feet_sigma=feet_sigma, **kwargs)
 
         finally:
