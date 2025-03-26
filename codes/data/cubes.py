@@ -33,6 +33,7 @@ from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 QueueProxy = Any
 
 # todo change the code so each cube processing is done in a separate process
+# todo add the full integration of the data
 
 
 
@@ -811,6 +812,7 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         for option in data_options:
+
             # GROUP create
             inside_group = group.create_group(option)
             inside_group.attrs['description'] = (
@@ -822,6 +824,27 @@ class DataSaver(BaseHDF5Protuberance):
                 )
             )
 
+            # INTEGRATION full
+            group_name = 'Full integration'
+            data, new_borders = self.full_integration(
+                H5PYFile=H5PYFile,
+                datapath=f'Filtered/{option}',
+                borders=borders,
+            )
+
+            # ADD data
+            inside_group = self.add_cube(
+                group=inside_group,
+                data=data,
+                data_name=group_name,
+                values=None if 'with feet' in option else 1,
+                borders=new_borders,
+            )
+            inside_group[group_name].attrs['description'] = (
+                f"This group contains the {option.lower()} data fully integrated."
+            )
+            
+            # INTEGRATION time dependent
             for integration_time in self.integration_time:
                 # INTEGRATION setup
                 time_hours = round(integration_time / 3600, 1)
@@ -847,6 +870,32 @@ class DataSaver(BaseHDF5Protuberance):
                     f"This group contains the {option.lower()} data integrated on {time_hours} "
                     "hours intervals."
                 )              
+
+    def full_integration(
+            self,
+            H5PYFile: h5py.File,
+            datapath: str,
+            borders: dict[str, dict[str, str | float]],
+        ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
+        """
+        To integrate all the data from a given data group.
+
+        Args:
+            H5PYFile (h5py.File): the HDF5 file.
+            datapath (str): the path to the data group to be integrated.
+            borders (dict[str, dict[str, str | float]]): the border information.
+
+        Returns:
+            tuple[sparse.COO, dict[str, dict[str, str | float]]]: the integrated data and the new
+                corresponding data borders.
+        """
+    
+        # DATA
+        data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))
+
+        # INTEGRATION full
+        integration = sparse.COO.any(data, axis=0)
+        return integration, borders  # ? is the border choice the right one ?
 
     @Decorators.running_time
     def time_integration(
@@ -1004,7 +1053,7 @@ class DataSaver(BaseHDF5Protuberance):
         sub_options = [
             f'/Time integration of {round(time / 3600, 1)} hours'
             for time in self.integration_time
-        ]
+        ] + ['/Full integration']
         
         # INTEGRATED data
         main_path_2 = 'Time integrated/'
@@ -1173,7 +1222,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         Args:
             group (h5py.Group): the group in which an polynomial group needs to be added.
-            data (sparse.COO): the data to interpolate.
+            data (sparse.COO): the data to fit.
 
         Returns:
             h5py.Group: the updated group.
