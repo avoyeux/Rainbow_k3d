@@ -154,7 +154,10 @@ class Setup:
             if key in possibilities: 
                 choices_kwargs[key] = True
             else: 
-                raise ValueError(f"\033[1;choices argument '{key}' not recognised.\033[0m") 
+                raise ValueError(
+                    f"\033[1; Choices argument '{key}' not recognised. "
+                    f"Valid choices are ['{'\', \''.join(possibilities)}'].\033[0m"
+                ) 
         return choices_kwargs
 
     @Decorators.running_time
