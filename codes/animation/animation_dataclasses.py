@@ -196,7 +196,7 @@ class FakeCubeInfo(ParentInfo):
 
 
 @dataclass(slots=True, repr=False, eq=False)
-class TestCubeInfo(ParentInfo):
+class UniqueCubeInfo(ParentInfo):
     """
     Stores the data and information related to the 'test' data cube.
     """
@@ -242,6 +242,8 @@ class CubesData:
     no_duplicate: CubeInfo | None = field(default=None, init=False)
     integration_all_data: CubeInfo | None = field(default=None, init=False)
     integration_no_duplicate: CubeInfo | None = field(default=None, init=False)
+    full_integration_all_data: UniqueCubeInfo | None = field(default=None, init=False)
+    full_integration_no_duplicate: UniqueCubeInfo | None = field(default=None, init=False)
     los_sdo: CubeInfo | None = field(default=None, init=False)
     los_stereo: CubeInfo | None = field(default=None, init=False)
 
@@ -250,7 +252,7 @@ class CubesData:
     fake_cube: FakeCubeInfo | None = field(default=None, init=False)
 
     # TEST data
-    test_cube: TestCubeInfo | None = field(default=None, init=False)
+    test_cube: UniqueCubeInfo | None = field(default=None, init=False)
 
     def __enter__(self) -> Self: return self
 

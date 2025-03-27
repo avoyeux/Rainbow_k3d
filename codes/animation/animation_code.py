@@ -28,6 +28,7 @@ from common import config, Decorators, Plot
 VoxelType = Any
 JsLinkType = Any
 
+# todo add the full integration data as a choice
 
 
 class Setup:
@@ -135,9 +136,13 @@ class Setup:
 
         # CHOICES
         possibilities = [ 
-            'sun', 'all data', 'no duplicate', 'all data integration', 'no duplicate integration',
-            'line of sight sdo', 'line of sight stereo', 'pov sdo', 'pov stereo', 'fit',
-            'with feet', 'test points', 'test cube', 'fake data',
+            'sun', 
+            'all data', 'all data integration', 'all data full integration',
+            'no duplicate', 'no duplicate integration', 'no duplicate full integration',
+            'line of sight sdo', 'line of sight stereo',
+            'pov sdo', 'pov stereo',
+            'fit', 'with feet',
+            'test points', 'test cube', 'fake data',
         ]
         choices_kwargs = {
             key: False 
@@ -199,6 +204,19 @@ class Setup:
                 colour='red',
                 opacity=0.4,
             )
+        
+        if self.choices['all data full integration']:
+            path = (
+                init_path + 'Time integrated/All data' + self.feet +
+                '/Full integration'
+            )
+            cubes.full_integration_all_data = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='black',
+                opacity=0.1,
+                cube_type='unique',
+            )
 
         if self.choices['no duplicate integration']:
             path = (
@@ -210,6 +228,19 @@ class Setup:
                 group_path=path,
                 colour='red',
                 opacity=0.5,
+            )
+
+        if self.choices['no duplicate full integration']:
+            path = (
+                init_path + 'Time integrated/No duplicates' + self.feet +
+                '/Full integration'
+            )
+            cubes.full_integration_no_duplicate = self.get_cube_info(
+                HDF5File=HDF5File,
+                group_path=path,
+                colour='grey',
+                opacity=0.1,
+                cube_type='unique',
             )
 
         if self.choices['line of sight sdo']:
@@ -268,7 +299,7 @@ class Setup:
                 colour='yellow',
                 opacity=0.7,
                 interpolate=False,
-                cube_type='test',
+                cube_type='unique',
             )
         return cubes
 
@@ -345,8 +376,8 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             *,
-            cube_type: Literal['test'],
-        ) -> TestCubeInfo: ...
+            cube_type: Literal['unique'],
+        ) -> UniqueCubeInfo: ...
 
     @overload # fallback
     def get_cube_info(
@@ -357,7 +388,7 @@ class Setup:
             interpolate: bool = ...,
             colour: str = ...,
             cube_type: str = ...,
-        ) -> CubeInfo | FakeCubeInfo | TestCubeInfo: ...
+        ) -> CubeInfo | FakeCubeInfo | UniqueCubeInfo: ...
 
     def get_cube_info(
             self,
@@ -367,7 +398,7 @@ class Setup:
             interpolate: bool = True,
             colour: str = 'blue',
             cube_type: str = 'real',
-        ) -> CubeInfo | FakeCubeInfo | TestCubeInfo:
+        ) -> CubeInfo | FakeCubeInfo | UniqueCubeInfo:
         """
         Gives the protuberance and polynomial fit information for a chosen cube 'type'.
 
@@ -383,7 +414,7 @@ class Setup:
             cube_type (str, optional): the type of cube to visualise. Defaults to 'real'.
 
         Returns:
-            CubeInfo | FakeCubeInfo | TestCubeInfo: the protuberance and polynomial fit
+            CubeInfo | FakeCubeInfo | UniqueCubeInfo: the protuberance and polynomial fit
                 information.
         """
 
@@ -403,18 +434,18 @@ class Setup:
             for i, order in enumerate(self.polynomial_order):
                 # DATA get
                 dataset_path = group_path + f'/{order}th order polynomial/coords'
-                interp_coords: h5py.Dataset = HDF5File[dataset_path]  #type:ignore
+                interpolation_coords: h5py.Dataset = HDF5File[dataset_path]  #type:ignore
 
                 # DATA formatting
                 polynomials[i] = PolynomialData(
-                    dataset=interp_coords,
+                    dataset=interpolation_coords,
                     order=order,
                     name=f'{order}th ' + group_path.split('/')[1],
                     color_hex=self.plot_polynomial_colours[i],
                 )
                 print(f'FETCHED -- {polynomials[i].name}.')
         else:
-            polynomials = None
+            polynomials = None  #type:ignore
 
         # FORMATTING data
         if cube_type == 'real':
@@ -443,7 +474,7 @@ class Setup:
                 time_indexes_fake=HDF5File['Fake/Time indexes'][...],  #type:ignore
             )
         else:
-            cube_info = TestCubeInfo(
+            cube_info = UniqueCubeInfo(
                 group_path=group_path,
                 opacity=opacity,
                 colour=colour,
@@ -545,6 +576,8 @@ class K3dAnimation(Setup):
         self.plot: k3d.plot.Plot  # plot object
         self.plot_alldata: list[VoxelType] # voxels plot of the all data 
         self.plot_dupli_new: list[VoxelType]  # same for the second method
+        self.plot_full_alldata: list[VoxelType]  # voxels plot for the full integration
+        self.plot_full_no_duplicate: list[VoxelType]  # same for the no duplicate data
         self.plot_interv_new: list[VoxelType]  # same for the second method
         self.plot_interv_dupli_new: list[VoxelType]  # same for the second method
         self.plot_los_sdo: list[VoxelType]
@@ -647,6 +680,24 @@ class K3dAnimation(Setup):
                 **kwargs,
             )
             for plot in self.plot_interv_dupli_new: self.plot += plot  
+        
+        # FULL INTEGRATION add
+        if self.cubes.full_integration_all_data is not None:
+            # VOXELs create
+            self.plot_full_alldata = self.create_voxels(
+                self.cubes.full_integration_all_data,
+                **kwargs,
+            )
+            for plot in self.plot_full_alldata: self.plot += plot
+
+        # FULL NO DUPLICATES add
+        if self.cubes.full_integration_no_duplicate is not None:
+            # VOXELs create
+            self.plot_full_no_duplicate = self.create_voxels(
+                self.cubes.full_integration_no_duplicate,
+                **kwargs,
+            )
+            for plot in self.plot_full_no_duplicate: self.plot += plot
 
         # SDO LINE OF SIGHT add
         if self.cubes.los_sdo is not None:
@@ -700,7 +751,7 @@ class K3dAnimation(Setup):
 
     def create_voxels(
             self,
-            cube: CubeInfo | FakeCubeInfo | TestCubeInfo,
+            cube: CubeInfo | FakeCubeInfo | UniqueCubeInfo,
             index: int = 0,
             **kwargs,
         ) -> list[VoxelType]:
@@ -709,7 +760,7 @@ class K3dAnimation(Setup):
         visualisation.  
 
         Args:
-            cube (CubeInfo | FakeCubeInfo | TestCubeInfo): the cube information to visualise.
+            cube (CubeInfo | FakeCubeInfo | UniqueCubeInfo): the cube information to visualise.
             index (int, optional): the index of the time value to visualise. Defaults to 0.
 
         Returns:
