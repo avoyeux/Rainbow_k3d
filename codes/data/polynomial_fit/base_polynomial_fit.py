@@ -24,6 +24,7 @@ from codes.projection.helpers.projection_dataclasses import HDF5GroupPolynomialI
 LockProxy = Any
 ValueProxy = Any
 QueueProxy = Any
+SharedMemoryProxy = Any
 
 
 
@@ -111,6 +112,8 @@ class Polynomial:
 
         # ARGUMENTs
         self.data = self.reorder_data(data)
+        if self.data.coords.shape[0] ==3:
+            print(f"{self.__class__.__init__.__qualname__} reordered coords shape is {self.data.coords.shape}", flush=True)
         self.poly_order = order
         self.feet_sigma = feet_sigma
         self.south_sigma = south_sigma
@@ -263,7 +266,10 @@ class Polynomial:
         """
         
         # DATA open
-        shm, array = MultiProcessing.open_shared_memory(data)
+        shm, array = cast(  # todo change this when the @overload is added to the method.
+            tuple[SharedMemoryProxy, np.ndarray],
+            MultiProcessing.open_shared_memory(data),
+        )
 
         while True:
             # CHECK input
@@ -302,11 +308,12 @@ class Polynomial:
         if self.data.coords.shape[0] == 4:
             self.time_len: int = self.data.coords[0, :].max() + 1
         else:
+            print(f'time_len is 1', flush=True)
             self.time_len = 1
         process_nb = min(self.processes, self.time_len)
 
         # Setting up weights as sigma (0 to 1 with 0 being infinite weight)
-        sigma = self.data.data.astype('float64')
+        sigma = np.ones(self.data.coords.shape[1], dtype='float64')  # ! changed this
 
         # MULTIPROCESSING setup
         shm_coords, coords = MultiProcessing.create_shared_memory(
@@ -321,8 +328,8 @@ class Polynomial:
         
         # INPUTs
         kwargs = {
-            'coords': coords,
-            'sigma': sigma,
+            'coords_dict': coords,
+            'sigma_dict': sigma,
             'lock': lock,
             'value': value,
             'output_queue': output_queue,
@@ -353,8 +360,8 @@ class Polynomial:
         parameters: list[np.ndarray] = [None] * self.time_len  #type:ignore
         polynomials: list[np.ndarray] = [None] * self.time_len  #type:ignore
         while not output_queue.empty():
-            identifier, interp, params = output_queue.get()
-            polynomials[identifier] = interp
+            identifier, interpolation, params = output_queue.get()
+            polynomials[identifier] = interpolation
             parameters[identifier] = params
         polynomials: np.ndarray = np.concatenate(polynomials, axis=1)
         parameters: np.ndarray = np.concatenate(parameters, axis=1)
@@ -362,8 +369,8 @@ class Polynomial:
 
     @staticmethod
     def get_data_sub(
-            coords: dict[str, Any],
-            sigma: dict[str, Any],
+            coords_dict: dict[str, Any],
+            sigma_dict: dict[str, Any],
             lock: LockProxy,
             value: ValueProxy,
             output_queue: QueueProxy,
@@ -373,9 +380,9 @@ class Polynomial:
         Static method to multiprocess the curve fitting creation.
 
         Args:
-            coords (dict[str, Any]): the coordinates information to access the
+            coords_dict (dict[str, Any]): the coordinates information to access the
                 multiprocessing.shared_memory.SharedMemory() object.
-            sigma (dict[str, Any]): the weights (here sigma) information to access the
+            sigma_dict (dict[str, Any]): the weights (here sigma) information to access the
                 multiprocessing.shared_memory.SharedMemory() object.
             lock (LockProxy): the lock to properly update the shared index value.
             value (ValueProxy): the shared index value.
@@ -384,8 +391,14 @@ class Polynomial:
         """
         
         # DATA open
-        shm_coords, coords = MultiProcessing.open_shared_memory(coords)
-        shm_sigma, sigma = MultiProcessing.open_shared_memory(sigma)
+        shm_coords, coords = cast(  # todo change this when the @overload is added to the method.
+            tuple[SharedMemoryProxy, np.ndarray],
+            MultiProcessing.open_shared_memory(coords_dict),
+        )
+        shm_sigma, sigma = cast(  # todo change this when the @overload is added to the method.
+            tuple[SharedMemoryProxy, np.ndarray],
+            MultiProcessing.open_shared_memory(sigma_dict),
+        )
         
         while True:
             # CHECK input
@@ -402,10 +415,11 @@ class Polynomial:
             else:
                 coords_section: np.ndarray = coords.copy()
                 sigma_section: np.ndarray = sigma.copy()
+                print(f'coords_section shape: {coords_section.shape}', flush=True)
 
             # CHECK if enough points
             nb_parameters = len(kwargs_sub['params_init'])
-            if nb_parameters >= sigma_section.shape[0]:
+            if nb_parameters >= sigma_section.size:
 
                 if kwargs_sub['verbose'] > 0:
                     print(
@@ -602,14 +616,26 @@ class Polynomial:
         }
         try: 
             # FITTING
-            sigma[feet_mask] = feet_sigma
+            # sigma[feet_mask] = feet_sigma
             x, y, z = coords
             params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
-            sigma[~feet_mask] = 20
-            sigma[t_mask] = south_sigma
+
+            # sigma[~feet_mask] = 20
+            # sigma[t_mask] = south_sigma
             params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init, sigma=sigma)
             params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
-            params = np.vstack([params_x, params_y, params_z]).astype('float64')
+
+            if np.all(params_x > -0.1) and np.all(params_x < 0.1):
+                print("params_x is only made up of zeros")
+                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {x.shape}, params_init is {params_init}", flush=True)
+            if np.all(params_y > -0.1) and np.all(params_y < 0.1):
+                print("params_x is only made up of zeros")
+                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {y.shape}, params_init is {params_init}", flush=True)
+            if np.all(params_z > -0.1) and np.all(params_z < 0.1):
+                print("params_x is only made up of zeros")
+                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {z.shape}, params_init is {params_init}", flush=True)
+
+            params = np.stack([params_x, params_y, params_z], axis=0).astype('float64')
         
         except Exception:
             # FITTING failed
