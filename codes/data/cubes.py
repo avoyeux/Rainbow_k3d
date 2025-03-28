@@ -20,7 +20,7 @@ import multiprocessing as mp
 
 # IMPORTs sub
 import sunpy.coordinates
-from typing import Any
+from typing import Any, cast
 from astropy import units as u
 from typing import Any, Callable
 
@@ -31,6 +31,7 @@ from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 
 # PLACEHOLDERs type annotation
 QueueProxy = Any
+SharedMemoryProxy = Any
 
 # todo change the code so each cube processing is done in a separate process
 # todo add the full integration of the data
@@ -520,11 +521,11 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        coordinates: list[np.ndarray] = [None] * self.max_cube_numbers  #type:ignore
+        coordinates_list: list[np.ndarray] = [None] * self.max_cube_numbers  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
-            coordinates[identifier] = result
-        coordinates: np.ndarray = np.stack(coordinates, axis=0)
+            coordinates_list[identifier] = result
+        coordinates: np.ndarray = np.stack(coordinates_list, axis=0)
         return coordinates
     
     @staticmethod
@@ -1063,7 +1064,7 @@ class DataSaver(BaseHDF5Protuberance):
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
 
                 # ADD polynomial
-                self.add_polynomial(H5PYFile[group_path], data)  #type:ignore
+                self.add_polynomial(H5PYFile[group_path], data, test_path=group_path)  #type:ignore
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1097,11 +1098,11 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        rawCubes: list[sparse.COO] = [None] * filepaths_nb  #type:ignore
+        rawCubes_list: list[sparse.COO] = [None] * filepaths_nb  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
-            rawCubes[identifier] = result 
-        rawCubes: sparse.COO = sparse.stack(rawCubes, axis=0)
+            rawCubes_list[identifier] = result 
+        rawCubes: sparse.COO = sparse.stack(rawCubes_list, axis=0)
 
         self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless or is it?
         return rawCubes
@@ -1182,7 +1183,7 @@ class DataSaver(BaseHDF5Protuberance):
         
         # SKYCOORDs setup
         skycoords = self.carrington_skyCoords(data, borders)
-        data: list[np.ndarray] = [None] * len(skycoords)  #type:ignore
+        data_list: list[np.ndarray] = [None] * len(skycoords)  #type:ignore
         for i, skycoord in enumerate(skycoords):
             x = skycoord.cartesian.x.value
             y = skycoord.cartesian.y.value
@@ -1191,14 +1192,14 @@ class DataSaver(BaseHDF5Protuberance):
 
             # (x, y, z) -> (t, x, y, z)
             time_row = np.full((1, cube.shape[1]), self.time_indexes[i])
-            data[i] = np.vstack([time_row, cube])
-        data: np.ndarray = np.hstack(data).astype('float32')
+            data_list[i] = np.vstack([time_row, cube])
+        result: np.ndarray = np.hstack(data_list).astype('float32')
 
         # DATA formatting
         raw = {
             'description': "Default",
             'coords': {
-                'data': data,
+                'data': result,
                 'unit': 'km',
                 'description': (
                     "The t, x, y, z coordinates of the cube voxels.\nThe shape is (4, N) where "
@@ -1216,7 +1217,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.add_group(group, raw, data_name)
         return group
     
-    def add_polynomial(self, group: h5py.Group, data: sparse.COO) -> None:
+    def add_polynomial(self, group: h5py.Group, data: sparse.COO, test_path: str) -> None:
         """
         To add to an h5py.Group, the polynomial curve and parameters given the data to fit.
 
@@ -1363,7 +1364,7 @@ class DataSaver(BaseHDF5Protuberance):
     
     @staticmethod
     def skyCoords_slice(
-            coords: dict[str, Any],
+            coords_dict: dict[str, Any],
             input_queue: QueueProxy,
             output_queue: QueueProxy,
         ) -> None:
@@ -1372,7 +1373,7 @@ class DataSaver(BaseHDF5Protuberance):
         time index).
 
         Args:
-            coords (dict[str, Any]): information to find the sparse.COO(data).coords
+            coords_dict (dict[str, Any]): information to find the sparse.COO(data).coords
                 multiprocessing.shared_memory.SharedMemory object.
             input_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used for the
                 function inputs.
@@ -1381,7 +1382,10 @@ class DataSaver(BaseHDF5Protuberance):
         """
         
         # DATA open
-        shm, coords = MultiProcessing.open_shared_memory(coords)
+        shm, coords = cast(
+            tuple[SharedMemoryProxy, np.ndarray],
+            MultiProcessing.open_shared_memory(coords_dict)
+        )
 
         while True:
             # CHECK queue

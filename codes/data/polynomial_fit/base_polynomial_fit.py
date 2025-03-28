@@ -112,8 +112,6 @@ class Polynomial:
 
         # ARGUMENTs
         self.data = self.reorder_data(data)
-        if self.data.coords.shape[0] ==3:
-            print(f"{self.__class__.__init__.__qualname__} reordered coords shape is {self.data.coords.shape}", flush=True)
         self.poly_order = order
         self.feet_sigma = feet_sigma
         self.south_sigma = south_sigma
@@ -225,7 +223,10 @@ class Polynomial:
         output_queue = manager.Queue()
         value = manager.Value('i', self.time_len)
         processes_nb = min(self.processes, self.time_len)
-        shm, data = MultiProcessing.create_shared_memory(data)
+        shm, data = cast(
+            tuple[SharedMemoryProxy, np.ndarray],
+            MultiProcessing.create_shared_memory(data),
+        )
 
         # RUN processes
         processes: list[mp.Process] = [None] * processes_nb  #type:ignore
@@ -240,16 +241,16 @@ class Polynomial:
         shm.unlink()
 
         # RESULTs formatting
-        polynomials = [None] * self.time_len
+        polynomials_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
         while not output_queue.empty():
             identifier, result = output_queue.get()
-            polynomials[identifier] = result
-        polynomials: np.ndarray = np.concatenate(polynomials, axis=1).astype('uint16')
+            polynomials_list[identifier] = result
+        polynomials: np.ndarray = np.concatenate(polynomials_list, axis=1).astype('uint16')
         return polynomials
 
     @staticmethod
     def no_duplicates_data_sub(
-            data: dict[str, Any],
+            data_dict: dict[str, Any],
             lock: LockProxy,
             value: ValueProxy,
             output_queue: QueueProxy,
@@ -268,7 +269,7 @@ class Polynomial:
         # DATA open
         shm, array = cast(  # todo change this when the @overload is added to the method.
             tuple[SharedMemoryProxy, np.ndarray],
-            MultiProcessing.open_shared_memory(data),
+            MultiProcessing.open_shared_memory(data_dict),
         )
 
         while True:
@@ -279,15 +280,21 @@ class Polynomial:
                 value.value -= 1
 
             # DATA filtering
-            data_filters = (array[0, :] == index)
-            data = np.copy(array[1:, data_filters]).astype('float32')
+            if array.shape[0] == 4:
+                data_filters = (array[0, :] == index)
+                data = np.copy(array[1:, data_filters]).astype('float32')
+            else:
+                data = array.copy().astype('float32')
 
             # NO DUPLICATEs
             data = np.rint(np.abs(data))
             data = np.unique(data, axis=1).astype('uint16')
 
             # SAVE results
-            output_queue.put((index, Polynomial.format_result(data, index)))
+            if array.shape[0] == 4:
+                output_queue.put((index, Polynomial.format_result(data, index)))
+            else:
+                output_queue.put((0, data))
 
         # CLOSE shared memory
         shm.close()
@@ -308,7 +315,6 @@ class Polynomial:
         if self.data.coords.shape[0] == 4:
             self.time_len: int = self.data.coords[0, :].max() + 1
         else:
-            print(f'time_len is 1', flush=True)
             self.time_len = 1
         process_nb = min(self.processes, self.time_len)
 
@@ -316,10 +322,14 @@ class Polynomial:
         sigma = np.ones(self.data.coords.shape[1], dtype='float64')  # ! changed this
 
         # MULTIPROCESSING setup
-        shm_coords, coords = MultiProcessing.create_shared_memory(
-            data=self.data.coords.astype('float64'),
+        shm_coords, coords = cast(  # todo change this when the @overload is added to the method.
+            tuple[SharedMemoryProxy, np.ndarray], 
+            MultiProcessing.create_shared_memory(self.data.coords.astype('float64')),
         )
-        shm_sigma, sigma = MultiProcessing.create_shared_memory(sigma)
+        shm_sigma, sigma = cast(
+            tuple[SharedMemoryProxy, dict],
+            MultiProcessing.create_shared_memory(sigma),
+        )
         manager = mp.Manager()
         lock = manager.Lock()
         value = manager.Value('i', self.time_len)
@@ -349,7 +359,10 @@ class Polynomial:
         # RUN processes
         processes: list[mp.Process] = [None] * process_nb  #type:ignore
         for i in range(process_nb):
-            p = mp.Process(target=self.get_data_sub, kwargs={'kwargs_sub': kwargs_sub, **kwargs})
+            p = mp.Process(
+                target=self.get_data_sub,
+                kwargs={'kwargs_sub': kwargs_sub, **kwargs},
+            )
             p.start()
             processes[i] = p
         for p in processes: p.join()
@@ -357,14 +370,18 @@ class Polynomial:
         shm_sigma.unlink()
 
         # RESULTs formatting
-        parameters: list[np.ndarray] = [None] * self.time_len  #type:ignore
-        polynomials: list[np.ndarray] = [None] * self.time_len  #type:ignore
+        parameters_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
+        polynomials_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
         while not output_queue.empty():
-            identifier, interpolation, params = output_queue.get()
-            polynomials[identifier] = interpolation
-            parameters[identifier] = params
-        polynomials: np.ndarray = np.concatenate(polynomials, axis=1)
-        parameters: np.ndarray = np.concatenate(parameters, axis=1)
+            identifier, fit, params = output_queue.get()
+            polynomials_list[identifier] = fit
+            parameters_list[identifier] = params
+        if len(polynomials_list) != 1:
+            polynomials: np.ndarray = np.concatenate(polynomials_list, axis=1)
+            parameters: np.ndarray = np.concatenate(parameters_list, axis=1)
+        else:
+            polynomials = polynomials_list[0]
+            parameters = parameters_list[0]
         return polynomials, parameters
 
     @staticmethod
@@ -415,11 +432,10 @@ class Polynomial:
             else:
                 coords_section: np.ndarray = coords.copy()
                 sigma_section: np.ndarray = sigma.copy()
-                print(f'coords_section shape: {coords_section.shape}', flush=True)
 
             # CHECK if enough points
             nb_parameters = len(kwargs_sub['params_init'])
-            if nb_parameters >= sigma_section.size:
+            if nb_parameters >= coords_section.shape[1]:
 
                 if kwargs_sub['verbose'] > 0:
                     print(
@@ -431,9 +447,9 @@ class Polynomial:
                 params = np.empty((3, 0))
             else:
                 # DISTANCE cumulative
-                t = np.empty(sigma_section.shape[0], dtype='float64')
+                t = np.empty(coords_section.shape[1], dtype='float64')
                 t[0] = 0
-                for i in range(1, sigma_section.shape[0]): 
+                for i in range(1, coords_section.shape[1]): 
                     t[i] = t[i - 1] + np.sqrt(np.sum([
                         (coords_section[a, i] - coords_section[a, i - 1])**2 
                         for a in range(3)
@@ -447,13 +463,16 @@ class Polynomial:
                     't': t,
                 }
                 result, params = Polynomial.polynomial_fit(**kwargs, **kwargs_sub)
-
+            
             # SAVE results
-            output_queue.put((
-                index,
-                Polynomial.format_result(result, index),
-                Polynomial.format_result(params, index),
-            ))
+            if coords.shape[0] == 4:
+                output_queue.put((
+                    index,
+                    Polynomial.format_result(result, index),
+                    Polynomial.format_result(params, index),
+                ))
+            else:
+                output_queue.put((0, result, params))
         
         shm_coords.close()
         shm_sigma.close()
@@ -548,7 +567,7 @@ class Polynomial:
         x = nth_order_polynomial(t_fine, *params_x)
         y = nth_order_polynomial(t_fine, *params_y)
         z = nth_order_polynomial(t_fine, *params_z)
-        data = np.vstack([x, y, z]).astype('float64')
+        data = np.stack([x, y, z], axis=0).astype('float64')
 
         # BORDERs cut
         conditions_upper = (  # todo change this when the other changes are finished
@@ -616,25 +635,14 @@ class Polynomial:
         }
         try: 
             # FITTING
-            # sigma[feet_mask] = feet_sigma
+            sigma[feet_mask] = feet_sigma
             x, y, z = coords
-            params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init, sigma=sigma)
+            params_x, _ = scipy.optimize.curve_fit(polynomial, t, x, p0=params_init)
 
-            # sigma[~feet_mask] = 20
-            # sigma[t_mask] = south_sigma
-            params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init, sigma=sigma)
-            params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init, sigma=sigma)
-
-            if np.all(params_x > -0.1) and np.all(params_x < 0.1):
-                print("params_x is only made up of zeros")
-                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {x.shape}, params_init is {params_init}", flush=True)
-            if np.all(params_y > -0.1) and np.all(params_y < 0.1):
-                print("params_x is only made up of zeros")
-                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {y.shape}, params_init is {params_init}", flush=True)
-            if np.all(params_z > -0.1) and np.all(params_z < 0.1):
-                print("params_x is only made up of zeros")
-                print(f"t shape is {t.shape}, sigma shape is {sigma.shape}, x shape is {z.shape}, params_init is {params_init}", flush=True)
-
+            sigma[~feet_mask] = 20
+            sigma[t_mask] = south_sigma
+            params_y, _ = scipy.optimize.curve_fit(polynomial, t, y, p0=params_init)
+            params_z, _ = scipy.optimize.curve_fit(polynomial, t, z, p0=params_init)
             params = np.stack([params_x, params_y, params_z], axis=0).astype('float64')
         
         except Exception:
