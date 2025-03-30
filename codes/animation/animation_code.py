@@ -4,6 +4,7 @@ To 3D visualise the rainbow filament data and the corresponding polynomial fitti
 
 # IMPORTs
 import os
+import re
 import k3d
 import time
 import h5py
@@ -18,7 +19,7 @@ import numpy as np
 # IMPORTs sub
 from astropy.io import fits
 from matplotlib import colors as mcolors
-from typing import Any, overload, Literal
+from typing import Any, overload, Literal, cast
 
 # IMPORTs personal
 from codes.animation.animation_dataclasses import *
@@ -28,7 +29,7 @@ from common import config, Decorators, Plot
 VoxelType = Any
 JsLinkType = Any
 
-# todo add the full integration data as a choice
+# todo need to fix the fact that the fit for the full integration doesn't show up.
 
 
 class Setup:
@@ -155,7 +156,7 @@ class Setup:
                 choices_kwargs[key] = True
             else: 
                 raise ValueError(
-                    f"\033[1; Choices argument '{key}' not recognised. "
+                    f"\033[1;0mChoices argument '{key}' not recognised. "
                     f"Valid choices are ['{'\', \''.join(possibilities)}'].\033[0m"
                 ) 
         return choices_kwargs
@@ -427,31 +428,19 @@ class Setup:
         zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx#type:ignore
 
         # COO data
-        data_coords: h5py.Dataset = HDF5File[group_path + '/coords']  #type:ignore
-        data_values: h5py.Dataset = HDF5File[group_path + '/values']  #type:ignore
-
-        # INTERPOLATION data
-        if self.choices['fit'] and interpolate:
-            polynomials: list[PolynomialData] = [None] * len(self.polynomial_order)  #type:ignore
-
-            for i, order in enumerate(self.polynomial_order):
-                # DATA get
-                dataset_path = group_path + f'/{order}th order polynomial/coords'
-                interpolation_coords: h5py.Dataset = HDF5File[dataset_path]  #type:ignore
-
-                # DATA formatting
-                polynomials[i] = PolynomialData(
-                    dataset=interpolation_coords,
-                    order=order,
-                    name=f'{order}th ' + group_path.split('/')[1],
-                    color_hex=self.plot_polynomial_colours[i],
-                )
-                print(f'FETCHED -- {polynomials[i].name}.')
-        else:
-            polynomials = None  #type:ignore
+        data_coords = cast(h5py.Dataset, HDF5File[group_path + '/coords'])
+        data_values = cast(h5py.Dataset, HDF5File[group_path + '/values'])
 
         # FORMATTING data
         if cube_type == 'real':
+            # POLYNOMIAL data
+            polynomials = self.get_polynomial_data(
+                HDF5File=HDF5File,
+                group_path=group_path,
+                cube_type=cube_type,
+                interpolate=interpolate,
+            )
+
             cube_info = CubeInfo(
                 group_path=group_path,
                 colour=colour,
@@ -463,7 +452,27 @@ class Setup:
                 dataset_values=data_values,
                 polynomials=polynomials,
             )
-        elif cube_type == 'fake':
+        elif cube_type == 'unique':
+            # POLYNOMIAL data
+            polynomials = self.get_polynomial_data(
+                HDF5File=HDF5File,
+                group_path=group_path,
+                cube_type=cube_type,
+                interpolate=interpolate,
+            )
+
+            cube_info = UniqueCubeInfo(
+                group_path=group_path,
+                opacity=opacity,
+                colour=colour,
+                xt_min_index=xt_min_index,
+                yt_min_index=yt_min_index,
+                zt_min_index=zt_min_index,
+                dataset_coords=data_coords,
+                dataset_values=data_values,
+                polynomials=polynomials,
+            )
+        else:
             cube_info = FakeCubeInfo(
                 group_path=group_path,
                 opacity=opacity,
@@ -474,22 +483,176 @@ class Setup:
                 dataset_coords=data_coords,
                 dataset_values=data_values,
                 time_indexes_real=self.constants.time_indexes,
-                time_indexes_fake=HDF5File['Fake/Time indexes'][...],  #type:ignore
+                time_indexes_fake=cast(h5py.Dataset, HDF5File['Fake/Time indexes'])[...],
             )
-        else:
-            cube_info = UniqueCubeInfo(
-                group_path=group_path,
-                opacity=opacity,
-                colour=colour,
-                xt_min_index=xt_min_index,
-                yt_min_index=yt_min_index,
-                zt_min_index=zt_min_index,
-                dataset_coords=data_coords,
-                dataset_values=data_values,
-            )
-
         print(f'FETCHED -- {cube_info.name} data.')
         return cube_info
+    
+    @overload
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: str = ...,
+            *,
+            interpolate: Literal[False],
+        ) -> None: ...
+
+    @overload
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: Literal['real'],
+            interpolate: Literal[True] = ...,
+        ) -> list[PolynomialData]: ...
+
+    @overload
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: Literal['unique'] = ...,
+            interpolate: Literal[True] = ...,
+        ) -> list[UniquePolynomialData]: ...
+    
+    @overload # fallback 1
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: Literal['real'],
+            interpolate: bool = ...,
+        ) -> list[PolynomialData] | None: ...
+    
+    @overload # fallback 2
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: Literal['unique'] = ...,
+            interpolate: bool = ...,
+        ) -> list[UniquePolynomialData] | None: ...
+
+    @overload  # fallback main
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: str = ...,
+            interpolate: bool = ...,
+        ) -> list[PolynomialData] | list[UniquePolynomialData] | None: ...
+    
+    def get_polynomial_data(
+            self,
+            HDF5File: h5py.File,
+            group_path: str,
+            cube_type: str = 'unique',
+            interpolate: bool = True,
+        ) -> list[PolynomialData] | list[UniquePolynomialData] | None:
+        """
+        To get the polynomial data corresponding to the HDF5 group path.
+
+        Args:
+            group_path (str): the main group path where all the different corresponding polynomial
+                fits are stored.
+            cube_type (str, optional): the type of cube to visualise. Defaults to 'unique'.
+            interpolate (bool, optional): if the fit data exits for that group path.
+                Defaults to True.
+
+        Returns:
+            list[PolynomialData] | list[UniquePolynomialData] | None: the corresponding polynomial
+                fits information. If there is no polynomial data, it returns None.
+        """
+
+        if self.choices['fit'] and interpolate:
+            # POLYNOMIALs setup
+            polynomials: list[PolynomialData] | list[UniquePolynomialData] = (
+                [None] * len(self.polynomial_order)
+            )  #type:ignore
+
+            for i, order in enumerate(self.polynomial_order):
+                # DATA get
+                dataset_path = group_path + f'/{order}th order polynomial/coords'
+                interpolation_coords = cast(h5py.Dataset, HDF5File[dataset_path])
+
+                if cube_type != 'unique':
+                    # DATA formatting
+                    polynomials[i] = PolynomialData(  # ? type check requirements are weird ...
+                        dataset=interpolation_coords,
+                        order=order,
+                        name=self.name_data(dataset_path),
+                        color_hex=self.plot_polynomial_colours[i],
+                    )
+                else:
+                    # DATA formatting
+                    polynomials[i] = UniquePolynomialData(
+                        dataset=interpolation_coords,
+                        order=order,
+                        name=self.name_data(dataset_path),
+                        color_hex=self.plot_polynomial_colours[i],
+                    )
+                print(f'FETCHED -- {polynomials[i].name}.')
+            return polynomials
+        else:
+            return None
+
+    def name_data(self, group_path: str) -> str:
+        """
+        To name the data depending on the group path.
+
+        Args:
+            group_path (str): the hdf5 group path to the data being named.
+
+        Raises:
+            ValueError: if the group path is not recognised.
+
+        Returns:
+            str: the name for the corresponding dataset.
+        """
+
+        # INIT name
+        name = ''
+
+        # FIT check
+        if 'polynomial' in group_path:
+            name += 'FIT'
+
+            # PATTERN
+            pattern_fit = r'(\d+)th'
+            result = re.search(pattern_fit, group_path)
+
+            if result is not None:
+                name += f'({result.group(1)}th) '
+            else:
+                raise ValueError(
+                    f"\033[1;31m The group path '{group_path}' pattern not recognised. \033[0m"
+                )
+
+        # GROUP check
+        if 'All data' in group_path:
+            name += 'all data'
+        elif 'No duplicates' in group_path:
+            name += 'no dupli'
+
+        # INTEGRATION check
+        if 'integration' in group_path:
+            name += ' integration'
+            
+            if 'Full' in group_path:
+                name += '(full) '
+            else:
+                # PATTERN
+                pattern_integration_time = r'(\d+)\.\d*\s*hours'
+                result = re.search(pattern_integration_time, group_path)
+
+                if result is not None:
+                    name += f'({result.group(1)}h) '
+                else:
+                    raise ValueError(
+                        f"\033[1;31m The group path '{group_path}' pattern not recognised. \033[0m"
+                    )
+        return name
     
     def color_str_to_hex(self, colour: str) -> int:
         """

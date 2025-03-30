@@ -63,6 +63,27 @@ class PolynomialData:
         cube[tuple(cube_coords)] = 1
         return cube
 
+@dataclass(slots=True, frozen=True, repr=False, eq=False)
+class UniquePolynomialData(PolynomialData):
+
+    def __getitem__(self, index: Any) -> np.ndarray:
+        """
+        Just gives back the dense representation of the polynomial data.
+        The index argument is not used as in this case, there is only one fit in the dataset.
+        The index is here to be consistent with the other __getitem__ methods.
+
+        Args:
+            index (Any): just a placeholder to look like the other __getitem__ methods.
+
+        Returns:
+            np.ndarray: the polynomial data.
+        """
+        
+        # 3D array
+        cube_shape = np.max(self.dataset, axis=1) + 1
+        cube = np.zeros(cube_shape, dtype='uint8')
+        cube[tuple(self.dataset)] = 1
+        return cube
 
 @dataclass(slots=True, repr=False, eq=False)
 class ParentInfo:
@@ -202,7 +223,7 @@ class UniqueCubeInfo(ParentInfo):
     """
 
     # PLACEHOLDER
-    polynomials: None = field(default=None, init=False)
+    polynomials: list[UniquePolynomialData] | None = field(default=None)
 
     def __getitem__(self, index: Any) -> list[np.ndarray]:
         """
@@ -217,9 +238,15 @@ class UniqueCubeInfo(ParentInfo):
             list[np.ndarray]: the dense test cube inside a list.
         """
 
+        # CUBE
         cube = np.zeros(self.shape, dtype='uint8')
         cube[tuple(self.dataset_coords)] = self.dataset_values[...]
-        return [cube]
+        result = [cube]
+        
+        # POLYNOMIALs
+        if self.polynomials is not None:  # ! could be wrong as there is only one index here
+            result += [polynomial[0] for polynomial in self.polynomials]
+        return result
 
 
 @dataclass(slots=True, repr=False, eq=False)
