@@ -14,7 +14,7 @@ import scipy
 import numpy as np
 
 # IMPORTs sub
-from typing import Protocol
+from typing import cast, Protocol
 from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 
@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from common import config
 from codes.projection.base_reprojection import BaseReprojection
 from codes.projection.helpers.extract_envelope import CreateFitEnvelope
-from codes.projection.helpers.projection_dataclasses import FitWithEnvelopes, FitEnvelopes
+from codes.projection.helpers.dataclasses import FitWithEnvelopes, FitEnvelopes
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
 
@@ -357,9 +357,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             self,
             filepath: str,
             dx: float,
-            index: int,
             colour: str,
-            sdo_pos: np.ndarray,
             polynomial_order: int,
             integration_time: int,
             number_of_points: int,
@@ -372,7 +370,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             flush: bool | None = None,
             test_plots: bool | None = None,
         ) -> None:
-        """
+        """  # todo update docstring
         To initialise the class.
         The reprocessed_fit_n_envelopes method should be called to get the results.
 
@@ -423,9 +421,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         # ATTRIBUTEs
         self.paths = self.paths_setup()
         self.dx = dx
-        self.index = index
         self.colour = colour
-        self.sdo_pos = sdo_pos
         self.feet_sigma = feet_sigma
         self.feet_threshold = feet_threshold
         self.nb_of_points = number_of_points
@@ -446,8 +442,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         }
         return paths
 
-    def reprocessed_fit_n_envelopes(self) -> FitWithEnvelopes:
-        """
+    def reprocessed_fit_n_envelopes(self, index: int, sdo_pos: np.ndarray) -> FitWithEnvelopes:
+        """  # todo update docstring
         To reprocess the fit results and create the corresponding envelopes.
 
         Returns:
@@ -455,13 +451,13 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         """
 
         # FIT processed borders 3D
-        fit_processed_3d = self.reprocessed_polynomial(self.index)
+        fit_processed_3d = self.reprocessed_polynomial(index)
 
         # FIT polar 2D
         fit_2D_polar = self.get_polar_image_angles(
             self.matrix_rotation(
                 data=self.cartesian_pos(fit_processed_3d, self.dx).coords,
-                sdo_pos=self.sdo_pos,
+                sdo_pos=sdo_pos,
             ))
         
         # FIT uniform processing
@@ -480,7 +476,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                 radius=3e4,
             )
             
-            envelopes: list[FitEnvelopes] = []
+            envelopes: list[FitEnvelopes] | None = []
             for envelope in envelopes_polar:
                 
                 # FIT envelope
@@ -496,12 +492,12 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
 
                 # LOG success
                 if self.verbose > 0:
-                    log = self.success_log(fitting_method)
-                    if log != '': print(self.success_log(fitting_method), flush=self.flush)
+                    log = self.success_log(fitting_method, index)
+                    if log != '': print(log, flush=self.flush)
             
             # PLOT for testing
             if self.plots:
-                cube_date = self.get_cube_date()
+                cube_date = self.get_cube_date(index)
                 self.plot(
                     date=cube_date,
                     fit=coords_uniform,
@@ -509,7 +505,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
                     new_envelope=envelopes,
                 )
         else:
-            envelopes = None  #type:ignore
+            envelopes = None
         
         # DATA format
         fit_n_envelopes = FitWithEnvelopes(
@@ -523,8 +519,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         )
         return fit_n_envelopes
 
-    def success_log(self, instance: Fitting2D) -> str:
-        """
+    def success_log(self, instance: Fitting2D, index: int) -> str:
+        """  # todo update docstring
         To log the success of the fit.
 
         Args:
@@ -540,19 +536,19 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         # CHECK params
         if not instance.enough_params:
                 log += (
-                    f"\033[1;31mFor cube {self.index:03d}, not enough points for the polynomial "
+                    f"\033[1;31mFor cube {index:03d}, not enough points for the polynomial "
                     f"fit (shape: {instance.polar_coords.shape[0]}). Going to next cube.\033[0m\n"
                 )
 
         # CHECK fit completion
         if not instance.fit_success:
             log += (
-                f"\033[1;31mFor cube {self.index:03d}, the polynomial fit failed. Going to next "
+                f"\033[1;31mFor cube {index:03d}, the polynomial fit failed. Going to next "
                 "cube.\033[0m"
             )
         return log
     
-    def get_cube_date(self) -> str:
+    def get_cube_date(self, index: int) -> str:
         """
         To get the date of the cube.
 
@@ -561,11 +557,11 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         """
 
         # DATA from file
-        dates: h5py.Dataset = self.file['Dates']  #type:ignore
-        cube_numbers: h5py.Dataset = self.file['Real/Time indexes']  #type:ignore     
+        dates: h5py.Dataset = cast(h5py.Dataset, self.file['Dates'])
+        cube_numbers: h5py.Dataset = cast(h5py.Dataset, self.file['Real/Time indexes']) 
 
         # DATA cube
-        cube_number = cube_numbers[self.index]
+        cube_number = cube_numbers[index]
         date: str = dates[cube_number].decode('utf-8')
         return date
 

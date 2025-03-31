@@ -7,7 +7,7 @@ import numpy as np
 
 # IMPORTs personal
 from codes.projection.helpers.projection_dataclasses import (
-    CubeInformation, CubePointer, TestCubePointer, FakeCubePointer, ProjectedCube
+    CubeInformation, CubePointer, UniqueCubePointer, FakeCubePointer, ProjectedCube
 )
 
 
@@ -159,7 +159,7 @@ class BaseReprojection:
     
     def format_cube(
             self,
-            data: CubePointer | TestCubePointer | FakeCubePointer,
+            data: CubePointer | UniqueCubePointer | FakeCubePointer,
             dx: float,
             index: int,
             name: str,
@@ -170,7 +170,8 @@ class BaseReprojection:
         To format the cube data for the projection.
 
         Args:
-            data (CubePointer | TestCubePointer | FakeCubePointer): the data cube to be formatted.
+            data (CubePointer | UniqueCubePointer | FakeCubePointer): the data cube to be
+                formatted.
             dx (float): the pixel size of the data cube in km.
             index (int): the index of the corresponding real data cube.
             name (str): the name of the data used as a label in the final plot.

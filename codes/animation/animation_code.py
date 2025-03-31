@@ -29,7 +29,8 @@ from common import config, Decorators, Plot
 VoxelType = Any
 JsLinkType = Any
 
-# todo need to fix the fact that the fit for the full integration doesn't show up.
+# todo need to improve the names of the different datasets in the visualisation
+
 
 
 class Setup:

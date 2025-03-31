@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 # IMPORTs personal
 from common import config, Decorators, MultiProcessing
-from codes.projection.helpers.projection_dataclasses import HDF5GroupPolynomialInformation
+from codes.projection.helpers.dataclasses import HDF5GroupPolynomialInformation
 
 # PLACEHOLDERs type annotation
 LockProxy = Any
@@ -793,7 +793,7 @@ class GetPolynomialFit:
         """
 
         # INIT
-        result: np.ndarray = 0
+        result: np.ndarray = cast(np.ndarray, 0)
 
         # POLYNOMIAL
         for i in range(self.order + 1): result += coeffs[i] * t**i
