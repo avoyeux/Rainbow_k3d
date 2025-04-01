@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 
 # IMPORTS sub
-from typing import Any, overload, Iterator, Literal
+from typing import overload, Iterator, Literal
 from dataclasses import dataclass, field
 
 
@@ -125,121 +125,6 @@ class ProcessConstants:
 
 
 @dataclass(slots=True, repr=False, eq=False)
-class CubePointer:
-    """
-    Class to store the pointer to the data cubes used in the polynomial projection module.
-    """
-
-    # BORDERs
-    xt_min : float
-    yt_min : float
-    zt_min : float
-
-    # POINTER
-    pointer: h5py.Dataset
-
-    def __getitem__(self, item: int) -> np.ndarray:
-        """
-        To get the data cube from the corresponding pointer.
-
-        Args:
-            item (int): the index of the data cube to get.
-
-        Returns:
-            np.ndarray: the corresponding data cube.
-        """
-        
-        data_filter = self.pointer[0, :] == item
-        return self.pointer[1:, data_filter].astype('float64')
-    
-
-@dataclass(slots=True, repr=False, eq=False)
-class FakeCubePointer(CubePointer):
-    """
-    Class to store the pointer to the fake data cubes used in the polynomial projection module.
-    """
-
-    # INDEXes time
-    real_time_indexes: np.ndarray
-    fake_time_indexes: np.ndarray
-
-    # PLACEHOLDERs
-    value_to_index: dict[int, int] = field(init=False)
-
-    def __post_init__(self) -> None:
-
-        self.value_to_index = {value: index for index, value in enumerate(self.fake_time_indexes)}
-
-    def __getitem__(self, item: int) -> np.ndarray:
-        """
-        To get the fake data cube corresponding to the real data cube gotten from the 'item' index.
-
-        Args:
-            item (int): the index of the real data cube to get the corresponding fake data cube.
-
-        Returns:
-            np.ndarray: the corresponding fake data cube.
-        """
-        
-        # INDEX real to fake
-        time_index = int(self.real_time_indexes[item])
-        fake_index = self.value_to_index[time_index]
-
-        # FILTER
-        data_filter = self.pointer[0, :] == fake_index
-        return self.pointer[1:, data_filter].astype('float64')
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class TestCubePointer(CubePointer):
-    """
-    Class to store the pointer to the test data cube used in the polynomial projection module.
-    """
-
-    def __getitem__(self, item: Any) -> np.ndarray:
-        """
-        To get the test data cube from the corresponding pointer.
-        This dunder method was created only so that the class can be used like it's Parent or 
-        the FakeCubePointer class.
-
-        Args:
-            item (Any): can be anything as it is not used.
-
-        Returns:
-            np.ndarray: the test data cube.
-        """
-
-        return self.pointer[...].astype('float64')
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class CubesPointers:
-    """
-    To store the pointers to the data cubes used in the polynomial projection module.
-    """
-
-    all_data: CubePointer | None = field(default=None, init=False)
-    no_duplicates: CubePointer | None = field(default=None, init=False)
-    integration: list[CubePointer] | None = field(default=None, init=False)
-    line_of_sight: CubePointer | None = field(default=None, init=False)
-    fake_data: FakeCubePointer | None = field(default=None, init=False)
-    test_cube: TestCubePointer | None = field(default=None, init=False)
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class ProjectedCube:
-
-    # ? add xt_min, yt_min, zt_min ?
-    # DATA
-    data: np.ndarray
-
-    # PLOT config
-    name: str
-    colour: str
-
-    def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)  # ? why did I add this?
-
-@dataclass(slots=True, repr=False, eq=False)
 class FitEnvelopes:
     """
     To format the result of the fit and envelope processing.
@@ -277,6 +162,25 @@ class FitWithEnvelopes:
 
 
 @dataclass(slots=True, repr=False, eq=False)
+class ProjectedCube:
+
+    # ? add xt_min, yt_min, zt_min ?
+    # DATA
+    data: np.ndarray
+
+    # FIT N ENVELOPEs
+    fit_n_envelopes: list[FitWithEnvelopes] | None
+
+    # PLOT config
+    name: str
+    colour: str
+
+    def __iter__(self) -> Iterator[np.ndarray]: return iter(self.data)  # ? why did I add this?
+
+    # ? add a getitem dunder method ?
+
+
+@dataclass(slots=True, repr=False, eq=False)
 class ProjectionData:
     """
     To store the data used in the polynomial projection module.
@@ -287,6 +191,8 @@ class ProjectionData:
     sdo_mask: PolarImageInfo | None = None
     all_data: ProjectedCube | None = None
     no_duplicates: ProjectedCube | None = None
+    full_integration_all_data: ProjectedCube | None = None  # ! need to think about the fit
+    full_integration_no_duplicates: ProjectedCube | None = None  # ! need to think about the fit
     integration: list[ProjectedCube] | None = None
     line_of_sight: ProjectedCube | None = None
     fits_n_envelopes: list[FitWithEnvelopes] | None = None
@@ -383,31 +289,3 @@ class EnvelopeInformation:
         if item == 1: return self.lower
         if item == 2: return self.middle
         raise IndexError("Index out of range.")
-
-
-
-### GET POLYNOMIAL ###
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class HDF5GroupPolynomialInformation:
-    """
-    To store the polynomial information stored in the HDF5 file.
-    """
-
-    HDF5Group: h5py.Group
-    polynomial_order: int
-
-    xt_min: float = field(init=False)
-    yt_min: float = field(init=False)
-    zt_min: float = field(init=False)
-
-    coords: h5py.Dataset = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.xt_min = self.HDF5Group['xt_min'][...]
-        self.yt_min = self.HDF5Group['yt_min'][...]
-        self.zt_min = self.HDF5Group['zt_min'][...]
-        self.coords = self.HDF5Group[
-            f'{self.polynomial_order}th order polynomial/parameters'
-        ]#type: ignore
