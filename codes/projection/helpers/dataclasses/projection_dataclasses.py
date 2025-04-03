@@ -145,9 +145,9 @@ class FitWithEnvelopes:
     """
 
     # METADATA
+    name: str
     colour: str
     fit_order: int
-    integration_time: int
 
     # FIT processed
     fit_polar_r: np.ndarray
@@ -168,9 +168,6 @@ class ProjectedCube:
     # DATA
     data: np.ndarray
 
-    # FIT N ENVELOPEs
-    fit_n_envelopes: list[FitWithEnvelopes] | None
-
     # PLOT config
     name: str
     colour: str
@@ -180,44 +177,7 @@ class ProjectedCube:
     # ? add a getitem dunder method ?
 
 
-@dataclass(slots=True, repr=False, eq=False)
-class ProjectionData:
-    """
-    To store the data used in the polynomial projection module.
-    """
 
-    ID: int
-    sdo_image: PolarImageInfo | None = None
-    sdo_mask: PolarImageInfo | None = None
-    all_data: ProjectedCube | None = None
-    no_duplicates: ProjectedCube | None = None
-    full_integration_all_data: ProjectedCube | None = None  # ! need to think about the fit
-    full_integration_no_duplicates: ProjectedCube | None = None  # ! need to think about the fit
-    integration: list[ProjectedCube] | None = None
-    line_of_sight: ProjectedCube | None = None
-    fits_n_envelopes: list[FitWithEnvelopes] | None = None
-    fake_data: ProjectedCube | None = None
-    test_cube: ProjectedCube | None = None
-
-    def __getattr__(self, name: str) -> np.ndarray:
-        """
-        To get the data inside the 'ProjectedCube' object directly.
-
-        Args:
-            name (str): the name of the attribute representing one of the 'ProjectedCube' object.
-
-        Returns:
-            np.ndarray: the ProjectedCube.data attribute.
-        """
-
-        names = [
-            'all_data', 'no_duplicates', 'integration', 'line_of_sight', 'fake_data', 'test_cube',
-        ]
-        if name in names:
-            cube = getattr(self, name)
-            if cube is not None:
-                return cube.data
-        raise AttributeError(f"'ProjectionData' object has no attribute '{name}'.")
 
 
 ### EXTRACT ENVELOPE ###

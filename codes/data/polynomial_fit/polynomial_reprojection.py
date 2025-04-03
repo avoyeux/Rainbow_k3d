@@ -14,7 +14,7 @@ import scipy
 import numpy as np
 
 # IMPORTs sub
-from typing import cast, Protocol
+from typing import cast, Protocol, Any
 from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 
@@ -22,7 +22,13 @@ import matplotlib.pyplot as plt
 from common import config
 from codes.projection.base_reprojection import BaseReprojection
 from codes.projection.helpers.extract_envelope import CreateFitEnvelope
-from codes.projection.helpers.dataclasses import FitWithEnvelopes, FitEnvelopes
+from codes.projection.helpers.dataclasses.projection_dataclasses import (
+    FitWithEnvelopes, FitEnvelopes, ProjectedCube, PolarImageInfo, CubeInformation,
+)
+from codes.projection.helpers.dataclasses.dataclasses_pointers import (
+    DataPointer, UniqueDataPointer, FakeDataPointer,
+)
+from codes.projection.helpers.warp_sdo_image import WarpSdoImage
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
 
@@ -356,15 +362,14 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
     def __init__(
             self,
             filepath: str,
+            group_path: str,
+            name: str,
             dx: float,
             colour: str,
             polynomial_order: int,
-            integration_time: int,
             number_of_points: int,
             feet_sigma: float,
             feet_threshold: float,
-            data_type: str = 'No duplicates',
-            with_fake_data: bool = False,
             create_envelope: bool = True,
             verbose: bool | None = None,
             flush: bool | None = None,
@@ -409,17 +414,16 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         # PARENTs
         super().__init__(
             filepath=filepath,
+            group_path=group_path,
             polynomial_order=polynomial_order,
-            integration_time=integration_time,
             number_of_points=250,
             dx=dx,
-            data_type=data_type,
-            with_fake_data=with_fake_data,
         )
         BaseReprojection.__init__(self)
 
         # ATTRIBUTEs
         self.paths = self.paths_setup()
+        self.name = name
         self.dx = dx
         self.colour = colour
         self.feet_sigma = feet_sigma
@@ -508,9 +512,9 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             envelopes = None
         
         # DATA format
-        fit_n_envelopes = FitWithEnvelopes(
+        fit_n_envelopes = FitWithEnvelopes(  # todo add the name here
+            name=self.name,
             colour=self.colour,
-            integration_time=self.integration_time,
             fit_order=self.polynomial_order,
             fit_polar_r=fit_2D_uniform.polar_r,
             fit_polar_theta=fit_2D_uniform.polar_theta,
@@ -518,7 +522,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             envelopes=envelopes,
         )
         return fit_n_envelopes
-
+        
     def success_log(self, instance: Fitting2D, index: int) -> str:
         """  # todo update docstring
         To log the success of the fit.

@@ -23,7 +23,7 @@ from typing import Any
 
 # IMPORTs personal
 from common import config
-from codes.projection.helpers.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
+from codes.projection.helpers.dataclasses.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any

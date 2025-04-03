@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 # IMPORTs personal
 from common import Decorators
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
-from codes.projection.helpers.projection_dataclasses import FitEnvelopes
+from codes.projection.helpers.dataclasses.projection_dataclasses import FitEnvelopes
 
 
 

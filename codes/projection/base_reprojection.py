@@ -6,9 +6,7 @@ To store the parent class containing the reprojection methods.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.helpers.projection_dataclasses import (
-    CubeInformation, CubePointer, UniqueCubePointer, FakeCubePointer, ProjectedCube
-)
+from codes.projection.helpers.dataclasses.projection_dataclasses import CubeInformation
 
 
 
@@ -156,41 +154,3 @@ class BaseReprojection:
         # POLAR pos
         rho_polar, theta_polar = self.get_polar_image(data)
         return np.stack([rho_polar[:-1], theta_polar[:-1], angles], axis=0)
-    
-    def format_cube(
-            self,
-            data: CubePointer | UniqueCubePointer | FakeCubePointer,
-            dx: float,
-            index: int,
-            name: str,
-            colour: str,
-            sdo_pos: np.ndarray,
-        ) -> ProjectedCube:
-        """
-        To format the cube data for the projection.
-
-        Args:
-            data (CubePointer | UniqueCubePointer | FakeCubePointer): the data cube to be
-                formatted.
-            dx (float): the pixel size of the data cube in km.
-            index (int): the index of the corresponding real data cube.
-            name (str): the name of the data used as a label in the final plot.
-            colour (str): the colour of the data cube for the plot.
-            sdo_pos (np.ndarray): the position of the SDO satellite.
-
-        Returns:
-            ProjectedCube: the formatted and reprojected data cube.
-        """
-
-        # CUBE formatting
-        cube = CubeInformation(
-            xt_min=data.xt_min,
-            yt_min=data.yt_min,
-            zt_min=data.zt_min,
-            coords=data[index],
-        )
-        cube = self.cartesian_pos(cube, dx=dx)
-        cube = self.get_polar_image(self.matrix_rotation(data=cube.coords, sdo_pos=sdo_pos))
-        
-        # PROJECTION formatting
-        return ProjectedCube(data=cube, name=name, colour=colour)

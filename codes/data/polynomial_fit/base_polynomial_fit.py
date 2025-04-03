@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 
 # IMPORTs personal
 from common import config, Decorators, MultiProcessing
-from codes.projection.helpers.dataclasses import HDF5GroupPolynomialInformation
 
 # PLACEHOLDERs type annotation
 LockProxy = Any
@@ -690,7 +689,21 @@ class Polynomial:
             for i in range(self.poly_order + 1): result += coeffs[i] * t**i
             return result
         return nth_order_polynomial
+    
 
+@dataclass(slots=True, repr=False, eq=False)
+class HDF5GroupPolynomialInformation:
+    """  
+    To store the polynomial information stored in the HDF5 file.
+    """
+
+    # BORDERs
+    xt_min: float
+    yt_min: float
+    zt_min: float
+
+    # PARAMETERs
+    params: h5py.Dataset
 
 class GetPolynomialFit:
     """
@@ -702,13 +715,11 @@ class GetPolynomialFit:
     def __init__(
             self,
             filepath: str,
+            group_path: str,
             polynomial_order: int,
-            integration_time: int,
             number_of_points: int,
-            data_type: str = 'No duplicates',
-            with_fake_data: bool = False,
         ) -> None:
-        """
+        """  # todo update docstring
         Initialise the class so that the pointer to the polynomial parameters is created (given
         the specified data type, integration time and polynomial order).
         After having finished using the class, the .close() method needs to be used to close the 
@@ -730,36 +741,47 @@ class GetPolynomialFit:
         # ATTRIBUTES
         self.filepath = filepath
         self.t_fine = np.linspace(0, 1, number_of_points) 
-        self.data_type = data_type
-        self.integration_time = integration_time
         self.order = polynomial_order
-        self.with_fake_data = with_fake_data
         
         # POINTERs
-        self.file, self.polynomial_info = self.get_group_pointer()
+        self.file, self.polynomial_info = self.get_group_pointer(group_path)
 
-    def get_group_pointer(self) -> tuple[h5py.File, HDF5GroupPolynomialInformation]:
+    def get_group_pointer(self, group_path: str) -> tuple[h5py.File, HDF5GroupPolynomialInformation]:
         """
         To get the HDF5 file pointer and the HDF5GroupPolynomialInformation containing the dataset
         pointer.
+
+        Args:
+            group_path (str): the HDF5 file group path to the group containing the border values
+                and the different polynomial fits for a given filtered 3D data.
 
         Returns:
             tuple[h5py.File, HDF5GroupPolynomialInformation]: the HDF5 file pointer and the pointer
                 to the dataset containing the polynomial fit parameters.
         """
 
-        # PATH group
-        init_path = 'Real/' if self.with_fake_data else ''
-        group_path = (
-            init_path +
-            'Time integrated/' + 
-            self.data_type +
-            f'/Time integration of {self.integration_time}.0 hours'
-        )
-
         # FILE read
         H5PYFile = h5py.File(self.filepath, 'r')
-        return H5PYFile, HDF5GroupPolynomialInformation(H5PYFile[group_path], self.order) #type:ignore
+
+        # BORDERs
+        xt_min = float(cast(h5py.Dataset, H5PYFile[group_path + '/xt_min'])[...])
+        yt_min = float(cast(h5py.Dataset, H5PYFile[group_path + '/yt_min'])[...])
+        zt_min = float(cast(h5py.Dataset, H5PYFile[group_path + '/zt_min'])[...])
+
+        # PARAMs
+        params = cast(
+            h5py.Dataset,
+            H5PYFile[group_path + f'/{self.order}th order polynomial/parameters'],
+        )
+
+        # RESULTs formatting
+        information = HDF5GroupPolynomialInformation(
+            xt_min=xt_min,
+            yt_min=yt_min,
+            zt_min=zt_min,
+            params=params,
+        )
+        return H5PYFile, information
 
     def get_params(self, cube_index: int) -> np.ndarray:
         """
@@ -775,8 +797,16 @@ class GetPolynomialFit:
             np.ndarray: the (x, y, z) parameters of the polynomial fit for a given time.
         """
 
-        mask = (self.polynomial_info.coords[0, :] == cube_index)
-        return self.polynomial_info.coords[1:4, mask].astype('float64')
+        if self.polynomial_info.params.shape[0] == 4:
+            mask = (self.polynomial_info.params[0, :] == cube_index)
+            return self.polynomial_info.params[1:4, mask].astype('float64')
+        elif self.polynomial_info.params.shape[0] == 3:
+            return self.polynomial_info.params[...].astype('float64')
+        else:
+            raise ValueError(
+                f"\033[1;31mThe shape {self.polynomial_info.params.shape} for the parameters "
+                "of the polynomial fit is not recognised.\033[0m"
+            )
 
     def nth_order_polynomial(self, t: np.ndarray, *coeffs: int | float) -> np.ndarray:
         """

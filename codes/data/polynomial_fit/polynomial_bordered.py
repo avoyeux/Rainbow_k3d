@@ -9,7 +9,7 @@ from the initial borders of the cube are also removed.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.helpers.projection_dataclasses import CubeInformation
+from codes.projection.helpers.dataclasses.projection_dataclasses import CubeInformation
 from codes.data.polynomial_fit.base_polynomial_fit import GetPolynomialFit
 
 
@@ -24,14 +24,12 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
     def __init__(
             self,
             filepath: str,
+            group_path: str,
             polynomial_order: int,
-            integration_time: int,
             number_of_points: int,
             dx: float,
-            data_type: str = 'No duplicates',
-            with_fake_data: bool = False,
         ) -> None:
-        """
+        """  # todo update docstring
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
@@ -53,11 +51,9 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
         # PARENT
         super().__init__(
             filepath=filepath,
+            group_path=group_path,
             polynomial_order=polynomial_order,
-            integration_time=integration_time,
             number_of_points=0,
-            data_type=data_type,
-            with_fake_data=with_fake_data,
         )
 
         # EXTRAPOLATION polynomial
