@@ -719,23 +719,17 @@ class GetPolynomialFit:
             polynomial_order: int,
             number_of_points: int,
         ) -> None:
-        """  # todo update docstring
-        Initialise the class so that the pointer to the polynomial parameters is created (given
-        the specified data type, integration time and polynomial order).
+        """
+        Initialise the class so that the pointer to the polynomial parameters is created.
         After having finished using the class, the .close() method needs to be used to close the 
         HDF5 pointer.
 
         Args:
             filepath (str): the path to the HDF5 file.
+            group_path (str): the path to the group containing the polynomial fit parameters.
             polynomial_order (int): the polynomial order to consider.
-            integration_time (int): the integration time to consider for the choosing of the 
-                polynomial fit.
             number_of_points (int): the number of points to use when getting the polynomial
                 fit positions.
-            data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates'.
-            with_fake_data (bool, optional): if the HDF5 also contains the fake data. Defaults to
-                False.
         """
 
         # ATTRIBUTES

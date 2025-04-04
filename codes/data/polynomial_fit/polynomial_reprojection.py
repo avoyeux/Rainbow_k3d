@@ -14,21 +14,15 @@ import scipy
 import numpy as np
 
 # IMPORTs sub
-from typing import cast, Protocol, Any
+from typing import cast, Protocol
 from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import config
-from codes.projection.base_reprojection import BaseReprojection
+from codes.projection.helpers.base_reprojection import BaseReprojection
 from codes.projection.helpers.extract_envelope import CreateFitEnvelope
-from codes.projection.helpers.dataclasses.projection_dataclasses import (
-    FitWithEnvelopes, FitEnvelopes, ProjectedCube, PolarImageInfo, CubeInformation,
-)
-from codes.projection.helpers.dataclasses.dataclasses_pointers import (
-    DataPointer, UniqueDataPointer, FakeDataPointer,
-)
-from codes.projection.helpers.warp_sdo_image import WarpSdoImage
+from codes.projection.format_data import FitWithEnvelopes, FitEnvelopes
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
 
@@ -370,33 +364,30 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             number_of_points: int,
             feet_sigma: float,
             feet_threshold: float,
+            envelope_radius: int | float = 3e4,
             create_envelope: bool = True,
             verbose: bool | None = None,
             flush: bool | None = None,
             test_plots: bool | None = None,
         ) -> None:
-        """  # todo update docstring
+        """
         To initialise the class.
         The reprocessed_fit_n_envelopes method should be called to get the results.
 
         Args:
             filepath (str): the filepath to the hdf5 file containing the fit results.
+            group_path (str): the path to the group in the hdf5 file containing the fit results.
+            name (str): the name of the fit to consider.
             dx (float): the voxel resolution in km.
-            index (int): the index of the cube to consider.
             colour (str): the colour of the fit and corresponding envelope in the final plot.
-            sdo_pos (np.ndarray): the position of SDO in heliographic coordinates.
             polynomial_order (int): the order of the polynomial fit to consider.
-            integration_time (int): the integration time to consider when choosing the polynomial
-                fit parameters (in hours).
             number_of_points (int): the number of points to consider in the final polynomial fit.
             feet_sigma (float): the sigma to use for the feet of the envelope.
             feet_threshold (float): the threshold representing how much of the data to consider as
                 the feet. E.G. 0.1 means that the first 10% and last 10% of the data are considered
                 as the feet.
-            data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates'.
-            with_fake_data (bool, optional): when the HDF5 file also contains fake data (as the
-                default path change). Defaults to False.
+            envelope_radius (int | float, optional): the radius of the envelope to consider (in km)
+                . Defaults to 3e4.
             create_envelope (bool, optional): to create the envelope or not. Defaults to True.
             verbose (bool | None, optional): the verbosity level in the prints. When None, the
                 config file value is taken. Defaults to None.
@@ -428,6 +419,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         self.colour = colour
         self.feet_sigma = feet_sigma
         self.feet_threshold = feet_threshold
+        self.envelope_radius = envelope_radius
         self.nb_of_points = number_of_points
         self.polynomial_order = polynomial_order
         self.create_envelope = create_envelope
@@ -447,8 +439,12 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         return paths
 
     def reprocessed_fit_n_envelopes(self, index: int, sdo_pos: np.ndarray) -> FitWithEnvelopes:
-        """  # todo update docstring
+        """
         To reprocess the fit results and create the corresponding envelopes.
+
+        Args:
+            index (int): the index of the cube to consider.
+            sdo_pos (np.ndarray): the SDO position to consider.
 
         Returns:
             FitWithEnvelopes: the processed fit results and the corresponding envelopes.
@@ -477,7 +473,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             # ENVELOPE
             envelopes_polar = CreateFitEnvelope.get(
                 coords=coords_uniform,
-                radius=3e4,
+                radius=self.envelope_radius,
             )
             
             envelopes: list[FitEnvelopes] | None = []
@@ -524,11 +520,12 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         return fit_n_envelopes
         
     def success_log(self, instance: Fitting2D, index: int) -> str:
-        """  # todo update docstring
+        """
         To log the success of the fit.
 
         Args:
             instance (Fitting2D): the instance of the Fitting2D class.
+            index (int): the index of the cube to consider.
 
         Returns:
             str: the log message.
@@ -555,6 +552,9 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
     def get_cube_date(self, index: int) -> str:
         """
         To get the date of the cube.
+
+        Args:
+            index (int): the index of the cube to consider.
 
         Returns:
             str: the date of the cube.

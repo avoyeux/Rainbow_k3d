@@ -12,18 +12,18 @@ import astropy
 
 # IMPORTS alias
 import numpy as np
-import matplotlib.pyplot as plt
-from astropy import units as u
 
 # IMPORTs sub
+from typing import Any
+from astropy import units as u
 import astropy.io.fits
 import skimage.transform
 import sunpy.coordinates
-from typing import Any
+import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import config
-from codes.projection.helpers.dataclasses.projection_dataclasses import ImageBorders, PolarImageInfo, ImageInfo
+from codes.projection.format_data import ImageBorders, PolarImageInfo, ImageInfo
 
 # ANNOTATIONs alias
 AstropyFitsHeaderType = Any

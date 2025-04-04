@@ -30,6 +30,7 @@ VoxelType = Any
 JsLinkType = Any
 
 # todo need to improve the names of the different datasets in the visualisation
+# todo need to be able to add the extended version of the polynomial fit
 
 
 

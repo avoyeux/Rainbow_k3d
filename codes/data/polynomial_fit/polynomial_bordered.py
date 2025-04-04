@@ -9,7 +9,7 @@ from the initial borders of the cube are also removed.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.helpers.dataclasses.projection_dataclasses import CubeInformation
+from codes.projection.format_data import CubeInformation
 from codes.data.polynomial_fit.base_polynomial_fit import GetPolynomialFit
 
 
@@ -29,23 +29,18 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
             number_of_points: int,
             dx: float,
         ) -> None:
-        """  # todo update docstring
+        """
         To process the polynomial fit positions so that the final result is a curve with a set
         number of points defined from the Sun's surface. If not possible, then the fit stops at a
         predefined distance. The number of points in the resulting stays the same.
 
         Args:
             filepath (str): the path to the polynomial fit data.
+            group_path (str): the path to the group in the HDF5 file.
             polynomial_order (int): the order of the polynomial fit to consider.
-            integration_time (int): the integration time to consider when choosing the polynomial
-                fit parameters.
             number_of_points (int): the number of positions to consider in the final polynomial
                 fit.
             dx (float): the voxel resolution in km.
-            data_type (str, optional): the data type to consider when looking for the corresponding
-                polynomial fit. Defaults to 'No duplicates'.
-            with_fake_data (bool, optional): when the HDF5 file also has fake data inside it.
-                Defaults to False.
         """
 
         # PARENT
@@ -108,9 +103,9 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
         sun_filter = distance_sun_center < self.solar_r
 
         # FILTER far from Sun
-        x_filter = (coords[0] < - self.solar_r * 1.27) | (coords[0] > - self.solar_r * 0.92)
-        y_filter = (coords[1] < - self.solar_r * 0.5) | (coords[1] > -self.solar_r * 0.05)
-        z_filter = (coords[2] < - self.solar_r * 0.28) | (coords[2] > self.solar_r * 0.3)
+        x_filter = (coords[0] < - self.solar_r * 1.30) | (coords[0] > - self.solar_r * 0.90)
+        y_filter = (coords[1] < - self.solar_r * 0.7) | (coords[1] > -self.solar_r * 0.02)
+        z_filter = (coords[2] < - self.solar_r * 0.3) | (coords[2] > self.solar_r * 0.5)
         
         # FILTERs combine
         to_filter = (x_filter | y_filter | z_filter | sun_filter)

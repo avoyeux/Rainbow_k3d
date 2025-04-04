@@ -1,9 +1,7 @@
 """
-To store dataclasses related to structuring the metadata and the dataset pointers gotten from the
-main HDF5 file.
+To store dataclasses related to the saving and formatting of the volumetric protuberance
+information.
 """
-
-from __future__ import annotations
 
 # IMPORTs
 import h5py
@@ -14,9 +12,24 @@ import numpy as np
 # IMPORTs sub
 from typing import Any
 from dataclasses import dataclass, field
-from codes.projection.helpers.dataclasses.projection_dataclasses import CubeInformation, FitWithEnvelopes, PolarImageInfo
 
-# SDO REPROJECTION code
+
+
+@dataclass(slots=True, repr=False, eq=False)
+class CubeInformation:
+    """
+    To store the information of a single cube.
+    """
+
+    # BORDERs
+    xt_min : float
+    yt_min : float
+    zt_min : float
+
+    # VALUEs
+    coords: np.ndarray
+    order: int | None = None 
+
 
 @dataclass(slots=True, repr=False, eq=False)
 class FitPointer:
@@ -194,65 +207,3 @@ class CubesPointers:
     line_of_sight: DataPointer | None = field(default=None, init=False)
     fake_data: FakeDataPointer | None = field(default=None, init=False)
     test_cube: UniqueDataPointer | None = field(default=None, init=False)
-
-# PROJECTED DATA
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class EnvelopeInformation:
-    """
-    To store the information about the envelope created by Dr. Auchere.
-    """
-
-    # DATA
-    polar_r: np.ndarray
-    polar_theta: np.ndarray
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class FitNEnvelope:
-
-    # METADATA
-    fit_order: int
-    integration_time: int
-
-    # FIT coords
-    fit_polar_r: np.ndarray
-    fit_polar_theta: np.ndarray
-
-    # OTHER data
-    envelopes: list[EnvelopeInformation] | None
-    warp: np.ndarray | None
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class ProjectedData:
-
-    # METADATA
-    name: str
-    colour: str
-    cube_index: int
-    integration_time: int | str | None
-
-    # DATA
-    cube: CubeInformation 
-    fit_n_envelopes: list[FitWithEnvelopes] | None
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class ProjectionData:
-    """
-    To store the data used in the polynomial projection module.
-    """
-
-    ID: int
-    sdo_image: PolarImageInfo | None = None
-    sdo_mask: PolarImageInfo | None = None
-    all_data: ProjectedData | None = None
-    no_duplicates: ProjectedData | None = None
-    full_integration_all_data: ProjectedData | None = None
-    full_integration_no_duplicates: ProjectedData | None = None
-    integration: list[ProjectedData] | None = None
-    line_of_sight: ProjectedData | None = None
-    fake_data: ProjectedData | None = None
-    test_cube: ProjectedData | None = None

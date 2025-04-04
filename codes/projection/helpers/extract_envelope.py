@@ -6,17 +6,16 @@ To extract the envelope created by Dr. Auchere and used in his Coronal Monsoon p
 import os
 import scipy
 
+# IMPORTs alias
+import numpy as np
+
 # IMPORTs sub
 from PIL import Image
 import scipy.interpolate
 
-# IMPORTs alias
-import numpy as np
-import matplotlib.pyplot as plt
-
 # IMPORTs personal
 from common import config
-from codes.projection.helpers.dataclasses.projection_dataclasses import (
+from codes.projection.format_data import (
     ImageBorders, EnvelopeInformation, EnvelopeLimitInformation, EnvelopeMiddleInformation
 )
 

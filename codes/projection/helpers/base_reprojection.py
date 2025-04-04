@@ -6,7 +6,7 @@ To store the parent class containing the reprojection methods.
 import numpy as np
 
 # IMPORTs personal
-from codes.projection.helpers.dataclasses.projection_dataclasses import CubeInformation
+from codes.projection.format_data import CubeInformation
 
 
 

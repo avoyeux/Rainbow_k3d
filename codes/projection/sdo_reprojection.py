@@ -18,16 +18,12 @@ import matplotlib.pyplot as plt
 
 # IMPORTS personal
 from common import config, Decorators, Plot
-from codes.projection.base_reprojection import BaseReprojection
+from codes.projection.format_data import *
 from codes.projection.helpers.warp_sdo_image import WarpSdoImage
 from codes.projection.helpers.extract_envelope import ExtractEnvelope
+from codes.projection.helpers.base_reprojection import BaseReprojection
 from codes.projection.helpers.cartesian_to_polar import CartesianToPolar
 from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProcessedPolynomial
-from codes.projection.helpers.dataclasses.projection_dataclasses import *
-from codes.projection.helpers.dataclasses.dataclasses_pointers import (
-    CubesPointers, DataPointer, UniqueDataPointer, FakeDataPointer, FitPointer, UniqueFitPointer,
-    ProjectedData, ProjectionData,
-)
 
 # IMPORTs type annotation
 from typing import Any, cast, overload, Literal
@@ -37,13 +33,6 @@ from matplotlib.collections import PathCollection
 QueueProxy = Any
 
 # todo make all plot options not dependent on each other
-# todo think about how to improve the fit envelope as right now the feet can be really wrong
-# todo do the interpolation for the integration of all the data at once
-# * the last todo is to be able to recreate the final image for Dr. Auchere's paper
-
-
-# ! need to change how the fetching and storing of the fit values are done as now with the new full
-# ! integration data, the whole code is becoming a fuck fest 
 
 
 
@@ -86,9 +75,11 @@ class OrthographicalProjection(BaseReprojection):
             polynomial_order (list[int], optional): the order(s) of the polynomial function(s) that
                 represent the fitting of the integrated 3D volume. Defaults to [4].
             plot_choices (str | list[str], optional): the main choices that the user wants to be in
-                the reprojection. The possible choices are:  # todo change the possible values
+                the reprojection. The possible choices are:
+                ['full integration no duplicates', 'full integration all data', 'integration',
+                'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data', 'envelope',
+                'fit', 'fit envelope', 'test data', 'line of sight', 'all data', 'warp']
                 ['sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
-                Defaults to [ 'sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
             with_fake_data (bool, optional): if the input data is the fusion HDF5 file.
                 Defaults to False.
             verbose (int | None, optional): gives the verbosity in the outputted prints. The higher
@@ -200,7 +191,7 @@ class OrthographicalProjection(BaseReprojection):
         plot_choices = plot_choices if isinstance(plot_choices, list) else [plot_choices]
 
         # CHOICES
-        possibilities = [  # ? does the cartesian option still work?
+        possibilities = [
             'full integration no duplicates', 'full integration all data',
             'integration', 'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data',
             'envelope', 'fit', 'fit envelope', 'test data', 'line of sight', 'all data', 'warp',
@@ -390,7 +381,7 @@ class OrthographicalProjection(BaseReprojection):
                     interpolate=False,
                 )
             
-            if self.plot_choices['full integration all data']:  # todo change this as no integration time given
+            if self.plot_choices['full integration all data']:
                 filtered_path = init_path + 'Time integrated/All data/Full integration'
                 data_pointers.full_integration_all_data = self.get_cubes_information(
                     H5PYFile=H5PYFile,
@@ -445,7 +436,6 @@ class OrthographicalProjection(BaseReprojection):
                     cube_type='real',
                     interpolate=False,
                 )
-                # ? add the stereo line of sight just to see the intersection ?
             
             if self.plot_choices['fake data']:
                 fake_path = 'Fake/Filtered/All data'
@@ -603,17 +593,19 @@ class OrthographicalProjection(BaseReprojection):
                 warp: bool = False,
                 warp_kwargs: dict[str, Any] = {},
             ) -> ProjectedData:
-            """  # todo update docstring
+            """
             To format the cube data for the projection.
 
             Args:
-                data (CubePointer | UniqueCubePointer | FakeCubePointer): the data cube to be
+                data (DataPointer | UniqueDataPointer | FakeDataPointer): the data cube to be
                     formatted.
-                dx (float): the pixel size of the data cube in km.
                 index (int): the index of the corresponding real data cube.
-                name (str): the name of the data used as a label in the final plot.
                 colour (str): the colour of the data cube for the plot.
-                sdo_pos (np.ndarray): the position of the SDO satellite.
+                sdo_info (PolarImageInfo): the SDO information (e.g. the position, the image).
+                warp (bool, optional): if the image section inside the fit envelope should be
+                    warped. Defaults to False.
+                warp_kwargs (dict[str, Any], optional): the kwargs used for the warping of the SDO
+                    image section. Defaults to {} (when there is no warping done).
 
             Returns:
                 ProjectedCube: the formatted and reprojected data cube.
@@ -652,6 +644,7 @@ class OrthographicalProjection(BaseReprojection):
                         number_of_points=300,  # ? should I add it as an argument ?
                         feet_sigma=0.1,
                         feet_threshold=0.1,
+                        envelope_radius=4e4,
                         create_envelope=self.plot_choices['fit envelope'],
                     )
                     
@@ -683,7 +676,6 @@ class OrthographicalProjection(BaseReprojection):
                 fit_n_envelopes=fit_n_envelopes,
             )
             return projection
-
 
     def get_file_from_server(self, filepath: str, fail_count: int = 0) -> str:
         """
@@ -780,7 +772,7 @@ class OrthographicalProjection(BaseReprojection):
         ) -> FakeDataPointer: ...
     
     @overload # fallback
-    def get_cubes_information( # todo update overloads
+    def get_cubes_information(
             self,
             H5PYFile: h5py.File,
             group_path: str,
@@ -790,7 +782,7 @@ class OrthographicalProjection(BaseReprojection):
             interpolate: bool = ...,
         ) -> DataPointer | UniqueDataPointer | FakeDataPointer: ...
 
-    def get_cubes_information(  # ! need to think about the full integration data
+    def get_cubes_information(
             self,
             H5PYFile: h5py.File,
             group_path: str,
@@ -799,13 +791,17 @@ class OrthographicalProjection(BaseReprojection):
             integration_time: int | str | None = None,
             interpolate: bool = False,
         ) -> DataPointer | UniqueDataPointer | FakeDataPointer:
-        """  # todo update docstring
+        """
         To get the information about the data cubes.
 
         Args:
             H5PYFile (h5py.File): the HDF5 file containing the data.
             group_path (str): the path to the group containing the data.
+            cube_name (str): the name given to the data cube.
             cube_type (str, optional): the type of the dataclass cube used. Defaults to 'real'.
+            integration_time (int | str | None, optional): the integration time of the data. If
+                None, the integration time is not used. If a string, it means that the data used is
+                one of the full integration one. Defaults to None.
             interpolate (bool, optional): if the interpolation data exists. Defaults to False.
 
         Returns:
@@ -924,7 +920,8 @@ class OrthographicalProjection(BaseReprojection):
             H5PYFile (h5py.File): the HDF5 file containing the data.
             group_path (str): the path to the group containing the data.
             cube_type (str): the type of the dataclass cube used.
-            integration_time (int): the integration time of the data.
+            integration_time (int | str): the integration time of the data. If the integration time
+                is a string, it means that the data used is the full integration type one.
             polynomial_order (int): the order of the polynomial fit.
 
         Raises:
@@ -1350,6 +1347,19 @@ class Plotting(OrthographicalProjection):
             process_constants: ProcessConstants,
             image_shape: tuple[int, int],
         ) -> PathCollection | None:
+        """
+        To plot the projected data and the corresponding fit and envelope if they exist.
+
+        Args:
+            data (ProjectedData): the projected data to be plotted.
+            process_constants (ProcessConstants): the constants for each cube.
+            image_shape (tuple[int, int]): the final image shape used in the contours plotting.
+
+        Returns:
+            PathCollection | None: the scatter plot of the projected polynomial fit. It is set to
+                None if there is no polynomial fit to be plotted. This is later used to add a
+                colorbar to the final plot.
+        """
 
         # CONTOURS image
         self.plot_contours(
@@ -1452,21 +1462,20 @@ class Plotting(OrthographicalProjection):
             integration_time: int | str,
             date: str,
         ) -> None:
-        """  # todo update docstring
+        """
         To plot the warped SDO image inside the fit envelope.
 
         Args:
-            warped_image (np.ndarray): the warped treated SDO image.
-            date (str): the date of the corresponding SDO image.
-            fit_order (int): the order used for the polynomial fit.
-            envelope_order (int): the order used for the envelope fit.
-            integration_time (int): the integration time of the data used in the fit.
+            fit_n_envelope (FitWithEnvelopes): the fit with envelopes to be plotted.
+            integration_time (int | str): the integration time of the data. If the integration time
+                is a string, it means that the data used is the full integration type one.
+            date (str): the date of the data.
         """
 
         # PLOT
         plot_name = (
             f'warped_{integration_time}h_{fit_n_envelope.fit_order}fit_'
-            f'{fit_n_envelope.envelopes[0].order}envelope_{date}.png'  # type:ignore
+            f'{fit_n_envelope.envelopes[0].order}envelope_{date}.png'  #type:ignore
         )
         plt.figure(num=2, figsize=(10, 10))
         plt.imshow(
