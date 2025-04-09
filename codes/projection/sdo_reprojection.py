@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 # IMPORTS personal
 from common import config, Decorators, Plot
 from codes.projection.format_data import *
+from codes.projection.envelope_distance import EnvelopeDistanceAnnotation
 from codes.projection.helpers.warp_sdo_image import WarpSdoImage
 from codes.projection.helpers.extract_envelope import ExtractEnvelope
 from codes.projection.helpers.base_reprojection import BaseReprojection
@@ -92,12 +93,12 @@ class OrthographicalProjection(BaseReprojection):
 
         # CONFIG values
         if processes is None:
-            self.processes: int = config.run.processes  #type:ignore
+            self.processes: int = config.run.processes
         else:
             self.processes = processes if processes > 1 else 1
-        self.verbose: int = config.run.verbose if verbose is None else verbose  #type:ignore
-        self.flush: bool = config.run.flush if flush is None else flush  #type:ignore
-        self.in_local = True if 'Documents' in config.root_path else False  #type:ignore
+        self.verbose: int = config.run.verbose if verbose is None else verbose
+        self.flush: bool = config.run.flush if flush is None else flush
+        self.in_local = True if 'Documents' in config.root_path else False
 
         # PARENT
         super().__init__()
@@ -146,9 +147,9 @@ class OrthographicalProjection(BaseReprojection):
 
         if filepath is None:
             if self.with_fake_data:
-                filepath: str = config.path.data.fusion  #type:ignore
+                filepath: str = config.path.data.fusion
             else:
-                filepath: str = config.path.data.real  #type:ignore
+                filepath: str = config.path.data.real
         return filepath
 
     def path_setup(self) -> dict[str, str]:
@@ -161,17 +162,18 @@ class OrthographicalProjection(BaseReprojection):
 
         # PATHs save
         paths = {
-            'sdo': config.path.dir.data.sdo, #type:ignore
-            'sdo times': config.path.data.sdo_timestamp, #type:ignore
+            'sdo': config.path.dir.data.sdo,
+            'sdo times': config.path.data.sdo_timestamp,
             'save': os.path.join(
-                config.path.dir.data.result.projection,  #type:ignore
+                config.path.dir.data.result.projection,
                 self.foldername,
             ),
         }
 
         # PATHs update
         paths['save warped'] = paths['save'] + '_warped'
-        for key in ['save', 'save warped']: os.makedirs(paths[key], exist_ok=True)
+        os.makedirs(paths['save'], exist_ok=True)
+        if self.plot_choices['warp']:  os.makedirs(paths['save warped'], exist_ok=True)
         return paths
 
     def plot_choices_creation(self, plot_choices: str | list[str]) -> dict[str, bool]:
@@ -585,14 +587,14 @@ class OrthographicalProjection(BaseReprojection):
         if self.in_local: self.connection.close()
 
     def format_cube(
-                self,
-                data: DataPointer | UniqueDataPointer | FakeDataPointer,
-                index: int,
-                colour: str,
-                sdo_info: PolarImageInfo,
-                warp: bool = False,
-                warp_kwargs: dict[str, Any] = {},
-            ) -> ProjectedData:
+            self,
+            data: DataPointer | UniqueDataPointer | FakeDataPointer,
+            index: int,
+            colour: str,
+            sdo_info: PolarImageInfo,
+            warp: bool = False,
+            warp_kwargs: dict[str, Any] = {},
+        ) -> ProjectedData:
             """
             To format the cube data for the projection.
 
@@ -656,7 +658,11 @@ class OrthographicalProjection(BaseReprojection):
                     )
 
                     # WARP IMAGE add
-                    if warp and (fit_n_envelope.envelopes is not None):
+                    if (
+                        warp
+                        and self.plot_choices['warp']
+                        and (fit_n_envelope.envelopes is not None)
+                        ):
                         warped_instance = WarpSdoImage(
                             envelopes=fit_n_envelope.envelopes,
                             sdo_image=sdo_info.image,
@@ -1398,6 +1404,13 @@ class Plotting(OrthographicalProjection):
                             **cast(dict[str, Any], self.plot_kwargs['fit envelope']),
                         )
 
+                        # ANNOTATE arc-length
+                        EnvelopeDistanceAnnotation(
+                            fit_envelope=new_envelope,
+                            colour=fit_n_envelope.colour,
+                        )
+
+
                     # WARP image
                     if fit_n_envelope.warped_image is not None:
                         # PLOT inside a new figure
@@ -1501,7 +1514,7 @@ if __name__ == '__main__':
             'no duplicates',
             'full integration no duplicates',
             'fit', 'fit envelope',
-            'sdo image', 'warp',
+            'sdo image', 'envelope',
         ],
         with_fake_data=False,
     )
