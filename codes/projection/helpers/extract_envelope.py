@@ -11,14 +11,12 @@ import numpy as np
 
 # IMPORTs sub
 from PIL import Image
+from typing import cast
 import scipy.interpolate
 
 # IMPORTs personal
 from common import config
-from codes.projection.format_data import (
-    ImageBorders, EnvelopeInformation, EnvelopeLimitInformation, EnvelopeMiddleInformation
-)
-
+from codes.projection.format_data import ImageBorders, FitEnvelopes, EnvelopeInformation
 
 
 class ExtractEnvelope:
@@ -32,7 +30,6 @@ class ExtractEnvelope:
             polynomial_order: int,
             number_of_points: int,
             borders: ImageBorders,
-            image_shape: tuple[int, int],
             verbose: int | None = None,
         ) -> None:
         """
@@ -54,19 +51,18 @@ class ExtractEnvelope:
         """
 
         # CONFIG attributes
-        self.verbose: int = config.run.verbose if verbose is None else verbose  #type:ignore
+        self.verbose: int = config.run.verbose if verbose is None else verbose
 
         # ATTRIBUTES setup
         self.polynomial_order = polynomial_order
         self.number_of_points = number_of_points
         self.borders = borders
-        self.image_shape = image_shape
         
         # PATHs setup
         self.paths = self.path_setup()
 
         # RUN
-        self.processing()
+        self.main()
 
     @classmethod
     def get(
@@ -74,7 +70,6 @@ class ExtractEnvelope:
             polynomial_order: int,
             number_of_points: int,
             borders: ImageBorders,
-            image_shape: tuple[int, int] = (400, 1250),
             verbose: int | None = None,
         ) -> EnvelopeInformation:
         """
@@ -88,8 +83,6 @@ class ExtractEnvelope:
                 envelope and the middle path.
             borders (ImageBorders): the radial distance and polar angle to borders consider for the
                 image.
-            image_shape (tuple[int, int]): the shape (in pixels) of the envelope image.
-                Defaults to (400, 1250).
             verbose (int | None, optional): decides on the details in the prints. When None, it
                 takes the value from the config file. Defaults to None.
 
@@ -101,11 +94,9 @@ class ExtractEnvelope:
             polynomial_order=polynomial_order,
             number_of_points=number_of_points,
             borders=borders,
-            image_shape=image_shape,
             verbose=verbose,
         )
-        envelope = instance.get_envelope_in_polar()
-        return envelope
+        return instance.envelope_information
     
     def path_setup(self) -> dict[str, str]:
         """
@@ -116,103 +107,79 @@ class ExtractEnvelope:
         """
 
         # PATHs save
-        paths = {'envelope': config.path.dir.data.result.envelope}  #type:ignore
+        paths = {'envelope': config.path.dir.data.result.envelope}
         return paths
     
-    def processing(self) -> None:
+    def main(self) -> None:
         """
-        To process the two envelope images and get the corresponding middle curve.
+        To get the envelope and corresponding middle path information.
         """
 
-        # SETUP
-        masks: list[np.ndarray] = [None] * 2  #type:ignore
-        lower_path = EnvelopeLimitInformation()
-        upper_path = EnvelopeLimitInformation()
-        limit_paths = [lower_path, upper_path]
-        envelope_filenames = ['rainbow_lower_path_v2.png', 'rainbow_upper_path_v2.png']
+        # ENVELOPE processing
+        lower_envelope = self.envelope_processing(
+            filepath=os.path.join(self.paths['envelope'], 'rainbow_lower_path_v2.png'),
+        )
+        upper_envelope = self.envelope_processing(
+            filepath=os.path.join(self.paths['envelope'], 'rainbow_upper_path_v2.png'),
+        )
 
-        # MIDDLE path
-        x_t_curves: list[np.ndarray] = [None] * 2  #type:ignore
-        y_t_curves: list[np.ndarray] = [None] * 2  #type:ignore
-        for i, path in enumerate(os.path.join(
-            self.paths['envelope'], filename) for filename in envelope_filenames
-            ):
-            # IMAGE open
-            im = Image.open(path)
-            image = np.array(im)
-
-            # DATA process
-            x_normalised = np.linspace(0, 1, self.number_of_points)
-            mask, x_t_function, y_x_coefs, x_range = self.get_image_coeffs(image)
-            x = np.linspace(x_range[0], x_range[1], self.number_of_points)
-
-            # DATA save
-            masks[i] = mask
-            limit_paths[i].x = x
-            limit_paths[i].y = self.get_polynomial_array(y_x_coefs, x)
-            x_t_curves[i] = x_t_function(x_normalised)
-            y_t_curves[i] = self.get_polynomial_array(y_x_coefs, x_t_curves[i])
-            im.close()
         # CURVE middle
-        middle_path = EnvelopeMiddleInformation(
-            x_t=(x_t_curves[0] + x_t_curves[1]) / 2,
-            y_t=(y_t_curves[0] + y_t_curves[1]) / 2,
+        middle_path = FitEnvelopes(
+            order=self.polynomial_order,
+            polar_r=(lower_envelope.polar_r + upper_envelope.polar_r) / 2,
+            polar_theta=(lower_envelope.polar_theta + upper_envelope.polar_theta) / 2,
         )
 
         # RESULTs
-        self.masks = masks[1] + masks[0] 
         self.envelope_information = EnvelopeInformation(
             middle=middle_path,
-            upper=upper_path,
-            lower=lower_path,
+            upper=upper_envelope,
+            lower=lower_envelope,
         )
 
-    def get_envelope_in_polar(self) -> EnvelopeInformation:
+    def envelope_processing(self, filepath: str) -> FitEnvelopes:
         """
-        To get the change the envelope information from the image reference frame to polar
-        coordinates.
+        To process the envelope PNG files and get the curve equations and coordinates of each
+        envelope path. 
+
+        Args:
+            filepath (str): the filepath to the envelope PNG file.
 
         Returns:
-            EnvelopeInformation: the envelope information in polar coordinates.
+            FitEnvelopes: the corresponding envelope information in polar coordinates.
         """
 
-        image_axis_curves = []
-        middle_path = EnvelopeMiddleInformation()
+        # IMAGE open
+        im = Image.open(filepath)
+        image = np.array(im)
 
-        for axis in range(2):
+        # DATA process
+        arc_length = np.linspace(0, 1, self.number_of_points)
+        theta_t_interp, r_theta_coeffs = self.get_image_coeffs(image)
 
-            # DATA re-order
-            axis_t_curve = self.envelope_information.middle[axis]
-            image_axis_curve = [self.envelope_information[i][axis] for i in range(2)]
-            
-            # DATA new
-            final_data = []
-            for data in [axis_t_curve] + image_axis_curve:
-                final_data.append(self.polar_positions(
-                    arr=data,
-                    max_index=self.image_shape[axis - 1] - 1,
-                    borders=self.borders.polar_angle if axis==0 else self.borders.radial_distance,
-                ))
-
-            # RESULTs save   
-            middle_path[axis] = final_data[0]
-            image_axis_curves.append([final_data[index] for index in [1, 2]])
+        # DATA save
+        polar_theta = theta_t_interp(arc_length)
+        polar_r = self.get_polynomial_array(r_theta_coeffs, polar_theta)
+        im.close()
 
         # DATA formatting
-        upper_path = EnvelopeLimitInformation(
-            x=image_axis_curves[0][0],
-            y=image_axis_curves[1][0],
+        envelope = FitEnvelopes(
+            order=self.polynomial_order,
+            polar_r=self.polar_positions(
+                arr=polar_r,
+                max_index=image.shape[0],
+                borders=cast(
+                    tuple[int, int],
+                    tuple(int(distance * 1e3) for distance in self.borders.radial_distance)
+                ),
+            ),  # in km
+            polar_theta=self.polar_positions(
+                arr=polar_theta,
+                max_index=image.shape[1],
+                borders=self.borders.polar_angle,
+            ),  # in degrees
         )
-        lower_path = EnvelopeLimitInformation(
-            x=image_axis_curves[0][1],
-            y=image_axis_curves[1][1],
-        )
-        envelope_information = EnvelopeInformation(
-            middle=middle_path,
-            upper=upper_path,
-            lower=lower_path,
-        )
-        return envelope_information
+        return envelope
 
     def polar_positions(
             self,
@@ -240,7 +207,7 @@ class ExtractEnvelope:
     def get_image_coeffs(
             self,
             image: np.ndarray,
-        ) -> tuple[np.ndarray, scipy.interpolate.interp1d, np.ndarray, tuple[float, float]]:
+        ) -> tuple[scipy.interpolate.interp1d, np.ndarray]:
         """
         To get the curve functions and coefficients of a given image of the envelope.
 
@@ -248,33 +215,36 @@ class ExtractEnvelope:
             image (np.ndarray): the image of the top or bottom section of the envelope.
 
         Returns:
-            tuple[np.ndarray, scipy.interpolate.interp1d, np.ndarray, tuple[float, float]]: the
-                mask gotten from the png file, the x(t) interpolation function with the y(x) fit
-                coefficients with the range of the horizontal image indexes (i.e. the min and max
-                of those values).
+            tuple[scipy.interpolate.interp1d, np.ndarray]: the curve functions and coefficients of
+                the polynomial fit.
         """
 
         # COORDs
-        x, y = np.where(image.T == 0)
-        mask = np.zeros(image.shape, dtype='uint8')
+        theta, radial_distance = np.where(image.T == 0)
 
         # AXES swap (Python reads from top left corner)
-        y = -(y - image.shape[0])
-        mask[y, x] = 1
+        radial_distance = -(radial_distance - image.shape[0])
 
         # CUMULATIVE DISTANCE
-        cumulative_distance = np.empty((len(x),), dtype='float64')
+        cumulative_distance = np.empty(theta.shape, dtype='float64')
         cumulative_distance[0] = 0
-        for i in range(1, len(x)):
+        for i in range(1, len(theta)):
             cumulative_distance[i] = cumulative_distance[i - 1] + np.sqrt(
-                (x[i] - x[i - 1])**2 + (y[i] - y[i - 1])**2
+                (theta[i] - theta[i - 1])**2 + (radial_distance[i] - radial_distance[i - 1])**2
             )
         cumulative_distance /= cumulative_distance[-1]  # normalised
 
         # FITs + INTERPOLATION
-        x_t_function = scipy.interpolate.interp1d(cumulative_distance, x, kind='cubic')
-        y_x_coefs: np.ndarray = np.polyfit(x, y, self.polynomial_order)
-        return mask, x_t_function, y_x_coefs[::-1], (np.min(x), np.max(x))  #type:ignore
+        theta_t_interp = scipy.interpolate.interp1d(cumulative_distance, theta, kind='cubic')
+        r_theta_coeffs: np.ndarray = cast(
+            np.ndarray,
+            np.polyfit(theta, radial_distance, self.polynomial_order),
+        )
+        results = (
+            theta_t_interp,
+            r_theta_coeffs[::-1],
+        )
+        return results
 
     def get_polynomial_array(self, coeffs: np.ndarray, x: np.ndarray) -> np.ndarray:
         """
@@ -290,7 +260,7 @@ class ExtractEnvelope:
             np.ndarray: the results of the polynomial equation for the x values.
         """
 
-        result: np.ndarray = 0  #type:ignore
+        result: np.ndarray = cast(np.ndarray, 0)
         for i in range(self.polynomial_order + 1): result += coeffs[i] * x ** i
         return result
 

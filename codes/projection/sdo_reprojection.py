@@ -1191,27 +1191,23 @@ class Plotting(OrthographicalProjection):
         # SDO polar projection plotting
         plt.figure(num=1, figsize=(18, 5))
         if self.Auchere_envelope is not None: 
-            
-            plt.plot(
-                self.Auchere_envelope.middle.x_t,
-                self.Auchere_envelope.middle.y_t,
-                color='black',
+            # PLOT Auchere's envelope
+            self.plt_plot(
+                coords=self.Auchere_envelope.middle,
+                colour='blue',
                 label='Middle path',
-                **cast(dict[str, Any], self.plot_kwargs['envelope']),
+                kwargs=cast(dict[str, Any], self.plot_kwargs['envelope']),
             )
-            
-            plt.plot(
-                self.Auchere_envelope.upper.x,
-                self.Auchere_envelope.upper.y,
-                color='black',
+            self.plt_plot(
+                coords=self.Auchere_envelope.upper,
+                colour='black',
                 label='Envelope',
-                **cast(dict[str, Any], self.plot_kwargs['envelope']),
+                kwargs=cast(dict[str, Any], self.plot_kwargs['envelope']),
             )
-            plt.plot(
-                self.Auchere_envelope.lower.x,
-                self.Auchere_envelope.lower.y,
-                color='black',
-                **cast(dict[str, Any], self.plot_kwargs['envelope']),
+            self.plt_plot(
+                coords=self.Auchere_envelope.lower,
+                colour='black',
+                kwargs=cast(dict[str, Any], self.plot_kwargs['envelope']),
             )
 
         if projection_data.sdo_mask is not None:
@@ -1224,19 +1220,17 @@ class Plotting(OrthographicalProjection):
             # CONTOURS plot
             if lines is not None:
                 line = lines[0]
-                plt.plot(
-                    line[1],
-                    line[0],
-                    color=projection_data.sdo_mask.colour,
+                self.plt_plot(
+                    coords=(line[1], line[0]),
+                    colour=projection_data.sdo_mask.colour,
                     label='SDO mask contours',
-                    **cast(dict[str, Any], self.plot_kwargs['contour']),
+                    kwargs=cast(dict[str, Any], self.plot_kwargs['contour']),
                 )
                 for line in lines[1:]:
-                    plt.plot(
-                        line[1],
-                        line[0],
-                        color=projection_data.sdo_mask.colour,
-                        **cast(dict[str, Any], self.plot_kwargs['contour']),
+                    self.plt_plot(
+                        coords=(line[1], line[0]),
+                        colour=projection_data.sdo_mask.colour,
+                        kwargs=cast(dict[str, Any], self.plot_kwargs['contour']),
                     )
 
         if projection_data.sdo_image is not None:
@@ -1393,23 +1387,15 @@ class Plotting(OrthographicalProjection):
                 if fit_n_envelope.envelopes is not None:
                     # PLOT envelope
                     for label, new_envelope in enumerate(fit_n_envelope.envelopes):
-                        plt.plot(
-                            new_envelope.polar_theta,
-                            new_envelope.polar_r / 1e3,
+                        self.plt_plot(
+                            coords=new_envelope,
+                            colour=fit_n_envelope.colour,
                             label=(
                                 f'Envelope ({new_envelope.order}th) for '
                                 + fit_n_envelope.name.lower()
                             ) if label==0 else None,
-                            color=fit_n_envelope.colour,
-                            **cast(dict[str, Any], self.plot_kwargs['fit envelope']),
+                            kwargs=cast(dict[str, Any], self.plot_kwargs['fit envelope']),
                         )
-
-                        # ANNOTATE arc-length
-                        EnvelopeDistanceAnnotation(
-                            fit_envelope=new_envelope,
-                            colour=fit_n_envelope.colour,
-                        )
-
 
                     # WARP image
                     if fit_n_envelope.warped_image is not None:
@@ -1441,7 +1427,7 @@ class Plotting(OrthographicalProjection):
 
         # POLAR coordinates
         rho, theta = projection.cube.coords
-        color = projection.colour
+        colour = projection.colour
 
         # CONTOURS cube
         _, lines = self.cube_contour(
@@ -1454,19 +1440,17 @@ class Plotting(OrthographicalProjection):
         # PLOT
         if lines is not None:
             line = lines[0]
-            plt.plot(
-                line[1],
-                line[0],
-                color=color,
+            self.plt_plot(
+                coords=(line[1], line[0]),
+                colour=colour,
                 label=projection.name + ' contour',
-                **cast(dict[str, Any], self.plot_kwargs['contour']),
+                kwargs=cast(dict[str, Any], self.plot_kwargs['contour']),
             )
             for line in lines:
-                plt.plot(
-                    line[1],
-                    line[0],
-                    color=color,
-                    **cast(dict[str, Any], self.plot_kwargs['contour'])
+                self.plt_plot(
+                    coords=(line[1], line[0]),
+                    colour=colour,
+                    kwargs=cast(dict[str, Any], self.plot_kwargs['contour']),
                 )
 
     def plot_warped_image(
@@ -1504,6 +1488,45 @@ class Plotting(OrthographicalProjection):
 
         if self.verbose > 0: print(f'SAVED - {plot_name}', flush=self.flush)
 
+    def plt_plot(
+            self,
+            coords: tuple[np.ndarray, np.ndarray] | tuple[list, list] | FitEnvelopes,
+            colour: str,
+            label: str | None = None,
+            kwargs: dict[str, Any] = {},
+        ) -> None:
+        """
+        As I am using plt.plot a lot in this code, I put the usual plotting parameters in a method.
+
+        Args:
+            coords (tuple[np.ndarray, np.ndarray] | FitEnvelopes): the coordinates of the points to
+                be plotted.
+            colour (str): the colour of the plot lines.
+            label (str | None, optional): the label of the plot lines. Defaults to None.
+            kwargs (dict[str, Any], optional): additional arguments to be added to the plt.plot().
+                Defaults to {}.
+        """
+
+        # CHECK
+        if isinstance(coords, tuple):
+            # PLOT
+            plt.plot(coords[0], coords[1], label=label, color=colour, **kwargs)
+        else:
+            # PLOT
+            plt.plot(
+                coords.polar_theta,
+                coords.polar_r / 1e3,
+                label=label,
+                color=colour,
+                **kwargs,
+            )
+
+            # ANNOTATE
+            EnvelopeDistanceAnnotation(
+                fit_envelope=coords,
+                colour=colour,
+            )
+
 
 
 if __name__ == '__main__':
@@ -1513,7 +1536,7 @@ if __name__ == '__main__':
         plot_choices=[
             'no duplicates',
             'full integration no duplicates',
-            'fit', 'fit envelope',
+            'fit',
             'sdo image', 'envelope',
         ],
         with_fake_data=False,

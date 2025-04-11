@@ -3,8 +3,6 @@ To determine the 2D distance corresponding to the polar path of the fit or the f
 depending on what is decided at the end.
 """
 
-# IMPORTs
-
 # IMPORTs alias
 import numpy as np
 
@@ -15,17 +13,18 @@ from codes.projection.format_data import FitEnvelopes
 
 
 class EnvelopeDistanceAnnotation:
+    """
+    To annotate a curve with the arc-length along the curve itself.
+    """
 
     def __init__(self, fit_envelope: FitEnvelopes, colour: str) -> None:
 
         # ATTRIBUTEs
-        self.fit_envelope = fit_envelope
+        self.polar_r = fit_envelope.polar_r.astype('float64') * 1e3  # in m
+        self.polar_theta = np.deg2rad(fit_envelope.polar_theta.astype('float64'))  # in rad
 
         # RUN
-        fit_cartesian_coords = self.coords_to_cartesian(
-            polar_r=fit_envelope.polar_r.astype('float64') * 1e3,
-            polar_theta=np.deg2rad(fit_envelope.polar_theta.astype('float64')),
-        )
+        fit_cartesian_coords = self.coords_to_cartesian()
         curve_distance = self.get_curve_distance(fit_cartesian_coords) / 1e3  # in Mm
 
         # ANNOTATE
@@ -42,14 +41,29 @@ class EnvelopeDistanceAnnotation:
             },
         )
 
-    def coords_to_cartesian(self, polar_r: np.ndarray, polar_theta: np.ndarray) -> np.ndarray:
+    def coords_to_cartesian(self) -> np.ndarray:
+        """
+        To convert the polar coordinates to cartesian coordinates.
+
+        Returns:
+            np.ndarray: the corresponding cartesian coordinates.
+        """
         
         # COORDs cartesian
-        x = polar_r * np.cos(polar_theta)
-        y = polar_r * np.sin(polar_theta)
+        x = self.polar_r * np.cos(self.polar_theta)
+        y = self.polar_r * np.sin(self.polar_theta)
         return np.stack([x, y], axis=0)
     
     def get_curve_distance(self, coords: np.ndarray) -> np.ndarray:
+        """
+        To compute the distance along the curve given the cartesian coordinates.
+
+        Args:
+            coords (np.ndarray): the cartesian coordinates of the curve.
+
+        Returns:
+            np.ndarray: the corresponding distance along the curve.
+        """
 
         # COORDs km
         coords /= 1e3
