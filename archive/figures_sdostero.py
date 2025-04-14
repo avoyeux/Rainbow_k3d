@@ -9,7 +9,6 @@ import re
 import warnings
 
 import numpy as np
-import imageio.v3 as iio3
 import astropy.units as u
 import multiprocessing as mp
 import matplotlib.pyplot as plt
@@ -375,42 +374,7 @@ class ImageFinder:
         print('one plot done.')
 
 
-class MP4_making:
-    """
-    To create the corresponding GIF.
-    """
-
-    def __init__(self, interval='1h', fps=5):
-
-        self.fps = fps
-        self.interval = interval
-        self.Paths()
-        self.MP4()
-
-    def Paths(self):
-        """
-        Paths creator.
-        """
-
-        main_path = '../'
-
-        self.paths = {'Main': main_path,
-                      'Figures': os.path.join(main_path, f'k3d_final_plots'),
-                      'MP4': os.path.join(main_path, 'MP4_creations')}
-        os.makedirs(self.paths['MP4'], exist_ok=True)
-
-    def MP4(self):
-        """
-        Making a corresponding mp4 file.
-        """
-
-        image_paths = sorted(glob(os.path.join(self.paths['Figures'], f'*{self.interval}*.png')))
-        images = [iio3.imread(image_path) for image_path in image_paths]
-
-        iio3.imwrite(os.path.join(self.paths['MP4'], f'{self.interval}_fps{self.fps}.mp4'), images, fps=self.fps)
 
 if __name__=='__main__':
     ImageFinder(interval='1h', processes=20)
     # MP4_making(interval='1h', fps=10)
-
-
