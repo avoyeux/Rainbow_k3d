@@ -20,16 +20,22 @@ path:
         code:
             path: &pathcode !join [*rootpath, 'codes']
 
-            animation: !join [*pathcode, 'animation']
-            projection: !join [*pathcode, 'projection']
-            manual_test: !join [*pathcode, 'manual_tests']
             test: !join [*pathcode, 'tests'] 
+            misc: !join [*pathcode, 'miscellaneous']
+            animation: !join [*pathcode, 'animation']
+            manual_test: !join [*pathcode, 'manual_tests']
 
             data: &datacode !join [*pathcode, 'data']
+            fit: !join [*datacode, 'polynomial_fit']
             fake_data: !join [*datacode, 'fake_data']
             fusion_data: !join [*datacode, 'fusion_data']
-            fit: !join [*datacode, 'polynomial_fit']
             quick_data: !join [*datacode, 'quick_visualisation_data']
+
+            projection: 
+                path: &projectionpath !join [*pathcode, 'projection']
+
+                helpers: !join [*projectionpath, 'helpers']
+                dataclasses: !join [*projectionpath, 'format_data']
 
         # PATHs data directories
         data: 
@@ -68,11 +74,11 @@ path:
             result:
                 path: &workdone !join [*datapath, 'work_done']
 
+                texture: !join [*workdone, 'textures']
+                envelope: !join [*workdone, 'envelope']
+                projection: !join [*workdone, 'projection']
                 contours: !join [*workdone, 'contours_3images']
                 stereo: !join [*workdone, 'opening_stereo_new']
-                envelope: !join [*workdone, 'envelope']
-                texture: !join [*workdone, 'textures']
-                projection: !join [*workdone, 'projection']
 
                 stats: 
                     path: &stats !join [*workdone, 'stats']
