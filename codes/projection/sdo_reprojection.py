@@ -33,8 +33,6 @@ from matplotlib.collections import PathCollection
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
-# todo make all plot options not dependent on each other
-
 
 
 class OrthographicalProjection(BaseReprojection):
@@ -526,7 +524,7 @@ class OrthographicalProjection(BaseReprojection):
                         index=process,
                         colour='brown',
                         sdo_info=sdo_image_info,
-                        warp=True,
+                        warp=self.plot_choices['warp'],
                         warp_kwargs=warp_kwargs,
                     )
                 
@@ -536,7 +534,7 @@ class OrthographicalProjection(BaseReprojection):
                         index=process,
                         colour='pink',
                         sdo_info=sdo_image_info,
-                        warp=True,
+                        warp=self.plot_choices['warp'],
                         warp_kwargs=warp_kwargs,
                     )
 
@@ -579,6 +577,15 @@ class OrthographicalProjection(BaseReprojection):
                         sdo_info=sdo_image_info,
                         warp=False,
                     )
+
+                # WARP add to Auchere's envelope
+                if self.plot_choices['warp'] and self.Auchere_envelope is not None:
+                    warped_instance = WarpSdoImage(
+                        envelopes=[self.Auchere_envelope.upper, self.Auchere_envelope.lower],
+                        sdo_image=sdo_image_info.image,
+                        **warp_kwargs,
+                    )
+                    self.Auchere_envelope.warped_image = warped_instance.warped_image
 
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
@@ -658,11 +665,7 @@ class OrthographicalProjection(BaseReprojection):
                     )
 
                     # WARP IMAGE add
-                    if (
-                        warp
-                        and self.plot_choices['warp']
-                        and (fit_n_envelope.envelopes is not None)
-                        ):
+                    if (fit_n_envelope.envelopes is not None) and warp:
                         warped_instance = WarpSdoImage(
                             envelopes=fit_n_envelope.envelopes,
                             sdo_image=sdo_info.image,
@@ -1123,7 +1126,10 @@ class OrthographicalProjection(BaseReprojection):
         if lines == []: return None
 
         # COORDs polar
-        nw_lines: list[tuple[list[float], list[float]]] = [None] * len(lines) #type:ignore
+        nw_lines: list[tuple[list[float], list[float]]] = cast(
+            list[tuple[list[float], list[float]]],
+            [None] * len(lines),
+        )
         for i, line in enumerate(lines):
             nw_lines[i] = ((
                 [
@@ -1209,6 +1215,15 @@ class Plotting(OrthographicalProjection):
                 colour='black',
                 kwargs=cast(dict[str, Any], self.plot_kwargs['envelope']),
             )
+
+            if self.Auchere_envelope.warped_image is not None:
+                self.plot_warped_image(
+                    warped_image=self.Auchere_envelope.warped_image,
+                    integration_time=None,
+                    date=process_constants.date,
+                    fit_order=None,
+                    envelope_order=self.Auchere_envelope.upper.order,
+                )
 
         if projection_data.sdo_mask is not None:
             # CONTOURS get
@@ -1401,9 +1416,11 @@ class Plotting(OrthographicalProjection):
                     if fit_n_envelope.warped_image is not None:
                         # PLOT inside a new figure
                         self.plot_warped_image(
-                            fit_n_envelope=fit_n_envelope,
+                            warped_image=fit_n_envelope.warped_image,
                             integration_time=data.integration_time,
                             date=process_constants.date,
+                            fit_order=fit_n_envelope.fit_order,
+                            envelope_order=fit_n_envelope.envelopes[0].order,
                         )
         return sc
     
@@ -1455,34 +1472,43 @@ class Plotting(OrthographicalProjection):
 
     def plot_warped_image(
             self,
-            fit_n_envelope: FitWithEnvelopes,
-            integration_time: int | str,
+            warped_image: np.ndarray,
+            integration_time: int | str | None,
             date: str,
+            fit_order: int | None, 
+            envelope_order: int,
         ) -> None:
         """
         To plot the warped SDO image inside the fit envelope.
 
         Args:
-            fit_n_envelope (FitWithEnvelopes): the fit with envelopes to be plotted.
-            integration_time (int | str): the integration time of the data. If the integration time
-                is a string, it means that the data used is the full integration type one.
+            warped_image (np.ndarray): the warped SDO image to be plotted.
+            integration_time (int | str | None): the integration time of the data. If the value is
+                None, it means that the data doesn't have an integration time. If the value is a
+                string, it means that the used data is the full integration one.
             date (str): the date of the data.
+            fit_order (int | None): the order of the polynomial fit. If the value is None, it means
+                that the fit doesn't have a polynomial order per se (like the middle path of 
+                Auchere's envelope).
+            envelope_order (int): the polynomial order of the envelope used to warp the SDO image.
         """
 
         # PLOT
         plot_name = (
-            f'warped_{integration_time}h_{fit_n_envelope.fit_order}fit_'
-            f'{fit_n_envelope.envelopes[0].order}envelope_{date}.png'  #type:ignore
+            "warped_"
+            f"{f'{integration_time}h_' if integration_time is not None else ''}"
+            f"{f'{fit_order}fit_' if fit_order is not None else ''}"
+            f"{envelope_order}envelope_{date}.png"
         )
         plt.figure(num=2, figsize=(10, 10))
         plt.imshow(
-            X=fit_n_envelope.warped_image.T,  #type:ignore
+            X=warped_image.T,
             interpolation='none',
             cmap='gray',
             origin='lower',
         )
         plt.title(f'Warped SDO image - {date}')
-        plt.savefig(os.path.join(self.paths['save warped'], plot_name), dpi=500)
+        plt.savefig(os.path.join(self.paths['save warped'], plot_name), dpi=300)
         plt.close(2)
         plt.figure(1)
 
@@ -1538,6 +1564,7 @@ if __name__ == '__main__':
             'full integration no duplicates',
             'fit',
             'sdo image', 'envelope',
+            'warp',
         ],
         with_fake_data=False,
     )

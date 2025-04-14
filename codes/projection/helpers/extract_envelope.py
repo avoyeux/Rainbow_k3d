@@ -19,6 +19,7 @@ from common import config
 from codes.projection.format_data import ImageBorders, FitEnvelopes, EnvelopeInformation
 
 
+
 class ExtractEnvelope:
     """
     To plot the envelope (and the corresponding middle path) created by Dr. Auchere and which was
@@ -53,10 +54,13 @@ class ExtractEnvelope:
         # CONFIG attributes
         self.verbose: int = config.run.verbose if verbose is None else verbose
 
-        # ATTRIBUTES setup
+        # ATTRIBUTEs setup
         self.polynomial_order = polynomial_order
         self.number_of_points = number_of_points
         self.borders = borders
+
+        # PLACEHOLDERs
+        self.envelope_information: EnvelopeInformation
         
         # PATHs setup
         self.paths = self.path_setup()
