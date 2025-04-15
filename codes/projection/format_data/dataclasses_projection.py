@@ -44,6 +44,7 @@ class ProcessConstants:
     ID: int
     date: str
     time_index: int
+    cube_index: int | None
 
 
 @dataclass(slots=True, repr=False, eq=False)

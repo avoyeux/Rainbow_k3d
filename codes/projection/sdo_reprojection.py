@@ -33,6 +33,9 @@ from matplotlib.collections import PathCollection
 # PLACEHOLDERs type annotation
 QueueProxy = Any
 
+# todo add the 'integration' of the warp images
+# todo 'integration' of warp images needs to be able to work on multiple datasets at the same time
+
 
 
 class OrthographicalProjection(BaseReprojection):
@@ -124,7 +127,7 @@ class OrthographicalProjection(BaseReprojection):
         self.feet = ' with feet' if with_feet else ''
         self.filepath = self.filepath_setup(filepath)
         self.foldername = (
-            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
+            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' ')) + '_test'
         )
         self.paths = self.path_setup()  # path setup
         self.sdo_timestamps = self.sdo_image_finder()  # sdo image timestamps
@@ -195,6 +198,7 @@ class OrthographicalProjection(BaseReprojection):
             'full integration no duplicates', 'full integration all data',
             'integration', 'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data',
             'envelope', 'fit', 'fit envelope', 'test data', 'line of sight', 'all data', 'warp',
+            'all sdo images',
         ]   
         plot_choices_kwargs = {
             key: False 
@@ -296,40 +300,107 @@ class OrthographicalProjection(BaseReprojection):
 
         # STATS data
         with h5py.File(self.filepath, 'r') as H5PYFile:
-            indexes: np.ndarray = cast(h5py.Dataset, H5PYFile[init_path + 'Time indexes'])[...]
+            # DATA index conversion
+            self.index_to_cube = self.process_index_to_cube_index(H5PYFile, init_path)
 
         if self.multiprocessing:
             # INFO multiprocessing
-            data_len = len(indexes)
+            data_len = len(self.index_to_cube.keys())
             nb_processes = min(self.processes, data_len)
 
             # SETUP multiprocessing
             processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
             manager = mp.Manager()
             input_queue = manager.Queue()
-            for i in range(data_len): input_queue.put(i)
+            output_queue = manager.Queue()
+            for i in range(data_len): input_queue.put(i)  # todo change this to a value proxy
             for _ in range(nb_processes): input_queue.put(None)
 
             # RUN multiprocessing
             for i in range(nb_processes):
                 p = mp.Process(
                     target=self.data_setup,
-                    kwargs={'input_queue': input_queue},
+                    kwargs={'input_queue': input_queue, 'output_queue': output_queue},
                 )
                 p.start()
                 processes[i] = p
             for p in processes: p.join()
+
+            # GET warped data
+            warped_data_list: list[np.ndarray] = cast(list[np.ndarray], [None] * data_len)
+            while not output_queue.empty():
+                identifier, warped = output_queue.get()
+                warped_data_list[identifier] = warped
+            warped_data = np.stack(warped_data_list, axis=0)
+            self.process_warped_data(warped_data)  # ! this only works for one set of warped data
         else:
-            self.data_setup(index_list=indexes)
+            self.data_setup(index_list=indexes)  # ! this won't work for now
 
         if self.in_local: self.connection.cleanup(verbose=self.verbose)
-    
+
+    def process_warped_data(self, warped_data: np.ndarray) -> None:
+        """
+        To plot the final figure of Dr. Auchere's paper given a set of warped images.
+
+        Args:
+            warped_data (np.ndarray): the warped images for which the plot needs to be made.
+        """
+
+        # ROW MEDIAN processing
+        median_rows = np.median(warped_data.T, axis=1)
+        
+        # PLOT
+        plt.figure(figsize=(18, 5))
+        plt.imshow(median_rows, cmap='gray', origin='lower')
+        plt.title('Median rows of the warped data')
+        plt.xlabel('Time')
+        plt.ylabel('Radial distance')
+        plt.savefig(os.path.join(config.path.dir.data.temp, 'median_rows.png'), dpi=500)
+        plt.close()
+
+    def process_index_to_cube_index(
+            self,
+            H5PYFile: h5py.File,
+            init_path: str,
+        ) -> dict[int, int] | dict[int, int | None]:
+        """
+        To get the corresponding data cube index given the process index.
+
+        Args:
+            H5PYFile (h5py.File): the HDF5 file containing the data.
+            init_path (str): the initial path of the data (depends if the HDF5 file also has fake
+                and/or test data).
+
+        Returns:
+            dict[int, int] | dict[int, int | None]: the dictionary containing the process index as
+                keys and the corresponding data cube index as values.
+        """
+
+        # GET DATA
+        dates: np.ndarray = cast(h5py.Dataset, H5PYFile['Dates'])[...]
+        time_indexes: np.ndarray = cast(h5py.Dataset, H5PYFile[init_path + 'Time indexes'])[...]
+
+        if self.plot_choices['all sdo images']:
+
+            # ALL INDEXEs
+            value = -1
+            index_to_cube = {
+                index: (value := value + 1) if index in time_indexes else None
+                for index in range(dates.shape[0])
+            }
+        else:
+            # TIME INDEXEs
+            index_to_cube = {value: index for index, value in enumerate(time_indexes)}
+        result: dict[int, int] | dict[int, int | None] = index_to_cube
+        return result        
+
     def data_setup(
             self,
             input_queue: QueueProxy | None = None,
             index_list: np.ndarray | None = None,
+            output_queue: QueueProxy | None = None,
         ) -> None:
-        """
+        """  # todo update docstring
         Open the HDF5 file and does the processing and final plotting for each cube.
         A while loop is used to decide which data section needs to be processed.
 
@@ -459,24 +530,30 @@ class OrthographicalProjection(BaseReprojection):
 
             # MULTIPROCESSING
             while True:
-
+        
                 # INFO process 
                 if input_queue is not None:
                     process: int | None = input_queue.get()
                 else:
-                    process = index_list[process_id]
+                    process = index_list[process_id]  # ! this won't work for now
                     process_id += 1
                     process = None if process_id > len(index_list) else process
+                
                 if process is None: break
+                process: int  # todo change this latter
                 
                 # DATA formatting
-                time_index = self.constants.time_indexes[process]
                 process_constants = ProcessConstants(
                     ID=process,
-                    time_index=time_index,
-                    date=self.constants.dates[time_index].decode('utf8'), #type:ignore
+                    time_index=(
+                        process 
+                        if self.plot_choices['all sdo images']
+                        else self.constants.time_indexes[process]
+                    ),
+                    cube_index=self.index_to_cube[process],
+                    date=self.constants.dates[process].decode('utf8'),
                 )
-                projection_data = ProjectionData(ID=process)
+                projection_data = ProjectionData(ID=process)  # ! what the ID represents changed
 
                 # SDO information
                 filepath = self.sdo_timestamps[process_constants.date[:-3]]
@@ -503,7 +580,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.all_data is not None:
                     projection_data.all_data = self.format_cube(
                         data=data_pointers.all_data,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='blue',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -512,7 +589,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.no_duplicates is not None:
                     projection_data.no_duplicates = self.format_cube(
                         data=data_pointers.no_duplicates,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='orange',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -521,7 +598,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.full_integration_all_data is not None:
                     projection_data.full_integration_all_data = self.format_cube(
                         data=data_pointers.full_integration_all_data,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='brown',
                         sdo_info=sdo_image_info,
                         warp=self.plot_choices['warp'],
@@ -531,7 +608,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.full_integration_no_duplicates is not None:
                     projection_data.full_integration_no_duplicates = self.format_cube(
                         data=data_pointers.full_integration_no_duplicates,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='pink',
                         sdo_info=sdo_image_info,
                         warp=self.plot_choices['warp'],
@@ -541,17 +618,20 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.line_of_sight is not None:
                     projection_data.line_of_sight = self.format_cube(
                         data=data_pointers.line_of_sight,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='purple',
                         sdo_info=sdo_image_info,
                         warp=False,
                     )
 
-                if data_pointers.integration is not None: 
+                if (
+                    data_pointers.integration is not None
+                    and process_constants.cube_index is not None
+                    ): 
                     projection_data.integration = [
                         self.format_cube(
                             data=integration,
-                            index=process,
+                            cube_index=process_constants.cube_index,
                             colour=cast(list[str], self.plot_kwargs['colours'])[i],
                             sdo_info=sdo_image_info,
                             warp=self.plot_choices['warp'],
@@ -563,7 +643,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.fake_data is not None:
                     projection_data.fake_data = self.format_cube(
                         data=data_pointers.fake_data,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='black',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -572,7 +652,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.test_cube is not None:
                     projection_data.test_cube = self.format_cube(
                         data=data_pointers.test_cube,
-                        index=process,
+                        cube_index=process_constants.cube_index,
                         colour='yellow',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -590,19 +670,56 @@ class OrthographicalProjection(BaseReprojection):
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
                 self.create_fake_fits(process_constants, projection_data)
+
+                # SAVE warp data
+                output_queue.put((process, self.Auchere_envelope.warped_image))
+                
                 
         if self.in_local: self.connection.close()
+
+    @overload
+    def format_cube(
+        self,
+        data: DataPointer | UniqueDataPointer | FakeDataPointer,
+        cube_index: int,
+        colour: str,
+        sdo_info: PolarImageInfo,
+        warp: bool = ...,
+        warp_kwargs: dict[str, Any] = ...,
+    ) -> ProjectedData: ...
+
+    @overload
+    def format_cube(
+        self,
+        data: DataPointer | UniqueDataPointer | FakeDataPointer,
+        cube_index: None,
+        colour: str,
+        sdo_info: PolarImageInfo,
+        warp: bool = ...,
+        warp_kwargs: dict[str, Any] = ...,
+    ) -> None: ...
+
+    @overload  # fallback
+    def format_cube(
+        self,
+        data: DataPointer | UniqueDataPointer | FakeDataPointer,
+        cube_index: int | None,
+        colour: str,
+        sdo_info: PolarImageInfo,
+        warp: bool = ...,
+        warp_kwargs: dict[str, Any] = ...,
+    ) -> ProjectedData | None: ...
 
     def format_cube(
             self,
             data: DataPointer | UniqueDataPointer | FakeDataPointer,
-            index: int,
+            cube_index: int | None,
             colour: str,
             sdo_info: PolarImageInfo,
             warp: bool = False,
             warp_kwargs: dict[str, Any] = {},
-        ) -> ProjectedData:
-            """
+        ) -> ProjectedData | None:
+            """  # todo update docstring
             To format the cube data for the projection.
 
             Args:
@@ -620,71 +737,75 @@ class OrthographicalProjection(BaseReprojection):
                 ProjectedCube: the formatted and reprojected data cube.
             """
 
-            # CUBE formatting
-            cube = CubeInformation(
-                xt_min=data.xt_min,
-                yt_min=data.yt_min,
-                zt_min=data.zt_min,
-                coords=data[index],
-            )
-            cube = self.cartesian_pos(cube, dx=self.constants.dx)
-            coords = self.get_polar_image(
-                self.matrix_rotation(data=cube.coords, sdo_pos=sdo_info.sdo_pos),
-            )
-            cube.coords = coords
-
-            # FIT formatting
-            if data.fit_information is None:
-                fit_n_envelopes = None
+            # NO DATA available
+            if cube_index is None:
+                return None
             else:
-                fit_n_envelopes: list[FitWithEnvelopes] | None = cast(
-                    list[FitWithEnvelopes],
-                    [None] * len(data.fit_information),
+                # CUBE formatting
+                cube = CubeInformation(
+                    xt_min=data.xt_min,
+                    yt_min=data.yt_min,
+                    zt_min=data.zt_min,
+                    coords=data[cube_index],
                 )
+                cube = self.cartesian_pos(cube, dx=self.constants.dx)
+                coords = self.get_polar_image(
+                    self.matrix_rotation(data=cube.coords, sdo_pos=sdo_info.sdo_pos),
+                )
+                cube.coords = coords
 
-                for i, polynomial_order in enumerate(self.polynomial_order):
-                    reprojected_polynomial = ReprojectionProcessedPolynomial(
-                        name=f"Fit ({polynomial_order}th) of " + data.name.lower(),
-                        colour=cast(list[str], self.plot_kwargs['colours'])[i],  # ! most likely the wrong choice of colours
-                        filepath=self.filepath,
-                        group_path=data.group_path,
-                        dx=self.constants.dx,
-                        polynomial_order=polynomial_order,
-                        number_of_points=300,  # ? should I add it as an argument ?
-                        feet_sigma=0.1,
-                        feet_threshold=0.1,
-                        envelope_radius=4e4,
-                        create_envelope=self.plot_choices['fit envelope'],
-                    )
-                    
-                    fit_n_envelope = (
-                        reprojected_polynomial.reprocessed_fit_n_envelopes(
-                            index=index,
-                            sdo_pos=sdo_info.sdo_pos,
-                        )
+                # FIT formatting
+                if data.fit_information is None:
+                    fit_n_envelopes = None
+                else:
+                    fit_n_envelopes: list[FitWithEnvelopes] | None = cast(
+                        list[FitWithEnvelopes],
+                        [None] * len(data.fit_information),
                     )
 
-                    # WARP IMAGE add
-                    if (fit_n_envelope.envelopes is not None) and warp:
-                        warped_instance = WarpSdoImage(
-                            envelopes=fit_n_envelope.envelopes,
-                            sdo_image=sdo_info.image,
-                            **warp_kwargs,
+                    for i, polynomial_order in enumerate(self.polynomial_order):
+                        reprojected_polynomial = ReprojectionProcessedPolynomial(
+                            name=f"Fit ({polynomial_order}th) of " + data.name.lower(),
+                            colour=cast(list[str], self.plot_kwargs['colours'])[i],  # ! most likely the wrong choice of colours
+                            filepath=self.filepath,
+                            group_path=data.group_path,
+                            dx=self.constants.dx,
+                            polynomial_order=polynomial_order,
+                            number_of_points=300,  # ? should I add it as an argument ?
+                            feet_sigma=0.1,
+                            feet_threshold=0.1,
+                            envelope_radius=4e4,
+                            create_envelope=self.plot_choices['fit envelope'],
                         )
-                        fit_n_envelope.warped_image = warped_instance.warped_image
-                    # RESULT save
-                    fit_n_envelopes[i] = fit_n_envelope
+                        
+                        fit_n_envelope = (
+                            reprojected_polynomial.reprocessed_fit_n_envelopes(
+                                index=cube_index,
+                                sdo_pos=sdo_info.sdo_pos,
+                            )
+                        )
 
-            # PROJECTION formatting
-            projection = ProjectedData(
-                name=data.name,
-                colour=colour,
-                cube_index=index,
-                cube=cube,
-                integration_time=data.integration_time,
-                fit_n_envelopes=fit_n_envelopes,
-            )
-            return projection
+                        # WARP IMAGE add
+                        if (fit_n_envelope.envelopes is not None) and warp:
+                            warped_instance = WarpSdoImage(
+                                envelopes=fit_n_envelope.envelopes,
+                                sdo_image=sdo_info.image,
+                                **warp_kwargs,
+                            )
+                            fit_n_envelope.warped_image = warped_instance.warped_image
+                        # RESULT save
+                        fit_n_envelopes[i] = fit_n_envelope
+
+                # PROJECTION formatting
+                projection = ProjectedData(
+                    name=data.name,
+                    colour=colour,
+                    cube_index=cube_index,
+                    cube=cube,
+                    integration_time=data.integration_time,
+                    fit_n_envelopes=fit_n_envelopes,
+                )
+                return projection
 
     def get_file_from_server(self, filepath: str, fail_count: int = 0) -> str:
         """
@@ -715,7 +836,7 @@ class OrthographicalProjection(BaseReprojection):
         except Exception as e:
             if self.verbose > 1: print(f'\033[1;31m{e}\nTrying again...\033[0m', flush=self.flush)
             fail_count += 1
-            time.sleep(0.01)
+            time.sleep(0.5)
             self.get_file_from_server(filepath=filepath, fail_count=fail_count)
         finally:
             return filepath
@@ -1323,10 +1444,10 @@ class Plotting(OrthographicalProjection):
                 image_shape=image_shape,
             )
 
-        # COLORBAR add
-        if sc is not None:
-            cbar = plt.colorbar(sc)
-            cbar.set_label(r'$\theta$ (degrees)')
+        # # COLORBAR add
+        # if sc is not None:
+        #     cbar = plt.colorbar(sc)
+        #     cbar.set_label(r'$\theta$ (degrees)')
 
         # PLOT settings
         plt.xlim(
@@ -1347,7 +1468,7 @@ class Plotting(OrthographicalProjection):
 
         # PLOT save
         plot_name = f"reprojection_{process_constants.date}.png"
-        plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=500)
+        plt.savefig(os.path.join(self.paths['save'], plot_name), dpi=200)
         plt.close()
 
         if self.verbose > 1: 
@@ -1392,7 +1513,7 @@ class Plotting(OrthographicalProjection):
                 # PLOT
                 sc = plt.scatter(
                     fit_n_envelope.fit_polar_theta,
-                    fit_n_envelope.fit_polar_r / 10**3,
+                    fit_n_envelope.fit_polar_r / 1e3,
                     label=fit_n_envelope.name,
                     c=np.rad2deg(fit_n_envelope.fit_angles),
                     **cast(dict[str, Any], self.plot_kwargs['fit']),
@@ -1508,7 +1629,7 @@ class Plotting(OrthographicalProjection):
             origin='lower',
         )
         plt.title(f'Warped SDO image - {date}')
-        plt.savefig(os.path.join(self.paths['save warped'], plot_name), dpi=300)
+        plt.savefig(os.path.join(self.paths['save warped'], plot_name), dpi=200)
         plt.close(2)
         plt.figure(1)
 
@@ -1565,6 +1686,7 @@ if __name__ == '__main__':
             'fit',
             'sdo image', 'envelope',
             'warp',
+            'all sdo images',
         ],
         with_fake_data=False,
     )

@@ -13,7 +13,6 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from common import Decorators
 from codes.projection.format_data import FitEnvelopes
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 
@@ -141,7 +140,6 @@ class WarpSdoImage:
             )
         return processed
 
-    @Decorators.running_time
     def warp_image(self) -> np.ndarray:
         """
         To warp the SDO image in between the two envelopes.
