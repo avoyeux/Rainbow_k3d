@@ -11,15 +11,16 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs sub
-from typing import Any
 from astropy.io import fits
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import config, Decorators
 
-# PLACEHOLDERs type annotation
-QueueProxy = Any
+# TYPE ANNOTATIONs
+import queue
+from typing import Any, cast
+ManagerQueueProxy = queue.Queue[Any]  # parent class: didn't have a type hint
 
 
 
@@ -85,19 +86,19 @@ class SdoMasksToPng:
         for _ in range(nb_processes): input_queue.put(None)
         
         # RUN multiprocessing
-        processes: list[mp.Process] = [None] * nb_processes
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
         for i in range(nb_processes):
             p = mp.Process(target=self.save_png, args=(input_queue,))
             p.start()
             processes[i] = p
         for p in processes: p.join()
 
-    def save_png(self, input_queue: QueueProxy) -> None:
+    def save_png(self, input_queue: ManagerQueueProxy) -> None:
         """
         Saving the SDO masks as PNG images.
 
         Args:
-            input_queue (QueueProxy): the queue to get the filepaths from.
+            input_queue (ManagerQueueProxy): the queue to get the filepaths from.
         """
 
         while True:

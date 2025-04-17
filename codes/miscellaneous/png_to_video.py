@@ -48,7 +48,7 @@ class CreateVideo:
 
         # PATHs formatting
         paths = {
-            'images': os.path.join(config.path.dir.data.result.projection, 'data_warped'),
+            'images': os.path.join(config.path.dir.data.result.projection, 'data'),
             'video': config.path.dir.data.temp,
         }
 
@@ -78,4 +78,4 @@ class CreateVideo:
 
 if __name__ == '__main__':
 
-    CreateVideo(filename='test.mp4', fps=10)
+    CreateVideo(filename='data.mp4', fps=10)

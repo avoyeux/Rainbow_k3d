@@ -20,21 +20,23 @@ import multiprocessing as mp
 
 # IMPORTs sub
 import sunpy.coordinates
-from typing import Any, cast
+import astropy.coordinates  # ! for the static type checker: make sure it introduced no bugs
 from astropy import units as u
-from typing import Any, Callable
 
 # IMPORTs personal
 from codes.data.polynomial_fit.base_polynomial_fit import Polynomial
 from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
 from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
 
-# PLACEHOLDERs type annotation
-QueueProxy = Any
-SharedMemoryProxy = Any
+# TYPE ANNOTATIONs
+import queue
+import multiprocessing.shared_memory
+from typing import Any, Callable, cast, TypeAlias
+ManagerQueueProxy: TypeAlias = queue.Queue[Any]  # used parent: actual queue type is not known
+SharedMemoryAlias: TypeAlias = multiprocessing.shared_memory.SharedMemory
 
 # todo change the code so each cube processing is done in a separate process
-# todo add the full integration of the data
+# todo add all the dates to the data especially for the integration part
 
 
 
@@ -100,9 +102,9 @@ class DataSaver(BaseHDF5Protuberance):
         # FILENAME setup
         if filename is None:
             if fake_hdf5:
-                filename = os.path.basename(config.path.data.fake)  #type:ignore
+                filename = os.path.basename(config.path.data.fake)
             else:
-                filename = os.path.basename(config.path.data.real)  #type:ignore
+                filename = os.path.basename(config.path.data.real)
 
         # PARENT
         super().__init__(filename, compression, compression_lvl)
@@ -112,7 +114,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
 
         # MULTIPROCESSING setup
-        self.processes = int(config.run.processes if processes is None else processes) #type:ignore
+        self.processes = int(config.run.processes if processes is None else processes)
 
         # ARGUMENTs
         self.integration_time = [time * 3600 for time in integration_time]
@@ -150,15 +152,15 @@ class DataSaver(BaseHDF5Protuberance):
 
         # PATHs keep
         paths = {
-            'cubes': config.path.dir.data.cubes.karine,  #type:ignore
-            'intensities': config.path.dir.data.stereo.int,  #type:ignore
-            'sdo': config.path.dir.data.sdo,  #type:ignore
-            'stereo info': config.path.data.stereob_info,  #type:ignore
-            'save': config.path.dir.data.hdf5,  #type:ignore
+            'cubes': config.path.dir.data.cubes.karine,
+            'intensities': config.path.dir.data.stereo.int,
+            'sdo': config.path.dir.data.sdo,
+            'stereo info': config.path.data.stereob_info,
+            'save': config.path.dir.data.hdf5,
         }
 
         # PATHS update
-        if self.fake_hdf5: paths['cubes'] = config.path.dir.data.cubes.fake  #type:ignore
+        if self.fake_hdf5: paths['cubes'] = config.path.dir.data.cubes.fake
         return paths
     
     def setup_patterns(self) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -204,13 +206,14 @@ class DataSaver(BaseHDF5Protuberance):
 
         # NUMBERs cubes
         self.cube_numbers = [
-            int(self.cube_pattern.match(os.path.basename(filepath)).group(1))
+            int(matched.group(1))
             for filepath in self.filepaths
+            if (matched := self.cube_pattern.match(os.path.basename(filepath))) is not None
         ]
 
         # DATEs
         date_filepaths = sorted(glob.glob(os.path.join(self.paths['intensities'], '*.png')))
-        dates: list[str] = [None] * len(date_filepaths)  #type:ignore
+        dates: list[str] = cast(list[str], [None] * len(date_filepaths))
         for i, filepath in enumerate(date_filepaths):
             filename_match = self.date_pattern.match(os.path.basename(filepath))
             if filename_match:
@@ -222,7 +225,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.dates = dates
 
         # DATEs in seconds
-        treated_dates = [CustomDate(self.dates[number]) for number in self.cube_numbers]
+        treated_dates = [CustomDate(date) for date in self.dates]  # * using all dates
         year = treated_dates[0].year
         days_per_month = DatesUtils.days_per_month(year)
         self.dates_seconds = [
@@ -440,7 +443,7 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         # COORDs
-        coordinates = self.get_pos_code(SDO_fits_names, self.get_pos_sdo_sub)  # ! type annotations
+        coordinates = self.get_pos_code(SDO_fits_names, self.get_pos_sdo_sub)
 
         # DATA formatting
         information = {
@@ -490,15 +493,15 @@ class DataSaver(BaseHDF5Protuberance):
     def get_pos_code(
             self,
             data: np.recarray | list[str],
-            function: Callable[[], np.ndarray],
+            function: Callable[[ManagerQueueProxy, ManagerQueueProxy], None],
         ) -> np.ndarray:
         """
         To multiprocess the getting of the positions of the SDO and STEREO B satellites.
 
         Args:
             data (np.recarray | list[str]): the data information for SDO or STEREO B.
-            function (typing.Callable[[], np.ndarray]): the function used for each process to get
-                the position of the satellite.
+            function (typing.Callable[[ManagerQueueProxy, ManagerQueueProxy], None]): the function
+                used for each process to get the position of the satellite.
 
         Returns:
             np.ndarray: the position of the satellite in cartesian heliocentric coordinates.
@@ -513,7 +516,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * nb_processes  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
         for i in range(nb_processes):
             p = mp.Process(target=function, args=(input_queue, output_queue))
             p.start()
@@ -521,7 +524,7 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        coordinates_list: list[np.ndarray] = [None] * self.max_cube_numbers  #type:ignore
+        coordinates_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.max_cube_numbers)
         while not output_queue.empty():
             identifier, result = output_queue.get()
             coordinates_list[identifier] = result
@@ -529,14 +532,14 @@ class DataSaver(BaseHDF5Protuberance):
         return coordinates
     
     @staticmethod
-    def get_pos_sdo_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
+    def get_pos_sdo_sub(input_queue: ManagerQueueProxy, output_queue: ManagerQueueProxy) -> None:
         """
         To get the position of the SDO satellite.
 
         Args:
-            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for
+            input_queue (ManagerQueueProxy): the input information (list[tuple[int, str]]) for
                 identification and SDO information.
-            output_queue (mp.queues.Queue): to save the results outside the function.
+            output_queue (ManagerQueueProxy): to save the results outside the function.
         """
         
         while True:
@@ -565,14 +568,17 @@ class DataSaver(BaseHDF5Protuberance):
             output_queue.put((identification, result))
         
     @staticmethod
-    def get_pos_stereo_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
+    def get_pos_stereo_sub(
+            input_queue: ManagerQueueProxy,
+            output_queue: ManagerQueueProxy,
+        ) -> None:
         """
         To get the position of the STEREO B satellite.
 
         Args:
-            input_queue (mp.queues.Queue): the input information (list[tuple[int, str]]) for
+            input_queue (ManagerQueueProxy): the input information (list[tuple[int, str]]) for
                 identification and SDO information.
-            output_queue (mp.queues.Queue): to save the results outside the function.
+            output_queue (ManagerQueueProxy): to save the results outside the function.
         """
 
         while True:
@@ -934,7 +940,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * nb_processes  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
         for i in range(nb_processes):
             p = mp.Process(target=self.time_integration_sub, args=(input_queue, output_queue))
             p.start()
@@ -956,13 +962,16 @@ class DataSaver(BaseHDF5Protuberance):
         return data, new_borders
 
     @staticmethod
-    def time_integration_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
+    def time_integration_sub(
+            input_queue: ManagerQueueProxy,
+            output_queue: ManagerQueueProxy,
+        ) -> None:
         """
         To multiprocess the time integration of the cubes. This does it for each given date.
 
         Args:
-            input_queue (mp.queues.Queue): the input arguments in a mp.Manager.Queue().
-            output_queue (mp.queues.Queue): the results in a np.Manager.Queue().
+            input_queue (ManagerQueueProxy): the input arguments in a mp.Manager.Queue().
+            output_queue (ManagerQueueProxy): the results in a np.Manager.Queue().
         """
 
         while True:
@@ -1015,8 +1024,8 @@ class DataSaver(BaseHDF5Protuberance):
         elif len(chunk) == 1:
             return chunk[0]
         else:
-            chunk = sparse.stack(chunk, axis=0)
-            return sparse.COO.any(chunk, axis=0)
+            COO: sparse.COO = cast(sparse.COO, sparse.stack(chunk, axis=0))
+            return sparse.COO.any(COO, axis=0)
         
     def get_COO(self, H5PYFile: h5py.File, group_path: str) -> sparse.COO:
         """
@@ -1030,13 +1039,13 @@ class DataSaver(BaseHDF5Protuberance):
             sparse.COO: the corresponding sparse data.
         """
 
-        data_coords: np.ndarray = H5PYFile[group_path + '/coords'][...]  #type:ignore
-        data_data: np.ndarray = H5PYFile[group_path + '/values'][...]  #type:ignore
+        data_coords: np.ndarray = cast(h5py.Dataset, H5PYFile[group_path + '/coords'])[...]
+        data_data: np.ndarray = cast(h5py.Dataset, H5PYFile[group_path + '/values'])[...]
         data_shape = np.max(data_coords, axis=1) + 1
         return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
     
     @Decorators.running_time
-    def polynomial_group(self, H5PYFile: h5py.File):
+    def polynomial_group(self, H5PYFile: h5py.File) -> None:
         """
         To add the polynomial information to the file.
 
@@ -1064,7 +1073,7 @@ class DataSaver(BaseHDF5Protuberance):
                 data = self.get_COO(H5PYFile, group_path).astype('uint16')
 
                 # ADD polynomial
-                self.add_polynomial(H5PYFile[group_path], data, test_path=group_path)  #type:ignore
+                self.add_polynomial(cast(h5py.Group, H5PYFile[group_path]), data)
 
     @Decorators.running_time
     def raw_cubes(self) -> sparse.COO:
@@ -1087,7 +1096,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(processes_nb): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * processes_nb)
         for i in range(processes_nb): 
             p = mp.Process(
                 target=self.raw_cubes_sub,
@@ -1098,23 +1107,23 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        rawCubes_list: list[sparse.COO] = [None] * filepaths_nb  #type:ignore
+        rawCubes_list: list[sparse.COO] = cast(list[sparse.COO], [None] * filepaths_nb)
         while not output_queue.empty():
             identifier, result = output_queue.get()
             rawCubes_list[identifier] = result 
-        rawCubes: sparse.COO = sparse.stack(rawCubes_list, axis=0)
+        rawCubes: sparse.COO = cast(sparse.COO, sparse.stack(rawCubes_list, axis=0))
 
         self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless or is it?
         return rawCubes
     
     @staticmethod
-    def raw_cubes_sub(input_queue: QueueProxy, output_queue: QueueProxy) -> None:
+    def raw_cubes_sub(input_queue: ManagerQueueProxy, output_queue: ManagerQueueProxy) -> None:
         """
         To get the raw data from each cube.
 
         Args:
-            input_queue (QueueProxy): the input data (identifier, filepath) for each cube.
-            output_queue (QueueProxy): the output data (identifier, data) for each cube.
+            input_queue (ManagerQueueProxy): the input data (identifier, filepath) for each cube.
+            output_queue (ManagerQueueProxy): the output data (identifier, data) for each cube.
         """
 
         while True:
@@ -1183,7 +1192,7 @@ class DataSaver(BaseHDF5Protuberance):
         
         # SKYCOORDs setup
         skycoords = self.carrington_skyCoords(data, borders)
-        data_list: list[np.ndarray] = [None] * len(skycoords)  #type:ignore
+        data_list: list[np.ndarray] = cast(list[np.ndarray], [None] * len(skycoords))
         for i, skycoord in enumerate(skycoords):
             x = skycoord.cartesian.x.value
             y = skycoord.cartesian.y.value
@@ -1217,7 +1226,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.add_group(group, raw, data_name)
         return group
     
-    def add_polynomial(self, group: h5py.Group, data: sparse.COO, test_path: str) -> None:
+    def add_polynomial(self, group: h5py.Group, data: sparse.COO) -> None:
         """
         To add to an h5py.Group, the polynomial curve and parameters given the data to fit.
 
@@ -1249,7 +1258,7 @@ class DataSaver(BaseHDF5Protuberance):
     def with_feet(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, str | float]],
+            borders: dict[str, dict[str, str | float]],  #type:ignore
         ) -> tuple[sparse.COO, dict[str, dict[str, str | float]]]:
         """
         Adds feet to a given initial cube index data as a sparse.COO object.
@@ -1263,6 +1272,9 @@ class DataSaver(BaseHDF5Protuberance):
                 corresponding borders data and metadata.
         """
 
+        # CHEAT type checking
+        borders: dict[str, dict[str, float]] = cast(dict[str, dict[str, float]], borders)
+
         # COORDs feet
         x = self.feet.cartesian.x.to(u.km).value
         y = self.feet.cartesian.y.to(u.km).value
@@ -1271,9 +1283,9 @@ class DataSaver(BaseHDF5Protuberance):
 
         # BORDERs update
         x_min, y_min, z_min = np.min(positions, axis=1) 
-        x_min = x_min if x_min <= borders['xt_min']['data'] else borders['xt_min']['data']
-        y_min = y_min if y_min <= borders['yt_min']['data'] else borders['yt_min']['data']
-        z_min = z_min if z_min <= borders['zt_min']['data'] else borders['zt_min']['data']
+        x_min: float = x_min if x_min <= borders['xt_min']['data'] else borders['xt_min']['data']
+        y_min: float = y_min if y_min <= borders['yt_min']['data'] else borders['yt_min']['data']
+        z_min: float = z_min if z_min <= borders['zt_min']['data'] else borders['zt_min']['data']
         new_borders = self.create_borders((x_min, y_min, z_min))
 
         # COORDs feet indexes
@@ -1310,7 +1322,7 @@ class DataSaver(BaseHDF5Protuberance):
     def carrington_skyCoords(
             self,
             data: sparse.COO,
-            borders: dict[str, dict[str, float]],
+            borders: dict[str, dict[str, str | float]],  #type:ignore
         ) -> list[astropy.coordinates.SkyCoord]:
         """
         Converts sparse.COO cube index data to a list of corresponding astropy.coordinates.SkyCoord
@@ -1324,6 +1336,9 @@ class DataSaver(BaseHDF5Protuberance):
             list[coordinates.SkyCoord]: corresponding list of the coordinates for the cube index
                 data. They are in Carrington Heliographic Coordinates. 
         """
+
+        # CHEAT type checking
+        borders: dict[str, dict[str, float]] = cast(dict[str, dict[str, float]], borders)
         
         # COORDs
         coords = data.coords.astype('float64')
@@ -1344,7 +1359,7 @@ class DataSaver(BaseHDF5Protuberance):
         for _ in range(processes_nb): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * processes_nb)
         for i in range(processes_nb):
             process = mp.Process(
                 target=self.skyCoords_slice,
@@ -1356,7 +1371,10 @@ class DataSaver(BaseHDF5Protuberance):
         shm.unlink()
 
         # RESULTs formatting
-        all_SkyCoords = [None] * time_nb
+        all_SkyCoords: list[astropy.coordinates.SkyCoord] = cast(
+            list[astropy.coordinates.SkyCoord],
+            [None] * time_nb,
+        )
         while not output_queue.empty():
             identifier, result = output_queue.get()
             all_SkyCoords[identifier] = result
@@ -1365,8 +1383,8 @@ class DataSaver(BaseHDF5Protuberance):
     @staticmethod
     def skyCoords_slice(
             coords_dict: dict[str, Any],
-            input_queue: QueueProxy,
-            output_queue: QueueProxy,
+            input_queue: ManagerQueueProxy,
+            output_queue: ManagerQueueProxy,
         ) -> None:
         """
         To create an astropy.coordinates.SkyCoord object for a singular cube (i.e. for a unique
@@ -1375,15 +1393,15 @@ class DataSaver(BaseHDF5Protuberance):
         Args:
             coords_dict (dict[str, Any]): information to find the sparse.COO(data).coords
                 multiprocessing.shared_memory.SharedMemory object.
-            input_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used for the
+            input_queue (ManagerQueueProxy): multiprocessing.Manager.Queue object used for the
                 function inputs.
-            output_queue (mp.queues.Queue): multiprocessing.Manager.Queue object used to extract
+            output_queue (ManagerQueueProxy): multiprocessing.Manager.Queue object used to extract
                 the function results.
         """
         
         # DATA open
         shm, coords = cast(
-            tuple[SharedMemoryProxy, np.ndarray],
+            tuple[SharedMemoryAlias, np.ndarray],
             MultiProcessing.open_shared_memory(coords_dict)
         )
 

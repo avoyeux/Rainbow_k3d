@@ -12,8 +12,15 @@ import datetime
 import numpy as np
 
 # IMPORTs sub
-from typing import final
 from dataclasses import dataclass
+
+# TYPE ANNOTATIONs
+from typing import final, TypeVar, cast
+StringOrFloat = str | float
+ValuesAliases = StringOrFloat | int | np.generic | np.ndarray
+StringOrFloatType = TypeVar("StringOrFloatType", bound=StringOrFloat)
+ValuesType = TypeVar("ValuesType", bound=ValuesAliases)
+DictValuesType = TypeVar("DictValuesType", bound=ValuesAliases | dict)
 
 
 
@@ -59,7 +66,7 @@ class BaseHdf5Creator:
     def add_group(
             self,
             parent_group: h5py.File | h5py.Group,
-            info: dict[str, str | int | float | np.generic | np.ndarray | dict],
+            info: dict[str, DictValuesType],
             name: str,
         ) -> None:
         """
@@ -99,13 +106,17 @@ class BaseHdf5Creator:
 
         else:
             # DATASET as values but no dict
-            self.add_dataset(parent_group=parent_group, info=info, name=name)
+            self.add_dataset(
+                parent_group=parent_group,
+                info=cast(dict[str, ValuesAliases], info),
+                name=name,
+            )
 
     @final
     def add_dataset(
             self,
             parent_group: h5py.File | h5py.Group,
-            info: dict[str, str | int | float | np.generic | np.ndarray],
+            info: dict[str, ValuesType],
             name: str | None = None,
         ) -> None:
         """
