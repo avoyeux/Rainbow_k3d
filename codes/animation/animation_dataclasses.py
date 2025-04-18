@@ -8,10 +8,12 @@ import h5py
 
 # IMPORTs alias
 import numpy as np
-from typing import Self, Any
 
 # IMPORTs sub
 from dataclasses import dataclass, field
+
+# TYPE ANNOTATIONs
+from typing import Self, Any
 
 
 
@@ -57,7 +59,10 @@ class PolynomialData:
         cube_filter = self.dataset[0] == index
         cube_coords = self.dataset[1:, cube_filter]
 
-        # 3D array
+        # NO DATA
+        if cube_coords.size == 0: return np.zeros((1, 1, 1), dtype='uint8')
+        
+        # DATA 3D
         cube_shape = np.max(cube_coords, axis=1) + 1
         cube = np.zeros(cube_shape, dtype='uint8')
         cube[tuple(cube_coords)] = 1
@@ -156,7 +161,15 @@ class CubeInfo(ParentInfo):
         else:
             values = self.dataset_values[cube_filter.ravel()]
         
-        # 3D array
+        # NO DATA
+        if cube_coords.size == 0: 
+            result = (
+                [np.zeros((1, 1, 1), dtype='uint8')]
+                * (1 + (len(self.polynomials) if self.polynomials is not None else 0))
+            )
+            return result
+
+        # DATA 3D
         cube = np.zeros(self.shape[1:], dtype='uint8')
         cube[tuple(cube_coords)] = values
         result = [cube]

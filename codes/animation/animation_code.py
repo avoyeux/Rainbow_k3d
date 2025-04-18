@@ -19,18 +19,23 @@ import numpy as np
 # IMPORTs sub
 from astropy.io import fits
 from matplotlib import colors as mcolors
-from typing import Any, overload, Literal, cast
 
 # IMPORTs personal
 from codes.animation.animation_dataclasses import *
 from common import config, Decorators, Plot
 
-# ANNOTATION alias
-VoxelType = Any
-JsLinkType = Any
+# TYPE ANNOTATIONs
+from numpy.typing import NDArray
+from typing import Any, overload, Literal, cast, TypeAlias
+VoxelAlias: TypeAlias = Any
+JsLinkAlias: TypeAlias = Any
 
 # todo need to improve the names of the different datasets in the visualisation
 # todo need to be able to add the extended version of the polynomial fit
+# todo need to be able to choose to also see the dates where there is no data
+
+# ! need to pay attention when not using 'all dates' as the datasets indexes in the HDF5 file have
+# ! completely changed. For the integrated data, now it always represents all the data.
 
 
 
@@ -80,14 +85,14 @@ class Setup:
 
         # CONFIGURATION attributes
         if filepath is None and with_fake_data:
-            self.filepath: str = config.path.data.fusion  #type:ignore
+            self.filepath: str = config.path.data.fusion
         elif filepath is None:
-            self.filepath: str = config.path.data.real  #type:ignore
+            self.filepath: str = config.path.data.real
         else:
             self.filepath = filepath
-        self.processes = config.run.processes if processes is None else processes  #type:ignore
-        self.verbose = config.run.verbose if verbose is None else verbose  #type:ignore
-        self.flush = config.run.flush if flush is None else flush  #type:ignore
+        self.processes = config.run.processes if processes is None else processes
+        self.verbose = config.run.verbose if verbose is None else verbose
+        self.flush = config.run.flush if flush is None else flush
 
         # ATTRIBUTEs other
         self.time_interval = time_interval
@@ -118,7 +123,7 @@ class Setup:
         """
 
         # PATHs save
-        paths = {'sdo': config.path.dir.data.sdo}  #type:ignore
+        paths = {'sdo': config.path.dir.data.sdo}
 
         # PATHs update
         return paths
@@ -139,7 +144,7 @@ class Setup:
 
         # CHOICES
         possibilities = [ 
-            'sun', 
+            'sun', 'all dates',
             'all data', 'all data integration', 'all data full integration',
             'no duplicate', 'no duplicate integration', 'no duplicate full integration',
             'line of sight sdo', 'line of sight stereo',
@@ -194,8 +199,8 @@ class Setup:
             cubes.no_duplicate = self.get_cube_info(
                 HDF5File=HDF5File,
                 group_path=path,
-                colour='orange',
-                opacity=0.8,
+                colour='red',
+                opacity=1,
                 interpolate=False,
             )
 
@@ -232,8 +237,8 @@ class Setup:
             cubes.integration_no_duplicate = self.get_cube_info(
                 HDF5File=HDF5File,
                 group_path=path,
-                colour='red',
-                opacity=0.5,
+                colour='orange',
+                opacity=0.2,
             )
 
         if self.choices['no duplicate full integration']:
@@ -272,20 +277,26 @@ class Setup:
         # POVs sdo, stereo
         if self.choices['pov sdo']:
             # SDO positions
-            sdo_positions: np.ndarray = HDF5File['SDO positions'][...]  #type:ignore
+            sdo_positions: np.ndarray = cast(h5py.Dataset, HDF5File['SDO positions'])[...]
 
             # DATA formatting
-            cubes.sdo_pos = (
-                sdo_positions[self.constants.time_indexes] / self.constants.dx
-            ).astype('float32')
+            if self.choices['all dates']:
+                cubes.sdo_pos = (sdo_positions / self.constants.dx).astype('float32') 
+            else:
+                cubes.sdo_pos = (
+                    sdo_positions[self.constants.time_indexes] / self.constants.dx
+                ).astype('float32')
         if self.choices['pov stereo']:
             # STEREO positions
-            stereo_positions: np.ndarray = HDF5File['STEREO B positions'][...]  #type:ignore
+            stereo_positions: np.ndarray = cast(h5py.Dataset, HDF5File['STEREO B positions'])[...]
 
             # DATA formatting
-            cubes.stereo_pos = (
-                stereo_positions[self.constants.time_indexes] / self.constants.dx
-            ).astype('float32')
+            if self.choices['all dates']:
+                cubes.stereo_pos = (stereo_positions / self.constants.dx).astype('float32')
+            else:
+                cubes.stereo_pos = (
+                    stereo_positions[self.constants.time_indexes] / self.constants.dx
+                ).astype('float32')
             # todo will need to add the POV center
 
         if self.choices['fake data']:
@@ -338,12 +349,16 @@ class Setup:
         """
         
         # DATA setup
-        time_indexes: np.ndarray = HDF5File[init_path + 'Time indexes'][...]  #type:ignore
-        dates_bytes: np.ndarray = HDF5File['Dates'][...]  #type:ignore
-        dates_str = [dates_bytes[number].decode('utf-8') for number in time_indexes]  #type:ignore
+        time_indexes: np.ndarray = cast(h5py.Dataset, HDF5File[init_path + 'Time indexes'])[...]
+        dates_bytes: NDArray[np.bytes_] = cast(h5py.Dataset, HDF5File['Dates'])[...]
+
+        if self.choices['all dates']:
+            dates_str: list[str] = [date.decode('utf-8') for date in dates_bytes]
+        else:
+            dates_str: list[str] = [date.decode('utf-8') for date in dates_bytes[time_indexes]]
 
         constants = CubesConstants(
-            dx=float(HDF5File['dx'][...]),  #type:ignore
+            dx=float(cast(h5py.Dataset, HDF5File['dx'])[...]),
             time_indexes=time_indexes,
             dates=dates_str,
         )
@@ -425,13 +440,19 @@ class Setup:
         """
 
         # BORDERs as index
-        xt_min_index = float(HDF5File[group_path + '/xt_min'][...]) / self.constants.dx#type:ignore
-        yt_min_index = float(HDF5File[group_path + '/yt_min'][...]) / self.constants.dx#type:ignore
-        zt_min_index = float(HDF5File[group_path + '/zt_min'][...]) / self.constants.dx#type:ignore
+        xt_min_index = (
+            float(cast(h5py.Dataset, HDF5File[group_path + '/xt_min'])[...]) / self.constants.dx
+        )
+        yt_min_index = (
+            float(cast(h5py.Dataset, HDF5File[group_path + '/yt_min'])[...]) / self.constants.dx
+        )
+        zt_min_index = (
+            float(cast(h5py.Dataset, HDF5File[group_path + '/zt_min'])[...]) / self.constants.dx
+        )
 
         # COO data
-        data_coords = cast(h5py.Dataset, HDF5File[group_path + '/coords'])
-        data_values = cast(h5py.Dataset, HDF5File[group_path + '/values'])
+        data_coords: h5py.Dataset = cast(h5py.Dataset, HDF5File[group_path + '/coords'])
+        data_values: h5py.Dataset = cast(h5py.Dataset, HDF5File[group_path + '/values'])
 
         # FORMATTING data
         if cube_type == 'real':
@@ -569,9 +590,10 @@ class Setup:
 
         if self.choices['fit'] and interpolate:
             # POLYNOMIALs setup
-            polynomials: list[PolynomialData] | list[UniquePolynomialData] = (
+            polynomials: list[PolynomialData | UniquePolynomialData] = cast(
+                list[PolynomialData | UniquePolynomialData],
                 [None] * len(self.polynomial_order)
-            )  #type:ignore
+            )  # the union shouldn't be inside but no choice as the IDE will complain
 
             for i, order in enumerate(self.polynomial_order):
                 # DATA get
@@ -595,7 +617,7 @@ class Setup:
                         color_hex=self.plot_polynomial_colours[i],
                     )
                 print(f'FETCHED -- {polynomials[i].name}.')
-            return polynomials
+            return cast(list[PolynomialData] | list[UniquePolynomialData], polynomials)
         else:
             return None
 
@@ -742,19 +764,19 @@ class K3dAnimation(Setup):
 
         # PLACEHOLDERs
         self.plot: k3d.plot.Plot  # plot object
-        self.plot_alldata: list[VoxelType] # voxels plot of the all data 
-        self.plot_dupli_new: list[VoxelType]  # same for the second method
-        self.plot_full_alldata: list[VoxelType]  # voxels plot for the full integration
-        self.plot_full_no_duplicate: list[VoxelType]  # same for the no duplicate data
-        self.plot_interv_new: list[VoxelType]  # same for the second method
-        self.plot_interv_dupli_new: list[VoxelType]  # same for the second method
-        self.plot_los_sdo: list[VoxelType]
-        self.plot_los_stereo: list[VoxelType]
-        self.plot_fake_cube: list[VoxelType]
+        self.plot_alldata: list[VoxelAlias] # voxels plot of the all data 
+        self.plot_dupli_new: list[VoxelAlias]  # same for the second method
+        self.plot_full_alldata: list[VoxelAlias]  # voxels plot for the full integration
+        self.plot_full_no_duplicate: list[VoxelAlias]  # same for the no duplicate data
+        self.plot_interv_new: list[VoxelAlias]  # same for the second method
+        self.plot_interv_dupli_new: list[VoxelAlias]  # same for the second method
+        self.plot_los_sdo: list[VoxelAlias]
+        self.plot_los_stereo: list[VoxelAlias]
+        self.plot_fake_cube: list[VoxelAlias]
         self.play_pause_button: ipywidgets.ToggleButton  # Play/Pause widget initialisation
         self.time_slider: ipywidgets.IntSlider # time slider widget
         self.date_dropdown: ipywidgets.Dropdown  # Date dropdown widget to show the date
-        self.time_link: JsLinkType  # JavaScript Link between the two widgets
+        self.time_link: JsLinkAlias  # JavaScript Link between the two widgets
 
         # RUN
         self.animation()
@@ -922,7 +944,7 @@ class K3dAnimation(Setup):
             cube: CubeInfo | FakeCubeInfo | UniqueCubeInfo,
             index: int = 0,
             **kwargs,
-        ) -> list[VoxelType]:
+        ) -> list[VoxelAlias]:
         """
         Creates the initial k3d voxels and the corresponding polynomial fit voxels for the
         visualisation.  
@@ -932,11 +954,11 @@ class K3dAnimation(Setup):
             index (int, optional): the index of the time value to visualise. Defaults to 0.
 
         Returns:
-            list[VoxelType]: the corresponding voxels for the k3d visualisation.
+            list[VoxelAlias]: the corresponding voxels for the k3d visualisation.
         """
 
         # PLACEHOLDER voxels
-        plots: list[VoxelType] = [None] * (
+        plots: list[VoxelAlias] = [None] * (
             1 + (len(cube.polynomials) if cube.polynomials is not None else 0)
         )
 
@@ -1064,7 +1086,7 @@ class K3dAnimation(Setup):
                 self.up_vector[2]
             ] 
 
-    def add_sun(self):
+    def add_sun(self) -> None:
         """
         Add the Sun in the visualisation.
         The Sun is just made up of small spheres positioned at the Sun's surface.
@@ -1126,10 +1148,18 @@ class K3dAnimation(Setup):
         
         # ALL DATA
         if self.cubes.all_data is not None:
-            self.update_voxel(self.plot_alldata, self.cubes.all_data, change['new'])
+            self.update_voxel(
+                plots=self.plot_alldata,
+                cube_info=self.cubes.all_data,
+                index=self.change_to_cube_index(change['new']),
+            )
         # NO DUPLICATES
         if self.cubes.no_duplicate is not None:
-            self.update_voxel(self.plot_dupli_new, self.cubes.no_duplicate, change['new'])
+            self.update_voxel(
+                plots=self.plot_dupli_new,
+                cube_info=self.cubes.no_duplicate,
+                index=self.change_to_cube_index(change['new']),
+            )
         # TIME INTEGRATION
         if self.cubes.integration_all_data is not None:
             self.update_voxel(self.plot_interv_new, self.cubes.integration_all_data, change['new'])
@@ -1148,23 +1178,53 @@ class K3dAnimation(Setup):
         if self.cubes.fake_cube is not None:
             self.update_voxel(self.plot_fake_cube, self.cubes.fake_cube, change['new'])
 
+    def change_to_cube_index(self, index: int) -> int | None:
+        """
+        To get the cube index corresponding to the change['new'] index, depending on whether
+        'all data' is True or False. If 'all data' is True, then the index remains the same.
+        If 'all data' is False, then the index is changed to the corresponding cube index.
+        If no data exists for that change['new'] then the return value is None.
+        ! This method should only be used for the non integrated datasets.
+        
+        Args:
+            index (int): the index gotten from change['new'].
+
+        Returns:
+            int | None: the corresponding cube index in the dataset. If the value is None, it means
+                that the dataset doesn't have any data for that index.
+        """
+
+        # INDEX same
+        if self.choices['all dates']: return index
+
+        # INDEX different
+        if index in self.constants.time_indexes:
+            value: int | None = np.where(self.constants.time_indexes == index)[0][0]
+        else:
+            value = None
+        return value
+
     def update_voxel(
             self,
-            plots: list[VoxelType],
+            plots: list[VoxelAlias],
             cube_info: CubeInfo | FakeCubeInfo,
-            index: int,
+            index: int | None,
         ) -> None:
         """
         Updates the k3d plot voxels for each cube and the corresponding polynomials.
 
         Args:
-            plots (list[VoxelType]): the different voxel plots for each cube type.
+            plots (list[VoxelAlias]): the different voxel plots for each cube type.
             cube_info (CubeInfo | FakeCubeInfo): the data cubes. None if it doesn't exist.
-            index (int): the index to plot.
+            index (int | None): the data cube index. If None, then no data exists for data index.
         """
 
-        # DATA get
-        cubes = cube_info[index]
+        if index is None:
+            # NO DATA
+            cubes = [np.zeros((1, 1, 1), dtype='uint8')] * len(plots)
+        else:
+            # DATA cube and polynomials
+            cubes = cube_info[index]
         
         # PLOTs add data
         for i, plot in enumerate(plots): plot.voxels = cubes[i].transpose((2, 1, 0))
