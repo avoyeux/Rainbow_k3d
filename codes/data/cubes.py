@@ -36,7 +36,6 @@ ManagerQueueProxy: TypeAlias = queue.Queue[Any]  # used parent: actual queue typ
 SharedMemoryAlias: TypeAlias = multiprocessing.shared_memory.SharedMemory
 
 # todo change the code so each cube processing is done in a separate process
-# todo add all the dates to the data especially for the integration part
 
 
 
@@ -110,7 +109,6 @@ class DataSaver(BaseHDF5Protuberance):
         super().__init__(filename, compression, compression_lvl)
 
         # CONSTANTs
-        self.max_cube_numbers = 413  # ? kind of weird I hard coded this
         self.feet_options = ['', ' with feet'] if not no_feet else ['']
 
         # MULTIPROCESSING setup
@@ -131,10 +129,10 @@ class DataSaver(BaseHDF5Protuberance):
         self.dx: dict[str, str | float]  # information and value of the spatial resolution
         self.time_indexes: list[int]  # the time indexes with values inside the cubes
         self.paths: dict[str, str]  # the paths to the different directories
-        self.filepaths: list[str] # the filepaths to the .save files
         self.cube_numbers: list[int] # the cube numbers
         self.dates: list[str]  # the dates of the STEREO B 30.4nm acquisitions
         self.dates_seconds: list[int]  # the dates in seconds
+        self.max_len: int  # maximum cube index + 1 (hence len(dates))
         self.feet: astropy.coordinates.SkyCoord  # the feet positions
         self.cube_pattern: re.Pattern[str]  # the pattern for the .save cubes
         self.date_pattern: re.Pattern[str]  # the pattern for the STEREO B 30.4nm dates
@@ -198,31 +196,24 @@ class DataSaver(BaseHDF5Protuberance):
 
         # FILEPATHs cubes
         filepaths = glob.glob(os.path.join(self.paths['cubes'], 'cube*.save'))
-        self.filepaths = sorted([
-            filepath
-            for filepath in filepaths
-            if self.cube_pattern.match(os.path.basename(filepath))
-        ])
 
         # NUMBERs cubes
         self.cube_numbers = [
             int(matched.group(1))
-            for filepath in self.filepaths
+            for filepath in filepaths
             if (matched := self.cube_pattern.match(os.path.basename(filepath))) is not None
         ]
 
         # DATEs
         date_filepaths = sorted(glob.glob(os.path.join(self.paths['intensities'], '*.png')))
-        dates: list[str] = cast(list[str], [None] * len(date_filepaths))
-        for i, filepath in enumerate(date_filepaths):
-            filename_match = self.date_pattern.match(os.path.basename(filepath))
-            if filename_match:
-                dates[i] = filename_match.group('date')
-            else:
-                raise ValueError(
-                    f'Filename {os.path.basename(filepath)} does not match the date pattern.'
-                )
-        self.dates = dates
+        self.dates = [
+            filename_match.group('date')
+            for filepath in date_filepaths
+            if (filename_match := self.date_pattern.match(os.path.basename(filepath))) is not None
+        ]
+
+        # MAX number of values
+        self.max_len = len(self.dates)
 
         # DATEs in seconds
         treated_dates = [CustomDate(date) for date in self.dates]  # * using all dates
@@ -259,9 +250,9 @@ class DataSaver(BaseHDF5Protuberance):
 
         # FEET create
         feet = astropy.coordinates.SkyCoord(
-            feet_pos[0, :] * u.deg,
-            feet_pos[1, :] * u.deg,
-            feet_pos[2, :] * u.km,
+            feet_pos[0, :] * u.deg,  #type:ignore
+            feet_pos[1, :] * u.deg,  #type:ignore
+            feet_pos[2, :] * u.km,  #type:ignore
             frame=sunpy.coordinates.frames.HeliographicCarrington,
         )
         cartesian_feet = feet.represent_as(astropy.coordinates.CartesianRepresentation)
@@ -286,9 +277,9 @@ class DataSaver(BaseHDF5Protuberance):
             'data': np.array(self.cube_numbers).astype('uint16'),
             'unit': 'none',
             'description': (
-                "The time indexes for the data cubes that are used in this file. This value is "
-                "used to filter which dates (using the dates dataset) and where the satellite is "
-                "positioned (using the 'SDO positions' and 'STEREO B positions' datasets)."
+                "The cubes time indexes (i.e. the first row of the data) where there is volumetric"
+                " data. This is only true for the raw data and the filtered one (not for the "
+                "integrated data)." 
             ),
         }
         cube_dates_info = {
@@ -296,9 +287,7 @@ class DataSaver(BaseHDF5Protuberance):
             'unit': 'none',
             'description': (
                 "The dates of the STEREO B 30.4nm acquisitions. These represent all the possible "
-                "dates, and as such, to get the specific date for each data cube used the time "
-                "index dataset needs to be used (something like Dates[Time indexes] will give you "
-                "the right dates if in 0 indexing)."
+                "dates and are indexed in the same way than the data cubes."
             ),
         }
         
@@ -318,7 +307,9 @@ class DataSaver(BaseHDF5Protuberance):
         with h5py.File(os.path.join(self.paths['save'], self.filename), 'w') as H5PYFile:
 
             # BORDERs
-            cube = scipy.io.readsav(self.filepaths[0])
+            cube = scipy.io.readsav(
+                os.path.join(self.paths['cubes'], f"cube{self.cube_numbers[0]:03d}.save"),
+            )
             self.volume = VolumeInfo(
                 dx=float(cube.dx),
                 xt_min=float(cube.xt_min),
@@ -359,7 +350,7 @@ class DataSaver(BaseHDF5Protuberance):
             "code created by Dr. Elie Soubrie, while the STEREO masks where manually created by "
             "Dr. Karine Bocchialini by visual interpretation of the 30.4nm STEREO B acquisitions."
             "\nNew values for the feet where added to help for a curve fitting of the filament. "
-            "These were added by looking at the STEREO B [...] nm images as the ends of the "
+            "These were added by looking at the STEREO B 30.4nm images as the ends of the "
             "filament are more visible. Hence, the feet are not actually visible in the initial "
             "masks.\nExplanation on what each HDF5 group or dataset represent is given in the "
             "corresponding 'description' attribute."
@@ -375,7 +366,7 @@ class DataSaver(BaseHDF5Protuberance):
         # RUN information
         run_info = self.get_run_information()
 
-        # FILE update
+        # UPDATE file
         self.add_dataset(H5PYFile, metadata)
         self.add_dataset(H5PYFile, self.dx, 'dx')
         for key in meta_info.keys(): self.add_dataset(H5PYFile, meta_info[key], key)
@@ -439,7 +430,7 @@ class DataSaver(BaseHDF5Protuberance):
         # DATA filepaths
         SDO_fits_names = [
             os.path.join(self.paths['sdo'], f'AIA_fullhead_{number:03d}.fits.gz')
-            for number in range(self.max_cube_numbers)
+            for number in range(self.max_len)
         ]
 
         # COORDs
@@ -453,9 +444,7 @@ class DataSaver(BaseHDF5Protuberance):
                 "The position of the SDO satellite during the observations in cartesian "
                 "heliocentric coordinates.\nThe shape of the data is (413, 3) where 413 "
                 "represents the time indexes for the data and the 3 the x, y, z position of the "
-                "satellite. To find the right position for the right data cube, you need to use "
-                "the 'Time indexes' dataset as they represent which time indexes we have usable "
-                "data."
+                "satellite."
             ),
         }
         return information
@@ -483,9 +472,7 @@ class DataSaver(BaseHDF5Protuberance):
                 "The position of the STEREO B satellite during the observations in cartesian "
                 "heliocentric coordinates.\nThe shape of the data is (413, 3) where 413 "
                 "represents the time indexes for the data and the 3 the x, y, z position of the "
-                "satellite. To find the right position for the right data cube, you need to use "
-                "the 'Time indexes' dataset as they represent which time indexes we have usable "
-                "data."
+                "satellite."
             ),          
         }
         return information
@@ -508,11 +495,11 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # SETUP multiprocessing
-        nb_processes = min(self.processes, self.max_cube_numbers)
+        nb_processes = min(self.processes, self.max_len)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        for i in range(self.max_cube_numbers): input_queue.put((i, data[i]))
+        for i in range(self.max_len): input_queue.put((i, data[i]))
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
@@ -524,7 +511,7 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        coordinates_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.max_cube_numbers)
+        coordinates_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.max_len)
         while not output_queue.empty():
             identifier, result = output_queue.get()
             coordinates_list[identifier] = result
@@ -551,9 +538,9 @@ class DataSaver(BaseHDF5Protuberance):
             # DATA hdu
             header = astropy.io.fits.getheader(filepath)
             coords = sunpy.coordinates.frames.HeliographicCarrington(
-                header['CRLN_OBS'] * u.deg,
-                header['CRLT_OBS'] * u.deg,
-                header['DSUN_OBS'] * u.m,
+                header['CRLN_OBS'] * u.deg,  #type:ignore
+                header['CRLT_OBS'] * u.deg,  #type:ignore
+                header['DSUN_OBS'] * u.m,  #type:ignore
                 obstime=header['DATE-OBS'],
                 observer='self',
             )
@@ -561,9 +548,9 @@ class DataSaver(BaseHDF5Protuberance):
 
             # CONVERSION to km
             result = np.array([
-                coords.x.to(u.km).value,
-                coords.y.to(u.km).value,
-                coords.z.to(u.km).value,
+                coords.x.to(u.km).value,  #type:ignore
+                coords.y.to(u.km).value,  #type:ignore
+                coords.z.to(u.km).value,  #type:ignore
             ])
             output_queue.put((identification, result))
         
@@ -593,9 +580,9 @@ class DataSaver(BaseHDF5Protuberance):
                 f'{date.year}-{date.month}-{date.day}T{date.hour}:{date.minute}:{date.second}'
             )
             coords = sunpy.coordinates.frames.HeliographicCarrington(
-                information_recarray.lon * u.deg,
-                information_recarray.lat * u.deg,
-                information_recarray.dist * u.km,
+                information_recarray.lon * u.deg,  #type:ignore
+                information_recarray.lat * u.deg,  #type:ignore
+                information_recarray.dist * u.km,  #type:ignore
                 obstime=stereo_date,
                 observer='self',
             )
@@ -603,9 +590,9 @@ class DataSaver(BaseHDF5Protuberance):
 
             # CONVERSION to km
             result = np.array([
-                coords.x.to(u.km).value,
-                coords.y.to(u.km).value,
-                coords.z.to(u.km).value,
+                coords.x.to(u.km).value,  #type:ignore
+                coords.y.to(u.km).value,  #type:ignore
+                coords.z.to(u.km).value,  #type:ignore
             ])
             output_queue.put((identification, result))
     
@@ -819,7 +806,6 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         for option in data_options:
-
             # GROUP create
             inside_group = group.create_group(option)
             inside_group.attrs['description'] = (
@@ -930,13 +916,13 @@ class DataSaver(BaseHDF5Protuberance):
         data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))
 
         # MULTIPROCESSING setup
-        dates_len = len(self.dates_seconds)
+        dates_len = len(self.dates)
         nb_processes = min(self.processes, dates_len)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        for i, date in enumerate(self.dates_seconds):
-            input_queue.put((i, data, date, self.dates_seconds, time))
+        for i in range(len(self.dates_seconds)):
+            input_queue.put((i, data, self.dates_seconds, time))
         for _ in range(nb_processes): input_queue.put(None)
 
         # RUN processes
@@ -948,11 +934,11 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
         
         # RESULTs formatting 
-        data = [None] * dates_len
+        data_list: list[sparse.COO] = cast(list[sparse.COO], [None] * dates_len)
         while not output_queue.empty():
             identification, result = output_queue.get()
-            data[identification] = result
-        data = sparse.stack(data, axis=0).astype('uint8')
+            data_list[identification] = result
+        data: sparse.COO = cast(sparse.COO, sparse.stack(data, axis=0).astype('uint8'))
 
         # BORDERs update
         if 'with feet' in datapath:
@@ -978,7 +964,8 @@ class DataSaver(BaseHDF5Protuberance):
             # CHECK queue
             arguments = input_queue.get()
             if arguments is None: return
-            index, data, date, dates, integration_time = arguments
+            index, data, dates, integration_time = arguments
+            date = dates[index]
 
             date_min = date - integration_time / 2
             date_max = date + integration_time / 2
@@ -1085,14 +1072,18 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # SETUP multiprocessing
-        filepaths_nb = len(self.filepaths)
-        processes_nb = min(self.processes, filepaths_nb)
+        cube_nb = len(self.cube_numbers)
+        processes_nb = min(self.processes, cube_nb)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
 
         # INPUT populate
-        for i, filepath in enumerate(self.filepaths): input_queue.put((i, filepath))
+        for cube_number in self.cube_numbers:
+            input_queue.put((
+                cube_number,
+                os.path.join(self.paths['cubes'], f'cube{cube_number:03d}.save'),
+            ))
         for _ in range(processes_nb): input_queue.put(None)
 
         # RUN processes
@@ -1107,13 +1098,20 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        rawCubes_list: list[sparse.COO] = cast(list[sparse.COO], [None] * filepaths_nb)
+        rawCubes_list: list[sparse.COO] = cast(list[sparse.COO], [None] * len(self.dates))
         while not output_queue.empty():
             identifier, result = output_queue.get()
-            rawCubes_list[identifier] = result 
+            rawCubes_list[identifier] = result
+        
+        # FILL NoneTypes
+        rawCubes_list = [
+            sparse.COO(coords=[], data=[], shape=rawCubes_list[0].shape)  # todo think about dtype
+            if cube is None else cube  
+            for cube in rawCubes_list
+        ]
         rawCubes: sparse.COO = cast(sparse.COO, sparse.stack(rawCubes_list, axis=0))
 
-        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ! this is useless or is it?
+        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ? is this useless ?
         return rawCubes
     
     @staticmethod
@@ -1129,19 +1127,19 @@ class DataSaver(BaseHDF5Protuberance):
         while True:
 
             # CHECK inputs
-            args = input_queue.get()
+            args: tuple[int, str] = input_queue.get()
             if args is None: return
-            identifier, filepath = args
+            cube_number, filepath = args
 
             # DATA import
             data = scipy.io.readsav(filepath)
-            cube = data.cube
+            cube: np.ndarray = data.cube
 
             # CHECK keywords
             if ('cube1' in data) and ('cube2' in data):
                 # LOS data
-                cube1 = data.cube1.astype('uint8') * 0b01000000
-                cube2 = data.cube2.astype('uint8') * 0b10000000
+                cube1: np.ndarray = data.cube1.astype('uint8') * 0b01000000
+                cube2: np.ndarray = data.cube2.astype('uint8') * 0b10000000
 
                 result = (cube + cube1 + cube2).astype('uint8')
             else:
@@ -1149,7 +1147,7 @@ class DataSaver(BaseHDF5Protuberance):
 
             # SAVE
             result = np.transpose(result, (2, 1, 0))
-            output_queue.put((identifier, DataSaver.sparse_data(result)))
+            output_queue.put((cube_number, DataSaver.sparse_data(result)))
 
     @staticmethod
     def sparse_data(cubes: np.ndarray) -> sparse.COO:
@@ -1194,9 +1192,9 @@ class DataSaver(BaseHDF5Protuberance):
         skycoords = self.carrington_skyCoords(data, borders)
         data_list: list[np.ndarray] = cast(list[np.ndarray], [None] * len(skycoords))
         for i, skycoord in enumerate(skycoords):
-            x = skycoord.cartesian.x.value
-            y = skycoord.cartesian.y.value
-            z = skycoord.cartesian.z.value
+            x: np.ndarray = skycoord.cartesian.x.value  #type:ignore
+            y: np.ndarray = skycoord.cartesian.y.value  #type:ignore
+            z: np.ndarray = skycoord.cartesian.z.value  #type:ignore
             cube = np.stack([x, y, z], axis=0)
 
             # (x, y, z) -> (t, x, y, z)
@@ -1276,9 +1274,9 @@ class DataSaver(BaseHDF5Protuberance):
         borders: dict[str, dict[str, float]] = cast(dict[str, dict[str, float]], borders)
 
         # COORDs feet
-        x = self.feet.cartesian.x.to(u.km).value
-        y = self.feet.cartesian.y.to(u.km).value
-        z = self.feet.cartesian.z.to(u.km).value
+        x = self.feet.cartesian.x.to(u.km).value  #type:ignore
+        y = self.feet.cartesian.y.to(u.km).value  #type:ignore
+        z = self.feet.cartesian.z.to(u.km).value  #type:ignore
         positions = np.stack([x, y, z], axis=0)
 
         # BORDERs update
@@ -1418,7 +1416,7 @@ class DataSaver(BaseHDF5Protuberance):
             # COORDs reprojected carrington
             skyCoord = astropy.coordinates.SkyCoord(
                 cube[1, :], cube[2, :], cube[3, :], 
-                unit=u.km,
+                unit=u.km,  #type:ignore
                 frame=sunpy.coordinates.frames.HeliographicCarrington,
                 representation_type='cartesian'
             )
