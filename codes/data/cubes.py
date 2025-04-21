@@ -938,10 +938,10 @@ class DataSaver(BaseHDF5Protuberance):
             data_list[identification] = result
         data_list = [
             sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint8')
-            if result is None else result
-            for result in data_list
+            if value is None else value
+            for value in data_list
         ]
-        data: sparse.COO = cast(sparse.COO, sparse.stack(data, axis=0).astype('uint8'))
+        data: sparse.COO = cast(sparse.COO, sparse.stack(data_list, axis=0).astype('uint8'))
 
         # BORDERs update
         if 'with feet' in datapath:
@@ -1051,7 +1051,7 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         sub_options = [
-            f'/Time integration of {time / 3600} hours'
+            f'/Time integration of {int(time / 3600)} hours'
             for time in self.integration_time
         ] + ['/Full integration']
         
