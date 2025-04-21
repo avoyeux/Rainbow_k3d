@@ -127,12 +127,12 @@ class DataSaver(BaseHDF5Protuberance):
 
         # PLACEHOLDERs
         self.dx: dict[str, str | float]  # information and value of the spatial resolution
-        self.time_indexes: list[int]  # the time indexes with values inside the cubes
         self.paths: dict[str, str]  # the paths to the different directories
         self.cube_numbers: list[int] # the cube numbers
         self.dates: list[str]  # the dates of the STEREO B 30.4nm acquisitions
         self.dates_seconds: list[int]  # the dates in seconds
         self.max_len: int  # maximum cube index + 1 (hence len(dates))
+        self.nb_processes: int  # the number of processes used in the multiprocessing
         self.feet: astropy.coordinates.SkyCoord  # the feet positions
         self.cube_pattern: re.Pattern[str]  # the pattern for the .save cubes
         self.date_pattern: re.Pattern[str]  # the pattern for the STEREO B 30.4nm dates
@@ -214,6 +214,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # MAX number of values
         self.max_len = len(self.dates)
+        self.nb_processes = min(self.processes, self.max_len)
 
         # DATEs in seconds
         treated_dates = [CustomDate(date) for date in self.dates]  # * using all dates
@@ -495,16 +496,15 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # SETUP multiprocessing
-        nb_processes = min(self.processes, self.max_len)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
         for i in range(self.max_len): input_queue.put((i, data[i]))
-        for _ in range(nb_processes): input_queue.put(None)
+        for _ in range(self.nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
-        for i in range(nb_processes):
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * self.nb_processes)
+        for i in range(self.nb_processes):
             p = mp.Process(target=function, args=(input_queue, output_queue))
             p.start()
             processes[i] = p
@@ -840,7 +840,7 @@ class DataSaver(BaseHDF5Protuberance):
             # INTEGRATION time dependent
             for integration_time in self.integration_time:
                 # INTEGRATION setup
-                time_hours = round(integration_time / 3600, 1)
+                time_hours = int(integration_time / 3600)
                 group_name = f'Time integration of {time_hours} hours'
 
                 # DATA
@@ -916,28 +916,31 @@ class DataSaver(BaseHDF5Protuberance):
         data = self.get_COO(H5PYFile, datapath.removesuffix(' with feet'))
 
         # MULTIPROCESSING setup
-        dates_len = len(self.dates)
-        nb_processes = min(self.processes, dates_len)
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
         for i in range(len(self.dates_seconds)):
             input_queue.put((i, data, self.dates_seconds, time))
-        for _ in range(nb_processes): input_queue.put(None)
+        for _ in range(self.nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
-        for i in range(nb_processes):
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * self.nb_processes)
+        for i in range(self.nb_processes):
             p = mp.Process(target=self.time_integration_sub, args=(input_queue, output_queue))
             p.start()
             processes[i] = p
         for p in processes: p.join()
         
         # RESULTs formatting 
-        data_list: list[sparse.COO] = cast(list[sparse.COO], [None] * dates_len)
+        data_list: list[sparse.COO] = cast(list[sparse.COO], [None] * self.max_len)
         while not output_queue.empty():
             identification, result = output_queue.get()
             data_list[identification] = result
+        data_list = [
+            sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint8')
+            if result is None else result
+            for result in data_list
+        ]
         data: sparse.COO = cast(sparse.COO, sparse.stack(data, axis=0).astype('uint8'))
 
         # BORDERs update
@@ -1105,13 +1108,11 @@ class DataSaver(BaseHDF5Protuberance):
         
         # FILL NoneTypes
         rawCubes_list = [
-            sparse.COO(coords=[], data=[], shape=rawCubes_list[0].shape)  # todo think about dtype
+            sparse.COO(coords=[], data=[], shape=rawCubes_list[0].shape).astype('uint8')
             if cube is None else cube  
             for cube in rawCubes_list
         ]
         rawCubes: sparse.COO = cast(sparse.COO, sparse.stack(rawCubes_list, axis=0))
-
-        self.time_indexes = list(set(rawCubes.coords[0, :]))  # ? is this useless ?
         return rawCubes
     
     @staticmethod
@@ -1198,7 +1199,7 @@ class DataSaver(BaseHDF5Protuberance):
             cube = np.stack([x, y, z], axis=0)
 
             # (x, y, z) -> (t, x, y, z)
-            time_row = np.full((1, cube.shape[1]), self.time_indexes[i])
+            time_row = np.full((1, cube.shape[1]), i)
             data_list[i] = np.vstack([time_row, cube])
         result: np.ndarray = np.hstack(data_list).astype('float32')
 
@@ -1298,7 +1299,7 @@ class DataSaver(BaseHDF5Protuberance):
         # (x, y, z) -> (t, x, y, z)
         feet = np.hstack([
             np.vstack((np.full((1, 2), time), positions))
-            for time in self.time_indexes
+            for time in range(self.max_len)
         ])
 
         # ADD feet
@@ -1312,7 +1313,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # COO
         shape = np.max(init_coords, axis=1) + 1
-        feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), len(self.time_indexes) * 2)
+        feet_values = np.repeat(np.array([0b00100000], dtype='uint8'), self.max_len * 2)
         values = np.concatenate([data.data, feet_values], axis=0)
         data = sparse.COO(coords=init_coords, data=values, shape=shape).astype('uint8')
         return data, new_borders
@@ -1350,15 +1351,13 @@ class DataSaver(BaseHDF5Protuberance):
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        time_nb = len(self.time_indexes)
-        processes_nb = min(self.processes, time_nb)
         shm, coords = MultiProcessing.create_shared_memory(coords)
-        for i, time in enumerate(self.time_indexes): input_queue.put((i, time))
-        for _ in range(processes_nb): input_queue.put(None)
+        for i in range(self.max_len): input_queue.put(i)
+        for _ in range(self.nb_processes): input_queue.put(None)
 
         # RUN processes
-        processes: list[mp.Process] = cast(list[mp.Process], [None] * processes_nb)
-        for i in range(processes_nb):
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * self.nb_processes)
+        for i in range(self.nb_processes):
             process = mp.Process(
                 target=self.skyCoords_slice,
                 args=(coords, input_queue, output_queue),
@@ -1371,7 +1370,7 @@ class DataSaver(BaseHDF5Protuberance):
         # RESULTs formatting
         all_SkyCoords: list[astropy.coordinates.SkyCoord] = cast(
             list[astropy.coordinates.SkyCoord],
-            [None] * time_nb,
+            [None] * self.max_len,
         )
         while not output_queue.empty():
             identifier, result = output_queue.get()
@@ -1405,12 +1404,11 @@ class DataSaver(BaseHDF5Protuberance):
 
         while True:
             # CHECK queue
-            argument = input_queue.get()
-            if argument is None: break
-            index, time = argument
+            index = input_queue.get()
+            if index is None: break
 
             # DATA section
-            slice_filter: np.ndarray = coords[0, :] == time
+            slice_filter: np.ndarray = coords[0, :] == index
             cube: np.ndarray = coords[:, slice_filter]
             
             # COORDs reprojected carrington
