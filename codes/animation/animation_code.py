@@ -32,11 +32,9 @@ JsLinkAlias: TypeAlias = Any
 
 # todo need to improve the names of the different datasets in the visualisation
 # todo need to be able to add the extended version of the polynomial fit
-# todo need to be able to choose to also see the dates where there is no data
 
-# ! need to pay attention when not using 'all dates' as the datasets indexes in the HDF5 file have
-# ! completely changed. For the integrated data, now it always represents all the data.
-
+# todo change the indexes for the cubes as now the cube indexes should always be the based on the 
+# * maximum indexes (i.e. the same value than the 'Time indexes').
 
 
 class Setup:
@@ -280,23 +278,21 @@ class Setup:
             sdo_positions: np.ndarray = cast(h5py.Dataset, HDF5File['SDO positions'])[...]
 
             # DATA formatting
-            if self.choices['all dates']:
-                cubes.sdo_pos = (sdo_positions / self.constants.dx).astype('float32') 
-            else:
-                cubes.sdo_pos = (
-                    sdo_positions[self.constants.time_indexes] / self.constants.dx
-                ).astype('float32')
+            cubes.sdo_pos = cast(
+                np.ndarray,
+                (sdo_positions[self.constants.time_indexes] / self.constants.dx).astype('float32'),
+            )
         if self.choices['pov stereo']:
             # STEREO positions
             stereo_positions: np.ndarray = cast(h5py.Dataset, HDF5File['STEREO B positions'])[...]
 
             # DATA formatting
-            if self.choices['all dates']:
-                cubes.stereo_pos = (stereo_positions / self.constants.dx).astype('float32')
-            else:
-                cubes.stereo_pos = (
+            cubes.stereo_pos = cast(
+                np.ndarray,
+                (
                     stereo_positions[self.constants.time_indexes] / self.constants.dx
-                ).astype('float32')
+                ).astype('float32'),
+            )
             # todo will need to add the POV center
 
         if self.choices['fake data']:
@@ -348,15 +344,20 @@ class Setup:
             CubesConstants: the global information of protuberance.
         """
         
-        # DATA setup
-        time_indexes: np.ndarray = cast(h5py.Dataset, HDF5File[init_path + 'Time indexes'])[...]
+        # DATEs
         dates_bytes: NDArray[np.bytes_] = cast(h5py.Dataset, HDF5File['Dates'])[...]
 
         if self.choices['all dates']:
-            dates_str: list[str] = [date.decode('utf-8') for date in dates_bytes]
+            # TIME INDEXEs all
+            time_indexes: np.ndarray = np.arange(0, len(dates_bytes))
         else:
-            dates_str: list[str] = [date.decode('utf-8') for date in dates_bytes[time_indexes]]
+            # TIME INDEXEs with data
+            time_indexes: np.ndarray = cast(
+                h5py.Dataset,
+                HDF5File[init_path + 'Time indexes'],
+            )[...]
 
+        dates_str: list[str] = [date.decode('utf-8') for date in dates_bytes[time_indexes]]
         constants = CubesConstants(
             dx=float(cast(h5py.Dataset, HDF5File['dx'])[...]),
             time_indexes=time_indexes,
@@ -818,7 +819,11 @@ class K3dAnimation(Setup):
             cube = self.find_first_cube()
             if cube is not None:
                 point = k3d.points(
-                    positions=np.array([cube.xt_min_index, cube.yt_min_index, cube.zt_min_index]),
+                    positions=np.array([
+                        cube.xt_min_index,
+                        cube.yt_min_index,
+                        cube.zt_min_index
+                    ], dtype='float32'),
                     point_size=5,
                     colors=[0xff0000],
                     shader='3d',
@@ -829,7 +834,7 @@ class K3dAnimation(Setup):
                         cube.xt_min_index + 62,
                         cube.yt_min_index + 65,
                         cube.zt_min_index + 150,
-                    ]),
+                    ], dtype='float32'),
                     point_size=5,
                     colors=[0xff0000],
                     shader='3d',
@@ -1148,18 +1153,10 @@ class K3dAnimation(Setup):
         
         # ALL DATA
         if self.cubes.all_data is not None:
-            self.update_voxel(
-                plots=self.plot_alldata,
-                cube_info=self.cubes.all_data,
-                index=self.change_to_cube_index(change['new']),
-            )
+            self.update_voxel(self.plot_alldata, self.cubes.all_data, change['new'])
         # NO DUPLICATES
         if self.cubes.no_duplicate is not None:
-            self.update_voxel(
-                plots=self.plot_dupli_new,
-                cube_info=self.cubes.no_duplicate,
-                index=self.change_to_cube_index(change['new']),
-            )
+            self.update_voxel(self.plot_dupli_new,self.cubes.no_duplicate,change['new'])
         # TIME INTEGRATION
         if self.cubes.integration_all_data is not None:
             self.update_voxel(self.plot_interv_new, self.cubes.integration_all_data, change['new'])
@@ -1177,32 +1174,6 @@ class K3dAnimation(Setup):
         # FAKE CUBE
         if self.cubes.fake_cube is not None:
             self.update_voxel(self.plot_fake_cube, self.cubes.fake_cube, change['new'])
-
-    def change_to_cube_index(self, index: int) -> int | None:
-        """
-        To get the cube index corresponding to the change['new'] index, depending on whether
-        'all data' is True or False. If 'all data' is True, then the index remains the same.
-        If 'all data' is False, then the index is changed to the corresponding cube index.
-        If no data exists for that change['new'] then the return value is None.
-        ! This method should only be used for the non integrated datasets.
-        
-        Args:
-            index (int): the index gotten from change['new'].
-
-        Returns:
-            int | None: the corresponding cube index in the dataset. If the value is None, it means
-                that the dataset doesn't have any data for that index.
-        """
-
-        # INDEX same
-        if self.choices['all dates']: return index
-
-        # INDEX different
-        if index in self.constants.time_indexes:
-            value: int | None = np.where(self.constants.time_indexes == index)[0][0]
-        else:
-            value = None
-        return value
 
     def update_voxel(
             self,
