@@ -1051,7 +1051,7 @@ class DataSaver(BaseHDF5Protuberance):
         ]
 
         sub_options = [
-            f'/Time integration of {round(time / 3600, 1)} hours'
+            f'/Time integration of {time / 3600} hours'
             for time in self.integration_time
         ] + ['/Full integration']
         
