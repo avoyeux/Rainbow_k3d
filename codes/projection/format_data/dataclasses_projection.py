@@ -44,7 +44,6 @@ class ProcessConstants:
     ID: int
     date: str
     time_index: int
-    cube_index: int | None
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -72,7 +71,6 @@ class ProjectionData:
     sdo_mask: PolarImageInfo | None = None
     all_data: ProjectedData | None = None
     no_duplicates: ProjectedData | None = None
-    full_integration_all_data: ProjectedData | None = None
     full_integration_no_duplicates: ProjectedData | None = None
     integration: list[ProjectedData] | None = None
     line_of_sight: ProjectedData | None = None

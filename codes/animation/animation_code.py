@@ -205,7 +205,7 @@ class Setup:
         if self.choices['all data integration']: 
             path = (
                 init_path + 'Time integrated/All data' + self.feet +
-                f'/Time integration of {round(float(self.time_interval), 1)} hours'
+                f'/Time integration of {self.time_interval} hours'
             )
             cubes.integration_all_data = self.get_cube_info(
                 HDF5File=HDF5File,
@@ -230,7 +230,7 @@ class Setup:
         if self.choices['no duplicate integration']:
             path = (
                 init_path + 'Time integrated/No duplicates' + self.feet +
-                f'/Time integration of {round(float(self.time_interval), 1)} hours'
+                f'/Time integration of {self.time_interval} hours'
             )
             cubes.integration_no_duplicate = self.get_cube_info(
                 HDF5File=HDF5File,
@@ -668,7 +668,7 @@ class Setup:
                 name += '(full) '
             else:
                 # PATTERN
-                pattern_integration_time = r'(\d+)\.\d*\s*hours'
+                pattern_integration_time = r'(\d+)\s*hours'
                 result = re.search(pattern_integration_time, group_path)
 
                 if result is not None:
