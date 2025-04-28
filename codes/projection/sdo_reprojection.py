@@ -32,10 +32,7 @@ from typing import Any, cast, overload, Literal
 from matplotlib.collections import PathCollection
 QueueAlias = queue.Queue[Any]
 
-# todo add the 'integration' of the warp images
 # todo 'integration' of warp images needs to be able to work on multiple datasets at the same time
-# todo update needed as the cube time indexes have changed and the dataset names too
-# todo update the code for when no multiprocessing is done
 
 
 
@@ -128,7 +125,7 @@ class OrthographicalProjection(BaseReprojection):
         self.feet = ' with feet' if with_feet else ''
         self.filepath = self.filepath_setup(filepath)
         self.foldername = (
-            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' ')) + '_test'
+            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
         )
         self.paths = self.path_setup()  # path setup
         self.sdo_timestamps = self.sdo_image_finder()  # sdo image timestamps
@@ -294,9 +291,6 @@ class OrthographicalProjection(BaseReprojection):
         Setups the multiprocessing for the whole code.
         """
 
-        # PATH setup
-        init_path = 'Real/' if self.with_fake_data else ''
-
         # STATS data
         with h5py.File(self.filepath, 'r') as H5PYFile:
             dates: np.ndarray = cast(h5py.Dataset, H5PYFile['Dates'])[...]
@@ -350,7 +344,17 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         # ROW MEDIAN processing
+        mean_rows = np.mean(warped_data.T, axis=1)
         median_rows = np.median(warped_data.T, axis=1)
+
+        # PLOT
+        plt.figure(figsize=(18, 5))
+        plt.imshow(mean_rows, cmap='gray', origin='lower', aspect='auto')
+        plt.title('Mean rows of the warped data')
+        plt.xlabel('Time')
+        plt.ylabel('Radial distance')
+        plt.savefig(os.path.join(config.path.dir.data.temp, 'mean_rows.png'), dpi=500)
+        plt.close()    
         
         # PLOT
         plt.figure(figsize=(18, 5))
@@ -379,7 +383,7 @@ class OrthographicalProjection(BaseReprojection):
             inputs: QueueAlias | int,
             output_queue: QueueAlias | None = None,
         ) -> np.ndarray | None:
-        """  # todo update docstring
+        """
         Open the HDF5 file and does the processing and final plotting for each cube.
         A while loop is used to decide which data section needs to be processed.
 
@@ -397,7 +401,7 @@ class OrthographicalProjection(BaseReprojection):
         # WARP KWARGS
         warp_kwargs = {
              'extent': cast(tuple[int, ...], self.plot_kwargs['image']['extent']),  #type:ignore
-             'image_shape': (1280, 1280),
+             'image_shape': (1280, 1280),  # ? why is this here ?
              'pixel_interpolation_order': 3,
              'nb_of_points': 300,
         }
@@ -614,12 +618,14 @@ class OrthographicalProjection(BaseReprojection):
 
                 # WARP add to Auchere's envelope
                 if self.plot_choices['warp'] and self.Auchere_envelope is not None:
-                    warped_instance = WarpSdoImage(
+                    warped_instance = WarpSdoImage(  # ! add this directly in the warpTreatment
                         envelopes=[self.Auchere_envelope.upper, self.Auchere_envelope.lower],
                         sdo_image=sdo_image_info.image,
                         **warp_kwargs,
                     )
                     self.Auchere_envelope.warped_image = warped_instance.warped_image
+
+                    # todo add the warped treatment here
 
                     # SAVE warp data
                     if output_queue is not None:
@@ -630,6 +636,7 @@ class OrthographicalProjection(BaseReprojection):
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
                 self.create_fake_fits(process_constants, projection_data)
+        return np.stack(outputs, axis=0) if output_queue is None else None
 
     def format_cube(
             self,
@@ -640,13 +647,13 @@ class OrthographicalProjection(BaseReprojection):
             warp: bool = False,
             warp_kwargs: dict[str, Any] = {},
         ) -> ProjectedData:
-            """  # todo update docstring
+            """
             To format the cube data for the projection.
 
             Args:
                 data (DataPointer | UniqueDataPointer | FakeDataPointer): the data cube to be
                     formatted.
-                index (int): the index of the corresponding real data cube.
+                cube_index (int): the index of the corresponding real data cube.
                 colour (str): the colour of the data cube for the plot.
                 sdo_info (PolarImageInfo): the SDO information (e.g. the position, the image).
                 warp (bool, optional): if the image section inside the fit envelope should be

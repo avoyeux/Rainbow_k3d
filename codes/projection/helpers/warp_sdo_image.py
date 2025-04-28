@@ -13,8 +13,11 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from codes.projection.format_data import FitEnvelopes
+from codes.projection.format_data import ImageBorders, FitEnvelopes
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
+
+# TYPE ANNOTATIONs
+from typing import cast
 
 
 
@@ -96,23 +99,36 @@ class EnvelopeProcessing(BaseFitProcessing):
 
 class WarpSdoImage:
     """
-    To warp the SDO image in between the two fit envelopes.
+    To warp the SDO image in between the two envelopes.
     This is done to try and recreate the analysis made by Dr. Auchere in his Coronal Monsoon paper.
     """
 
     def __init__(
             self,
             sdo_image: np.ndarray,
-            extent: tuple[float, float, float, float],
-            image_shape: tuple[int, int],
+            borders: ImageBorders,
+            image_shape: tuple[int, int],  # ? should I make it as a function of the nb_of_points.
             pixel_interpolation_order: int,
             envelopes: list[FitEnvelopes],
             nb_of_points: int,
         ) -> None:
+        """
+        To warp the SDO image in between the given two envelopes.
+        After initialisation, the warped SDO image is saved in the .warped_image attribute. 
+
+        Args:
+            sdo_image (np.ndarray): the SDO image to warp.
+            borders (ImageBorders): the polar border values of the sdo image. The radial distance
+                is given in Mm and the polar angle in degrees.
+            image_shape (tuple[int, int]): the final image shape wanted after the warping.
+            pixel_interpolation_order (int): the order used in scipy.ndimage.map_coordinates.
+            envelopes (list[FitEnvelopes]): the lower and upper envelope.
+            nb_of_points (int): the final number of points used in the interpolation.
+        """
 
         # ATTRIBUTEs
         self.sdo_image = sdo_image
-        self.extent = extent
+        self.borders = borders
         self.image_shape = image_shape
         self.pixel_interpolation_order = pixel_interpolation_order
         self.envelopes = envelopes
@@ -131,7 +147,10 @@ class WarpSdoImage:
             list[EnvelopeProcessing]: the processed envelopes.
         """
 
-        processed: list[EnvelopeProcessing] = [None] * len(self.envelopes)  #type:ignore
+        processed: list[EnvelopeProcessing] = cast(
+            list[EnvelopeProcessing],
+            [None] * len(self.envelopes),
+        )
         for i, envelope in enumerate(self.envelopes):
             processed[i] = EnvelopeProcessing(
                 polar_r=envelope.polar_r,
@@ -212,10 +231,16 @@ class WarpSdoImage:
         """
 
         # RESOLUTION pixels
-        km_per_pixel = (abs(self.extent[3] - self.extent[2]) * 1e3) / self.sdo_image.shape[0]
-        angle_per_pixel = abs(self.extent[1] - self.extent[0]) / self.sdo_image.shape[1]
+        km_per_pixel = (
+            (abs(self.borders.radial_distance[1] - self.borders.radial_distance[0]) * 1e3)
+            / self.sdo_image.shape[0]
+        )
+        angle_per_pixel = (
+            abs(self.borders.polar_angle[1] - self.borders.polar_angle[0])
+            / self.sdo_image.shape[1]
+        )
 
         # COORDs to pixel indices
-        r_pixels = (polar_r - self.extent[2] * 1e3) / km_per_pixel
-        theta_pixels = (polar_theta - self.extent[0]) / angle_per_pixel
+        r_pixels = (polar_r - min(self.borders.radial_distance) * 1e3) / km_per_pixel
+        theta_pixels = (polar_theta - min(self.borders.polar_angle)) / angle_per_pixel
         return r_pixels, theta_pixels

@@ -56,7 +56,7 @@ class FitWithEnvelopes:
     fit_angles: np.ndarray
 
     # ENVELOPEs
-    envelopes: list[FitEnvelopes] | None
+    envelopes: EnvelopeInformation | None
 
     # WARPED image
     warped_image: np.ndarray | None = field(default=None, init=False)
