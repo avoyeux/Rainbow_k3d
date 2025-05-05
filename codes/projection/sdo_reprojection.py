@@ -20,19 +20,22 @@ import matplotlib.pyplot as plt
 from common import config, Decorators, Plot
 from codes.projection.format_data import *
 from codes.projection.envelope_distance import EnvelopeDistanceAnnotation
-from codes.projection.helpers.warp_sdo_image import WarpSdoImage
 from codes.projection.helpers.extract_envelope import ExtractEnvelope
 from codes.projection.helpers.base_reprojection import BaseReprojection
 from codes.projection.helpers.cartesian_to_polar import CartesianToPolar
+from codes.projection.helpers.warped_information import AllWarpedTreatment
 from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProcessedPolynomial
 
 # TYPE ANNOTATIONs
 import queue
 from typing import Any, cast, overload, Literal
 from matplotlib.collections import PathCollection
-QueueAlias = queue.Queue[Any]
+type QueueAlias[T] = queue.Queue[T]  # used parent function
 
 # todo 'integration' of warp images needs to be able to work on multiple datasets at the same time
+
+# ? should I force the creation of a fit and Auchere's envelope as it is necessary for the last 
+# ? warped integration plot. As opposed to adding multiple if statements
 
 
 
@@ -304,7 +307,7 @@ class OrthographicalProjection(BaseReprojection):
             processes: list[mp.Process] = cast(list[mp.Process], [None] * nb_processes)
             manager = mp.Manager()
             input_queue = manager.Queue()
-            output_queue = manager.Queue()
+            output_queue: QueueAlias[tuple[int, ProjectedData]] = manager.Queue()
             for i in range(data_len): input_queue.put(i)  # todo change this to a value proxy
             for _ in range(nb_processes): input_queue.put(None)
 
@@ -319,33 +322,34 @@ class OrthographicalProjection(BaseReprojection):
             for p in processes: p.join()
 
             # GET warped data
-            warped_data_list: list[np.ndarray] = cast(list[np.ndarray], [None] * data_len)
+            warped_information_list: list[ProjectedData] = cast(
+                list[ProjectedData],
+                [None] * data_len,
+            )
             while not output_queue.empty():
                 identifier, warped = output_queue.get()
-                warped_data_list[identifier] = warped
-            warped_data = np.stack(warped_data_list, axis=0)
+                warped_information_list[identifier] = warped
         else:
-            warped_data = self.data_setup(inputs=data_len)
+            raise NotImplementedError(
+                "Need to decide how to implement the data passing when no multiprocesssing"
+            )
 
         if self.in_local: 
             self.connection.close()
             self.connection.cleanup(verbose=self.verbose)
 
         # PLOT warped data    
-        self.process_warped_data(warped_data)  # ! this only works for one set of warped data
+        self.process_warped_data(warped_information_list)  # ! this only works for one set of warped data
 
 
-    def process_warped_data(self, warped_data: np.ndarray) -> None:
-        """
+    def process_warped_data(self, warped_data: list[ProjectedData]) -> None:
+        """  # todo update docstring
         To plot the final figure of Dr. Auchere's paper given a set of warped images.
 
         Args:
             warped_data (np.ndarray): the warped images for which the plot needs to be made.
         """
 
-        # ROW MEDIAN processing
-        mean_rows = np.mean(warped_data.T, axis=1)
-        median_rows = np.median(warped_data.T, axis=1)
 
         # PLOT
         plt.figure(figsize=(18, 5))
@@ -373,17 +377,17 @@ class OrthographicalProjection(BaseReprojection):
 
     @overload  #fallback
     def data_setup(
-        self,
-        inputs: QueueAlias | int,
-        output_queue: QueueAlias | None = ...,
-    ) -> np.ndarray | None: ...
+            self,
+            inputs: QueueAlias | int,
+            output_queue: QueueAlias | None = ...,
+        ) -> np.ndarray | None: ...
 
     def data_setup(
             self,
-            inputs: QueueAlias | int,
-            output_queue: QueueAlias | None = None,
+            inputs: QueueAlias[int] | int,
+            output_queue: QueueAlias[tuple[int, ProjectionData]] | None = None,
         ) -> np.ndarray | None:
-        """
+        """  # todo change docstring and the return type as it cannot be an ndarray anymore
         Open the HDF5 file and does the processing and final plotting for each cube.
         A while loop is used to decide which data section needs to be processed.
 
@@ -400,10 +404,11 @@ class OrthographicalProjection(BaseReprojection):
 
         # WARP KWARGS
         warp_kwargs = {
-             'extent': cast(tuple[int, ...], self.plot_kwargs['image']['extent']),  #type:ignore
-             'image_shape': (1280, 1280),  # ? why is this here ?
-             'pixel_interpolation_order': 3,
-             'nb_of_points': 300,
+            'borders': self.projection_borders,
+            'image_shape': (1280, 1280),  # ? why is this here ?
+            'pixel_interpolation_order': 3,
+            'nb_of_points': 300,
+            'integration_type': 'mean',
         }
 
         # DATA open
@@ -616,22 +621,14 @@ class OrthographicalProjection(BaseReprojection):
                         warp=False,
                     )
 
-                # WARP add to Auchere's envelope
-                if self.plot_choices['warp'] and self.Auchere_envelope is not None:
-                    warped_instance = WarpSdoImage(  # ! add this directly in the warpTreatment
-                        envelopes=[self.Auchere_envelope.upper, self.Auchere_envelope.lower],
-                        sdo_image=sdo_image_info.image,
-                        **warp_kwargs,
-                    )
-                    self.Auchere_envelope.warped_image = warped_instance.warped_image
-
-                    # todo add the warped treatment here
-
-                    # SAVE warp data
+                # WARP final plot
+                if self.plot_choices['warp']:
                     if output_queue is not None:
-                        output_queue.put((process, self.Auchere_envelope.warped_image))
+                        output_queue.put((process, projection_data))
                     else:
-                        outputs[process] = self.Auchere_envelope.warped_image
+                        raise NotImplementedError(
+                            'Still need to decide what to do when not multiprocessing'
+                        )
 
                 # CHILD CLASSes functionality
                 self.plotting(process_constants, projection_data)
@@ -645,9 +642,10 @@ class OrthographicalProjection(BaseReprojection):
             colour: str,
             sdo_info: PolarImageInfo,
             warp: bool = False,
+            date: str | None = None,
             warp_kwargs: dict[str, Any] = {},
         ) -> ProjectedData:
-            """
+            """  # todo update docstring
             To format the cube data for the projection.
 
             Args:
@@ -701,9 +699,12 @@ class OrthographicalProjection(BaseReprojection):
                         feet_sigma=0.1,
                         feet_threshold=0.1,
                         envelope_radius=4e4,
-                        create_envelope=self.plot_choices['fit envelope'],
+                        create_envelope=(  # todo need to think about this setup
+                            self.plot_choices['fit envelope']
+                            and self.Auchere_envelope is None
+                        ),
                     )
-                    
+  
                     fit_n_envelope = (
                         reprojected_polynomial.reprocessed_fit_n_envelopes(
                             index=cube_index,
@@ -711,14 +712,23 @@ class OrthographicalProjection(BaseReprojection):
                         )
                     )
 
+                    if self.Auchere_envelope is not None:
+                        fit_n_envelope.envelopes = self.Auchere_envelope
+
                     # WARP IMAGE add
                     if (fit_n_envelope.envelopes is not None) and warp:
-                        warped_instance = WarpSdoImage(
-                            envelopes=fit_n_envelope.envelopes,
+                        warped_instance = AllWarpedTreatment(
                             sdo_image=sdo_info.image,
+                            date=date,
+                            fit_n_envelopes=fit_n_envelope,
+                            borders=self.projection_borders,
+                            image_shape=(1280, 1280),
+                            pixel_interpolation_order=3,
+                            nb_of_points=300,
+                            integration_type='mean',
                             **warp_kwargs,
                         )
-                        fit_n_envelope.warped_image = warped_instance.warped_image
+                        fit_n_envelope.warped_information = warped_instance.warped_information
                     # RESULT save
                     fit_n_envelopes[i] = fit_n_envelope
 
@@ -734,7 +744,7 @@ class OrthographicalProjection(BaseReprojection):
             return projection
 
     def get_file_from_server(self, filepath: str, fail_count: int = 0) -> str:
-        """
+        """  # ! doesn't restart the download as intended... 
         To get the file from the server. If the file is not found, the function will try again
         until it reaches a certain number of tries.
 
@@ -1086,14 +1096,14 @@ class OrthographicalProjection(BaseReprojection):
         Placeholder for a child class to plot the data.
         """
 
-        pass
+        raise NotImplementedError('This function should be implemented in a child class.')
 
     def create_fake_fits(self , *args, **kwargs) -> None:
         """
         Placeholder for a child class to create fake fits files.
         """
 
-        pass
+        raise NotImplementedError('This function should be implemented in a child class.')
 
     def cube_contour(
             self,
@@ -1263,15 +1273,6 @@ class Plotting(OrthographicalProjection):
                 kwargs=cast(dict[str, Any], self.plot_kwargs['envelope']),
             )
 
-            if self.Auchere_envelope.warped_image is not None:
-                self.plot_warped_image(
-                    warped_image=self.Auchere_envelope.warped_image,
-                    integration_time=None,
-                    date=process_constants.date,
-                    fit_order=None,
-                    envelope_order=self.Auchere_envelope.upper.order,
-                )
-
         if projection_data.sdo_mask is not None:
             # CONTOURS get
             lines = self.image_contour(
@@ -1439,28 +1440,36 @@ class Plotting(OrthographicalProjection):
 
                 # ENVELOPE fit
                 if fit_n_envelope.envelopes is not None:
-                    # PLOT envelope
-                    for label, new_envelope in enumerate(fit_n_envelope.envelopes):
-                        self.plt_plot(
-                            coords=new_envelope,
-                            colour=fit_n_envelope.colour,
-                            label=(
-                                f'Envelope ({new_envelope.order}th) for '
-                                + fit_n_envelope.name.lower()
-                            ) if label==0 else None,
-                            kwargs=cast(dict[str, Any], self.plot_kwargs['fit envelope']),
-                        )
+                    # PLOT envelope  # ? should I also add the middle path ?
+                    self.plt_plot(
+                        coords=fit_n_envelope.envelopes.upper,
+                        colour=fit_n_envelope.colour,
+                        label=(
+                            f'Envelope ({fit_n_envelope.envelopes.upper.order}th) for '
+                            + fit_n_envelope.name.lower()
+                        ),
+                        kwargs=cast(dict[str, Any], self.plot_kwargs['fit envelope']),
+                    )
+                    self.plt_plot(
+                        coords=fit_n_envelope.envelopes.lower,
+                        colour=fit_n_envelope.colour,
+                        label=None,
+                        kwargs=cast(dict[str, Any], self.plot_kwargs['fit envelope']),
+                    )
 
                     # WARP image
-                    if fit_n_envelope.warped_image is not None:
+                    if fit_n_envelope.warped_information is not None:
                         # PLOT inside a new figure
                         self.plot_warped_image(
-                            warped_image=fit_n_envelope.warped_image,
+                            warped_image=fit_n_envelope.warped_information.warped_values,
                             integration_time=data.integration_time,
                             date=process_constants.date,
                             fit_order=fit_n_envelope.fit_order,
-                            envelope_order=fit_n_envelope.envelopes[0].order,
+                            envelope_order=fit_n_envelope.envelopes.upper.order,
                         )
+
+                        # WARPED INTEGRATION to save RAM
+                        fit_n_envelope.warped_information.warped_integration()
         return sc
     
     def plot_contours(
