@@ -9,7 +9,12 @@ import numpy as np
 # IMPORTs sub
 from dataclasses import dataclass, field
 
-
+# API public
+__all__ = [
+    'ImageBorders',
+    'PolarImageInfo',
+    'ImageInfo',
+]
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
 class ImageBorders:

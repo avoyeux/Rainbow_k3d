@@ -14,7 +14,15 @@ from .dataclasses_sdo_image import PolarImageInfo
 from .dataclasses_fit_n_envelopes import FitWithEnvelopes
 
 # TYPE ANNOTATIONs
-from typing import Literal
+from typing import cast
+
+# API public
+__all__ = [
+    'GlobalConstants',
+    'ProcessConstants',
+    'ProjectedData',
+    'ProjectionData',
+]
 
 
 
@@ -59,8 +67,43 @@ class ProjectedData:
     integration_time: int | str | None
 
     # DATA
-    cube: CubeInformation 
+    cube: CubeInformation
     fit_n_envelopes: list[FitWithEnvelopes] | None
+
+    def __getstate__(self) -> dict[str, str | int | list[FitWithEnvelopes] | None]:
+        """
+        To pickle only what is needed. In my case, only the warping data is needed.
+
+        Returns:
+            dict[str, str | int | list[FitWithEnvelopes] | None]: _description_
+        """
+
+        state = {  # ? do I need to pickle the cube ?
+            'name': self.name,
+            'colour': self.colour,
+            'cube_index': self.cube_index,
+            'integration_time': self.integration_time,
+            'fit_n_envelopes': self.fit_n_envelopes,
+        }
+        return state
+    
+    def __setstate__(self, state: dict[str, str | int | list[FitWithEnvelopes] | None]) -> None:
+        """
+        To unpickle the object. Sets all the non-warping related attributes to None.
+
+        Args:
+            state (dict[str, str | int | list[FitWithEnvelopes] | None]): the state of the pickled
+                object.
+        """
+
+        self.__init__(
+            name=cast(str, state['name']),
+            colour=cast(str, state['colour']),
+            cube_index=cast(int, state['cube_index']),
+            integration_time=cast(int | str | None, state['integration_time']),
+            cube=cast(CubeInformation, None),  # * as I am not keeping the cube
+            fit_n_envelopes=cast(list[FitWithEnvelopes] | None, state['fit_n_envelopes']),
+        )
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -80,77 +123,46 @@ class ProjectionData:
     fake_data: ProjectedData | None = None
     test_cube: ProjectedData | None = None
 
-
-@dataclass(slots=True, repr=False, eq=False)
-class WarpedInformation:
-    """
-    To store all the warped information data for each date.
-    It also stores the corresponding polynomial fit angles.
-    """
-
-    # todo add the contours also in the integration ?
-
-    # DATA
-    warped_values: np.ndarray
-    angles: np.ndarray
-
-    # METADATA
-    name: str
-    date: str
-    max_arc_length: int | float  # ? which type is it ?
-    integration_type: Literal['mean', 'median'] = 'mean'
-
-    def __post_init__(self) -> None:
-
-        # INTEGRATION
-        self.warped_integration()
-
-    def warped_integration(self) -> None:
+    def __getstate__(self) -> dict[str, int | ProjectedData | list[ProjectedData] | None]:
         """
-        To compute the integration of the warped values.
-        The values are saved back into the warped_values attribute.
-
-        Raises:
-            ValueError: if the integration type is not 'mean' or 'median'.
-        """
-
-        if self.integration_type == 'mean':
-            self.warped_values = np.mean(self.warped_values.T, axis=0)
-        elif self.integration_type == 'median':
-            self.warped_values = np.median(self.warped_values.T, axis=0)
-        else:
-            raise ValueError(
-                f"\033[1;31mUnknown integration type: {self.integration_type}. "
-                "Choose between 'mean' and 'median'.\033[0m"
-            )
-
-
-@dataclass(slots=True, repr=False, eq=False)
-class AllWarpedInformation:
-    """
-    To store the warped information for all the dates.
-    """
-
-    # ! make sure that the cadence is the same for all the dates or do a time interpolation later
-
-    # METADATA
-    name: str
-    dates: list[str] = field(init=False)
-
-    # DATA
-    warped_informations: list[WarpedInformation]
-
-    def __post_init__(self) -> None:
-
-        # DATEs
-        self.dates = self.get_dates()
-
-    def get_dates(self) -> list[str]:
-        """
-        To get the dates of the warped information.
+        To pickle only what is needed. In my case, only the warping data is needed.
 
         Returns:
-            list[str]: the dates of the warped information.
+            dict[str, int | ProjectedData | list[ProjectedData] | None]: the data which is needed
+                when pickling the object. In my case, only the warping data is needed.
         """
 
-        return [warped_information.date for warped_information in self.warped_informations]
+        state = {
+            'ID': self.ID,
+            'full_integration_no_duplicates': self.full_integration_no_duplicates,
+            'integration': self.integration,
+        }
+        return state
+    
+    def __setstate__(
+            self,
+            state: dict[str, int | ProjectedData | list[ProjectedData] | None],
+        ) -> None:
+        """
+        To unpickle the object. Sets all the non-warping related attributes to None.
+
+        Args:
+            state (dict[str, int | ProjectedData | list[ProjectedData] | None]): the state of the
+                pickled object.
+        """
+
+        self.__init__(
+            ID=cast(int, state['ID']),
+            sdo_image=None,
+            sdo_mask=None,
+            all_data=None,
+            no_duplicates=None,
+            full_integration_no_duplicates=cast(
+                ProjectedData | None,
+                state['full_integration_no_duplicates'],
+            ),
+            integration=cast(list[ProjectedData] | None, state['integration']),
+            line_of_sight=None,
+            fake_data=None,
+            test_cube=None,
+        )

@@ -13,6 +13,18 @@ import numpy as np
 from typing import Any
 from dataclasses import dataclass, field
 
+# API public
+__all__ = [
+    'CubeInformation',
+    'FitPointer',
+    'UniqueFitPointer',
+    'BasePointer',
+    'DataPointer',
+    'FakeDataPointer',
+    'UniqueDataPointer',
+    'CubesPointers',
+]
+
 
 
 @dataclass(slots=True, repr=False, eq=False)
