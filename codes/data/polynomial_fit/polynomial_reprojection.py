@@ -14,17 +14,19 @@ import scipy
 import numpy as np
 
 # IMPORTs sub
-from typing import cast, Protocol
-from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
+from dataclasses import dataclass, field
 
 # IMPORTs personal
 from common import config
-from codes.projection.helpers.base_reprojection import BaseReprojection
+from codes.projection.format_data import FitWithEnvelopes, FitEnvelopes, EnvelopeInformation
 from codes.projection.helpers.extract_envelope import CreateFitEnvelope
-from codes.projection.format_data import FitWithEnvelopes, FitEnvelopes
+from codes.projection.helpers.base_reprojection import BaseReprojection
 from codes.data.polynomial_fit.base_fit_processing import BaseFitProcessing
 from codes.data.polynomial_fit.polynomial_bordered import ProcessedBorderedPolynomialFit
+
+# TYPE ANNOTATIONs
+from typing import cast, Protocol
 
 # API public
 __all__ = ['ReprojectionProcessedPolynomial']
@@ -247,7 +249,7 @@ class ProcessedEnvelope(BaseFitProcessing):
             """
 
             # INIT
-            result: np.ndarray = 0 #type:ignore
+            result: np.ndarray = cast(np.ndarray, 0)
 
             # POLYNOMIAL
             for i in range(self.polynomial_order + 1): result += coeffs[i] * t ** i
@@ -398,9 +400,9 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
         """
 
         # CONFIGURATION attributes
-        self.flush: bool = config.run.flush if flush is None else flush  #type:ignore
-        self.verbose: bool = config.run.verbose if verbose is None else verbose  #type:ignore
-        self.plots: bool = config.run.test_plots if test_plots is None else test_plots #type:ignore
+        self.flush: bool = config.run.flush if flush is None else flush
+        self.verbose: bool = config.run.verbose if verbose is None else verbose
+        self.plots: bool = config.run.test_plots if test_plots is None else test_plots
 
         # PARENTs
         super().__init__(
@@ -434,7 +436,7 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
 
         # PATHs formatting
         paths = {
-            'save': config.path.dir.data.temp,  #type:ignore
+            'save': config.path.dir.data.temp,
         }
         return paths
 
@@ -508,14 +510,22 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
             envelopes = None
         
         # DATA format
-        fit_n_envelopes = FitWithEnvelopes(  # todo add the name here
+        fit_n_envelopes = FitWithEnvelopes(
             name=self.name,
             colour=self.colour,
             fit_order=self.polynomial_order,
             fit_polar_r=fit_2D_uniform.polar_r,
             fit_polar_theta=fit_2D_uniform.polar_theta,
             fit_angles=fit_2D_uniform.angles,
-            envelopes=envelopes,
+            envelopes=EnvelopeInformation(
+                upper=envelopes[0],
+                lower=envelopes[1],
+                middle=FitEnvelopes(  # ? should I put None to say that it is just the fit itself ?
+                    order=self.polynomial_order,
+                    polar_r=fit_2D_uniform.polar_r,
+                    polar_theta=fit_2D_uniform.polar_theta,
+                ),
+            ) if envelopes is not None else None,
         )
         return fit_n_envelopes
         
