@@ -9,9 +9,9 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # IMPORTs personal
-from .dataclasses_cubes import CubeInformation
-from .dataclasses_sdo_image import PolarImageInfo
-from .dataclasses_fit_n_envelopes import FitWithEnvelopes
+from codes.projection.format_data.dataclasses_cubes import CubeInformation
+from codes.projection.format_data.dataclasses_sdo_image import PolarImageInfo
+from codes.projection.format_data.dataclasses_fit_n_envelopes import FitWithEnvelopes
 
 # TYPE ANNOTATIONs
 from typing import cast

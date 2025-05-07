@@ -5,6 +5,7 @@ reprojection of the datasets.
 """
 
 # IMPORT all
+from .dataclasses_warp import *
 from .dataclasses_cubes import *
 from .dataclasses_sdo_image import *
 from .dataclasses_projection import *
