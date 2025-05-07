@@ -355,6 +355,8 @@ class ReprojectionProcessedPolynomial(ProcessedBorderedPolynomialFit, BaseReproj
     seen by SDO (when possible).
     """
 
+    # ! double inheritance not necessary, might cause issues in the future
+    
     def __init__(
             self,
             filepath: str,

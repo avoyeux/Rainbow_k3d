@@ -13,9 +13,11 @@ import matplotlib.pyplot as plt
 
 # IMPORTs personal
 from common import Decorators
-from ..format_data import ProcessConstants, ProjectionData, ProjectedData, FitEnvelopes
-from ..sdo_reprojection import OrthographicalProjection
-from ..envelope_distance import EnvelopeDistanceAnnotation
+from codes.projection.format_data import (
+    ProcessConstants, ProjectionData, ProjectedData, FitEnvelopes,
+)
+from codes.projection.sdo_reprojection import OrthographicalProjection
+from codes.projection.envelope_distance import EnvelopeDistanceAnnotation
 
 # TYPE ANNOTATIONs
 from typing import cast, Any
