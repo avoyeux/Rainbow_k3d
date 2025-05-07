@@ -12,9 +12,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
-from common import config
-from ..format_data import ProjectionData, FitWithEnvelopes, WarpedInformation
-from ..sdo_reprojection import OrthographicalProjection
+from common import config, Decorators
+from codes.projection.format_data import WarpedIntegration, AllWarpedInformation
+from codes.projection.sdo_reprojection import OrthographicalProjection
 
 # TYPE ANNOTATIONs
 from typing import TypeGuard
@@ -22,6 +22,7 @@ from typing import TypeGuard
 
 class WarpIntegrationPlot:
 
+    @Decorators.running_time
     def __init__(
             self,
             plot_choices: list[str],
@@ -30,7 +31,8 @@ class WarpIntegrationPlot:
             polynomial_order: list[int] = [4],
             with_fake_data: bool = False,
             ) -> None:
-        
+        # todo add docstring
+
         # WARPED DATA
         processing = OrthographicalProjection(
             plot_choices=plot_choices,
@@ -43,53 +45,93 @@ class WarpIntegrationPlot:
         
         # DATA CHECK
         if not self.information_check(warped_information): # todo take this away after corresponding code update
-            raise ValueError('No warped information given')
-        
+            raise ValueError('\033[1;31mNo warped information given.\033[0m')
         self.warped_information = warped_information
+
+        # RUN
+        self.plot_all()
 
     def information_check(  # todo most likely not needed if the main code is updated
             self,
-            data: list[ProjectionData] | None,
-        ) -> TypeGuard[list[ProjectionData]]:
+            data: AllWarpedInformation | None,
+        ) -> TypeGuard[AllWarpedInformation]:
         
         return data is not None
+    
+    @Decorators.running_time
+    def plot_all(self) -> None:
+        # todo add docstring
 
-    def warped_integration(self) -> None: 
+        for data in [
+            self.warped_information.full_integration_no_duplicates,
+            self.warped_information.integration,
+            ]:
+
+            if data is not None:
+                for warped_integration in data.warped_integrations:
+                    self.warped_integration_plot(warped_integration)
+
+    def warped_integration_plot(self, data: WarpedIntegration) -> None:
+        # todo add docstring
+
+        # todo add the arc_lengths somewhere or on the plots.
         
-        # ! will need to change the return to add info to the warped integration plot
+        # SORT dates
+        data.sort()
 
-        # todo integrate the different warped images.
-        for warped_information in self.warped_information:
-            
-            if warped_information
+        # WARPED INTEGRATION image
+        image = np.stack([
+            warped_information.warped_values
+            for warped_information in data.warped_informations
+        ], axis=0)
+        angles = np.stack([
+            warped_information.angles
+            for warped_information in data.warped_informations
+        ], axis=0)
 
-
-
-
-    def process_warped_data(self, warped_information: WarpedInformation) -> None:
-        """  # todo update docstring
-        To plot the final figure of Dr. Auchere's paper given a set of warped images.
-
-        Args:
-            warped_data (np.ndarray): the warped images for which the plot needs to be made.
-        """
-
-        plot_name = warped_information.name + '_' + warped_information.integration_type + '.png'
+        # PLOT
+        self.plot_data(
+            name=(
+                f"warp_{data.integration_type}integration_fit{data.fit_order}"
+                f"_{data.integration_time}hours" if data.integration_time is not None else "_full"
+            ),
+            data=image,
+        )
+        self.plot_data(
+            name=(
+                f"warp_angles_fit{data.fit_order}_"
+                f"{data.integration_time}hours" if data.integration_time is not None else "_full"
+            ),
+            data=angles,
+        )
+    
+    def plot_data(self, name: str, data: np.ndarray) -> None:
+        # todo add docstring
 
         # PLOT
         plt.figure(figsize=(18, 5))
-        plt.imshow(mean_rows, cmap='gray', origin='lower', aspect='auto')
+        plt.imshow(data, cmap='gray', origin='lower', aspect='auto')
         plt.title('Mean rows of the warped data')
         plt.xlabel('Time')
         plt.ylabel('Radial distance')
-        plt.savefig(os.path.join(config.path.dir.data.temp, 'mean_rows.png'), dpi=500)
-        plt.close()    
-        
-        # PLOT
-        plt.figure(figsize=(18, 5))
-        plt.imshow(median_rows, cmap='gray', origin='lower', aspect='auto')
-        plt.title('Median rows of the warped data')
-        plt.xlabel('Time')
-        plt.ylabel('Radial distance')
-        plt.savefig(os.path.join(config.path.dir.data.temp, 'median_rows.png'), dpi=500)
-        plt.close()   
+        plt.savefig(os.path.join(config.path.dir.data.temp, name + '.png'), dpi=500)
+        plt.close()
+
+
+
+if __name__ == '__main__':
+
+    WarpIntegrationPlot(
+        integration_time=[24],
+        polynomial_order=[4],
+        plot_choices=[
+            'no duplicates',
+            'integration',
+            'full integration',
+            'fit',
+            'sdo image', 'envelope',
+            'warp',
+            'all sdo images',
+        ],
+        with_fake_data=False,
+    )

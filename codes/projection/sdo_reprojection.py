@@ -92,7 +92,7 @@ class OrthographicalProjection(BaseReprojection):
         """
 
         # PLACEHOLDERs
-        self._warped_information: list[ProjectionData] | None
+        self._warped_information: AllWarpedInformation | None = None
 
         # CONFIG values
         if processes is None:
@@ -138,12 +138,12 @@ class OrthographicalProjection(BaseReprojection):
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
 
     @property
-    def warped_information(self) -> list[ProjectionData] | None:
+    def warped_information(self) -> AllWarpedInformation | None:
         """
         To get the warped information after having initialised the class.
 
         Returns:
-            list[ProjectedData] | None: the warped information. None if the warping was not done.
+            AllWarpedInformation | None: the totality of the warped information data.
         """
 
         return self._warped_information
@@ -351,7 +351,7 @@ class OrthographicalProjection(BaseReprojection):
             self.connection.cleanup(verbose=self.verbose)
 
         # SAVE WARPED data
-        self._warped_information = warped_information_list  
+        self._warped_information = self.restructure_warped_information(warped_information_list)  
 
     @overload
     def data_setup(self, inputs: int, output_queue: QueueAlias | None = ...) -> np.ndarray: ...
@@ -619,50 +619,69 @@ class OrthographicalProjection(BaseReprojection):
                 self.create_fake_fits(process_constants, projection_data)
         return np.stack(outputs, axis=0) if output_queue is None else None
 
-    def format_warped_information(self, all_projection_data: list[ProjectionData]) -> AllWarpedInformation:
+    def restructure_warped_information(
+            self,
+            all_projection_data: list[ProjectionData],
+        ) -> AllWarpedInformation:
+        """
+        To restructure all the warped information into a single dataclass for easier use.
+        Especially useful for the warp integration plotting.
 
+        Args:
+            all_projection_data (list[ProjectionData]): the list of all the projection data after
+                the unpickling of the ProjectionData class instances.
+
+        Returns:
+            AllWarpedInformation: the totality of the warped information data.
+        """
+
+        # EMPTY INIT
+        result = AllWarpedInformation()
+        result.full_integration_no_duplicates = WarpedDataGroup(
+            name='full integration no duplicates',
+        )
+        result.integration = WarpedDataGroup(name='integration')
+
+        # RESTRUCTURE data
         for projection_data in all_projection_data:
 
             # DATA full integration
-            if projection_data.full_integration_no_duplicates is not None:
-                pass
+            if (full_integration := projection_data.full_integration_no_duplicates) is not None:
+                result.full_integration_no_duplicates = self.restructure_warped_information_sub(
+                    data=full_integration,
+                    result=result.full_integration_no_duplicates,
+                )
 
-
-    def format_warped_information_cub(
+            # DATA integrations
+            if (integrations := projection_data.integration) is not None:
+                for integration in integrations:
+                    result.integration = self.restructure_warped_information_sub(
+                        data=integration,
+                        result=result.integration,
+                    )
+        return result
+    
+    def restructure_warped_information_sub(
             self,
             data: ProjectedData,
-        ) -> WarpedInformation | WarpedIntegration | None:
+            result: WarpedDataGroup,
+        ) -> WarpedDataGroup:
         """
-        To add WarpedInformation together for easier use later on.
+        To add the warped information to the AllWarpedInformation dataclass.
 
         Args:
-            data (ProjectedData): the dataclass containing the warped information.
+            data (ProjectedData): the warped information to be added.
+            result (WarpedDataGroup): the dataclass to populate.
 
         Returns:
-            WarpedInformation | WarpedIntegration | None: the addition of the different warped
-                informations. None if no warped information is found.
+            WarpedDataGroup: the populated dataclass.
         """
 
         if (fit_n_envelopes := data.fit_n_envelopes) is not None:
-
-            results = [
-                warped_info
-                for fit_n_envelope in fit_n_envelopes
-                if (warped_info := fit_n_envelope.warped_information) is not None
-            ]  # ! this is wrong as the fits are completely different here
-
-            # CHECK
-            if len(results) == 0: return None
-
-            # SUM data
-            if len(results) == 1:
-                return results[0]
-            else:
-                result: WarpedInformation | WarpedIntegration = sum(
-                    results[1:],
-                    start=results[0],
-                )
-                return result
+            for fit_n_envelope in fit_n_envelopes:
+                if (warped_info := fit_n_envelope.warped_information) is not None:
+                    result.append(warped_info)
+        return result
 
     def format_cube(
             self,
@@ -691,8 +710,6 @@ class OrthographicalProjection(BaseReprojection):
             Returns:
                 ProjectedCube: the formatted and reprojected data cube.
             """
-
-            # NO DATA available
 
             # CUBE formatting
             cube = CubeInformation(
@@ -749,6 +766,7 @@ class OrthographicalProjection(BaseReprojection):
                         warped_instance = AllWarpedTreatment(
                             sdo_image=sdo_info.image,
                             date=date,
+                            integration_time=data.integration_time,
                             fit_n_envelopes=fit_n_envelope,
                             borders=self.projection_borders,
                             image_shape=(1280, 1280),

@@ -10,8 +10,10 @@ import numpy as np
 
 # IMPORTs personal
 from common import Decorators
-from .warp_sdo_image import WarpSdoImage, EnvelopeProcessing
-from ..format_data import ImageBorders, FitWithEnvelopes, EnvelopeInformation, WarpedInformation
+from codes.projection.helpers.warp_sdo_image import WarpSdoImage, EnvelopeProcessing
+from codes.projection.format_data import (
+    ImageBorders, FitWithEnvelopes, EnvelopeInformation, WarpedInformation,
+)
 
 # TYPE ANNOTATIONs
 from typing import Literal, TypeGuard
@@ -37,7 +39,8 @@ class AllWarpedTreatment:
             self,
             sdo_image: np.ndarray,
             date: str,
-            fit_n_envelopes: FitWithEnvelopes,  # todo add the fit order to the final dataclass
+            integration_time: int | str | None,
+            fit_n_envelopes: FitWithEnvelopes,
             borders: ImageBorders,
             image_shape: tuple[int, int] = (1280, 1280),
             pixel_interpolation_order: int = 3,
@@ -46,9 +49,10 @@ class AllWarpedTreatment:
         ) -> None:
         # todo add docstring
 
-
         # ATTRIBUTEs
         self.date = date
+        self.integration_time = integration_time
+        self.fit_order = fit_n_envelopes.fit_order
         self.integration_type: Literal['mean', 'median'] = integration_type
 
         # CHECKs inputs
@@ -182,11 +186,16 @@ class AllWarpedTreatment:
         middle_distance = self.get_curve_distance(coords=middle_cartesian)
 
         information = WarpedInformation(
-            warped_values=self.warped_image,
-            angles=self.angles,
             name='warped information',
             date=self.date,
+            fit_order=self.fit_order,
             arc_length=middle_distance,
+            integration_time=(
+                self.integration_time
+                if isinstance(self.integration_time, int) else None
+            ),
             integration_type=self.integration_type,
+            angles=self.angles,
+            warped_values=self.warped_image,
         )
         return information
