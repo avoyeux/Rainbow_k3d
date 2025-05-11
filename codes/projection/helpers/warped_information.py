@@ -81,7 +81,7 @@ class AllWarpedTreatment:
         )
         self.processed_fit = np.stack(
             [fit_n_envelopes.fit_polar_r, fit_n_envelopes.fit_polar_theta],
-            axis=0,
+            axis=1,
         )  # ? is it already properly processed ?
 
         # ANGLEs
@@ -126,7 +126,7 @@ class AllWarpedTreatment:
         
         # COORDs closest angle  
         dist, closest_indices = tree.query(
-            np.stack([self.processed_middle.polar_r, self.processed_middle.polar_theta], axis=0),
+            np.stack([self.processed_middle.polar_r, self.processed_middle.polar_theta], axis=1),
         )
         return angles[closest_indices]
     
