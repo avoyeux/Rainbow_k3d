@@ -20,7 +20,12 @@ from codes.projection.sdo_reprojection import OrthographicalProjection
 from typing import TypeGuard
 
 
+
 class WarpIntegrationPlot:
+    """
+    For the final warped integration plot.
+    Uses the OrthographicalProjection class to get the warped data.
+    """
 
     @Decorators.running_time
     def __init__(
@@ -41,6 +46,7 @@ class WarpIntegrationPlot:
             polynomial_order=polynomial_order,
             with_fake_data=with_fake_data,
         )
+        processing.run()
         warped_information = processing.warped_information
         
         # DATA CHECK
@@ -67,6 +73,7 @@ class WarpIntegrationPlot:
             self.warped_information.integration,
             ]:
 
+            # PLOT data
             if data is not None:
                 for warped_integration in data.warped_integrations:
                     self.warped_integration_plot(warped_integration)
@@ -92,14 +99,18 @@ class WarpIntegrationPlot:
         # PLOT
         self.plot_data(
             name=(
-                f"warp_{data.integration_type}integration_fit{data.fit_order}"
-                f"_{data.integration_time}hours" if data.integration_time is not None else "_full"
+                f"warp_{data.integration_type}integration_fit{data.fit_order}" +
+                (
+                    f"_{data.integration_time}hours"
+                    if data.integration_time is not None
+                    else "_full"
+                )
             ),
             data=image,
         )
         self.plot_data(
             name=(
-                f"warp_angles_fit{data.fit_order}_"
+                f"warp_angles_fit{data.fit_order}_" +
                 f"{data.integration_time}hours" if data.integration_time is not None else "_full"
             ),
             data=angles,
@@ -114,6 +125,7 @@ class WarpIntegrationPlot:
         plt.title('Mean rows of the warped data')
         plt.xlabel('Time')
         plt.ylabel('Radial distance')
+        plt.colorbar(label='angles' if 'angles' in name else 'intensity')
         plt.savefig(os.path.join(config.path.dir.data.temp, name + '.png'), dpi=500)
         plt.close()
 

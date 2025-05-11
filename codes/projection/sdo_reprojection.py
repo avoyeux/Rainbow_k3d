@@ -15,7 +15,12 @@ import multiprocessing as mp
 
 # IMPORTS personal
 from common import config, Decorators, Plot
-from codes.projection.format_data import *  # ! change this at the end
+from codes.projection.format_data import (
+    GlobalConstants, ProcessConstants, ImageBorders, PolarImageInfo,
+    ProjectionData, ProjectedData, CubeInformation, EnvelopeInformation,
+    CubesPointers, DataPointer, UniqueDataPointer, FakeDataPointer, FitPointer, UniqueFitPointer,
+    FitWithEnvelopes, WarpedDataGroup, AllWarpedInformation,
+)
 from codes.projection.helpers.extract_envelope import ExtractEnvelope
 from codes.projection.helpers.base_reprojection import BaseReprojection
 from codes.projection.helpers.cartesian_to_polar import CartesianToPolar
@@ -341,6 +346,7 @@ class OrthographicalProjection(BaseReprojection):
             while not output_queue.empty():
                 identifier, warped = output_queue.get()
                 warped_information_list[identifier] = warped
+
         else:
             raise NotImplementedError(
                 "Need to decide how to implement the data passing when no multiprocessing"
@@ -540,7 +546,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.all_data is not None:
                     projection_data.all_data = self.format_cube(
                         data=data_pointers.all_data,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='blue',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -549,7 +555,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.no_duplicates is not None:
                     projection_data.no_duplicates = self.format_cube(
                         data=data_pointers.no_duplicates,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='orange',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -558,7 +564,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.full_integration_no_duplicates is not None:
                     projection_data.full_integration_no_duplicates = self.format_cube(
                         data=data_pointers.full_integration_no_duplicates,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='pink',
                         sdo_info=sdo_image_info,
                         warp=self.plot_choices['warp'],
@@ -568,7 +574,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.line_of_sight is not None:
                     projection_data.line_of_sight = self.format_cube(
                         data=data_pointers.line_of_sight,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='purple',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -578,7 +584,7 @@ class OrthographicalProjection(BaseReprojection):
                     projection_data.integration = [
                         self.format_cube(
                             data=integration,
-                            cube_index=process,
+                            constants=process_constants,
                             colour=cast(list[str], self.plot_kwargs['colours'])[i],
                             sdo_info=sdo_image_info,
                             warp=self.plot_choices['warp'],
@@ -590,7 +596,7 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.fake_data is not None:
                     projection_data.fake_data = self.format_cube(
                         data=data_pointers.fake_data,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='black',
                         sdo_info=sdo_image_info,
                         warp=False,
@@ -599,11 +605,15 @@ class OrthographicalProjection(BaseReprojection):
                 if data_pointers.test_cube is not None:
                     projection_data.test_cube = self.format_cube(
                         data=data_pointers.test_cube,
-                        cube_index=process,
+                        constants=process_constants,
                         colour='yellow',
                         sdo_info=sdo_image_info,
                         warp=False,
                     )
+
+                # CHILD CLASSes functionality
+                self.plotting(process_constants, projection_data)
+                self.create_fake_fits(process_constants, projection_data)
 
                 # WARP final plot
                 if self.plot_choices['warp']:
@@ -613,10 +623,6 @@ class OrthographicalProjection(BaseReprojection):
                         raise NotImplementedError(
                             'Still need to decide what to do when not multiprocessing'
                         )
-
-                # CHILD CLASSes functionality
-                self.plotting(process_constants, projection_data)
-                self.create_fake_fits(process_constants, projection_data)
         return np.stack(outputs, axis=0) if output_queue is None else None
 
     def restructure_warped_information(
@@ -686,20 +692,20 @@ class OrthographicalProjection(BaseReprojection):
     def format_cube(
             self,
             data: DataPointer | UniqueDataPointer | FakeDataPointer,
-            cube_index: int,
+            constants: ProcessConstants,
             colour: str,
             sdo_info: PolarImageInfo,
             warp: bool = False,
-            date: str | None = None,
             warp_kwargs: dict[str, Any] = {},
         ) -> ProjectedData:
-            """  # todo update docstring
+            """
             To format the cube data for the projection.
 
             Args:
                 data (DataPointer | UniqueDataPointer | FakeDataPointer): the data cube to be
                     formatted.
-                cube_index (int): the index of the corresponding real data cube.
+                constants (ProcessConstants): the constants for each process (e.g. the date,
+                    time index).
                 colour (str): the colour of the data cube for the plot.
                 sdo_info (PolarImageInfo): the SDO information (e.g. the position, the image).
                 warp (bool, optional): if the image section inside the fit envelope should be
@@ -716,7 +722,7 @@ class OrthographicalProjection(BaseReprojection):
                 xt_min=data.xt_min,
                 yt_min=data.yt_min,
                 zt_min=data.zt_min,
-                coords=data[cube_index],
+                coords=data[constants.time_index],
             )
             cube = self.cartesian_pos(cube, dx=self.constants.dx)
             coords = self.get_polar_image(
@@ -753,7 +759,7 @@ class OrthographicalProjection(BaseReprojection):
   
                     fit_n_envelope = (
                         reprojected_polynomial.reprocessed_fit_n_envelopes(
-                            index=cube_index,
+                            index=constants.time_index,
                             sdo_pos=sdo_info.sdo_pos,
                         )
                     )
@@ -765,14 +771,9 @@ class OrthographicalProjection(BaseReprojection):
                     if (fit_n_envelope.envelopes is not None) and warp:
                         warped_instance = AllWarpedTreatment(
                             sdo_image=sdo_info.image,
-                            date=date,
+                            date=constants.date,
                             integration_time=data.integration_time,
                             fit_n_envelopes=fit_n_envelope,
-                            borders=self.projection_borders,
-                            image_shape=(1280, 1280),
-                            pixel_interpolation_order=3,
-                            nb_of_points=300,
-                            integration_type='mean',
                             **warp_kwargs,
                         )
                         fit_n_envelope.warped_information = warped_instance.warped_information
@@ -783,7 +784,7 @@ class OrthographicalProjection(BaseReprojection):
             projection = ProjectedData(
                 name=data.name,
                 colour=colour,
-                cube_index=cube_index,
+                cube_index=constants.time_index,
                 cube=cube,
                 integration_time=data.integration_time,
                 fit_n_envelopes=fit_n_envelopes,
@@ -1138,19 +1139,45 @@ class OrthographicalProjection(BaseReprojection):
             timestamp_to_path[timestamp] = path + filepath_end
         return timestamp_to_path
 
-    def plotting(self, *args, **kwargs) -> None:
+    def plotting(
+            self,
+            process_constants: ProcessConstants,
+            projection_data: ProjectionData,
+        ) -> None:
         """
         Placeholder for a child class to plot the data.
+        The placeholder only integrates the warped image data to save memory space as only the
+        integration is needed for the final plot.
         """
 
-        raise NotImplementedError('This function should be implemented in a child class.')
+        for data in [
+            projection_data.integration,
+            projection_data.full_integration_no_duplicates,
+            ]:
+
+            # CHECKs
+            if data is None: continue
+            if not isinstance(data, list): data = [data]
+
+            for value in data:
+                value = cast(ProjectedData, value)
+                fit_n_envelopes = value.fit_n_envelopes
+                if fit_n_envelopes is None: continue
+
+                for fit_n_envelope in fit_n_envelopes:
+                    # ENVELOPE fit
+                    if fit_n_envelope.envelopes is not None:
+                        # WARP image
+                        if fit_n_envelope.warped_information is not None:
+                            # WARPED INTEGRATION to save RAM
+                            fit_n_envelope.warped_information.warped_integration()
 
     def create_fake_fits(self , *args, **kwargs) -> None:
         """
         Placeholder for a child class to create fake fits files.
         """
 
-        raise NotImplementedError('This function should be implemented in a child class.')
+        pass
 
     def cube_contour(
             self,
