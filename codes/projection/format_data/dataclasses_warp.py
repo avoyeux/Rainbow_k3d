@@ -33,7 +33,6 @@ class WarpedInformation:
     """
 
     # todo add the contours also in the integration ?
-    # ! the __add__ and __radd__ methods are probably useless now
 
     # DATA
     warped_values: np.ndarray
@@ -57,63 +56,14 @@ class WarpedInformation:
         """
 
         if self.integration_type == 'mean':
-            self.warped_values = np.mean(self.warped_values.T, axis=0)
+            self.warped_values = np.mean(self.warped_values, axis=0)
         elif self.integration_type == 'median':
-            self.warped_values = np.median(self.warped_values.T, axis=0)
+            self.warped_values = np.median(self.warped_values, axis=0)
         else:
             raise ValueError(
                 f"\033[1;31mUnknown integration type: {self.integration_type}. "
                 "Choose between 'mean' and 'median'.\033[0m"
             )
-
-    def __add__(self, other: Self | WarpedIntegration) -> WarpedIntegration:
-        """
-        To add two WarpedInformation objects together. It creates a new WarpedIntegration
-        object with the two WarpedInformation objects inside.
-
-        Args:
-            other (Self | WarpedIntegration): the other instance to add to the current one.
-
-        Raises:
-            TypeError: if the other instance is not a WarpedInformation or WarpedIntegration.
-
-        Returns:
-            WarpedIntegration: the new WarpedIntegration object with the two instances added
-                together.
-        """
-
-        # CHECK
-        if not self.check_adding(other):
-            raise TypeError(
-                f"\033[1;31mCannot add {type(self)} and {type(other)}.\033[0m"
-            )
-
-        if isinstance(other, type(self)):
-            # ATTRIBUTEs
-            dates = [self.date, other.date]
-            warped_informations = cast(list[WarpedInformation], [self, other])
-            arc_lengths = [self.arc_length, other.arc_length]
-        elif isinstance(other, WarpedIntegration):
-            # ATTRIBUTEs
-            dates = [self.date] + other.dates
-            warped_informations = [self] + other.warped_informations
-            arc_lengths = [self.arc_length] + other.arc_lengths
-        else:
-            raise TypeError(f"\033[1;31mCannot add {type(self)} and {type(other)}.\033[0m")
-        
-        # ADD save
-        instance = WarpedIntegration(
-            name=f"warped integration",
-            dates=dates,
-            arc_lengths=arc_lengths,
-            fit_order=self.fit_order,
-            integration_type=self.integration_type,
-            warped_informations=warped_informations,
-        )
-        return instance
-    
-    def __radd__(self, other: Self | WarpedIntegration) -> WarpedIntegration:
-        return self.__add__(other)
     
     def check_adding(self, other: Self | WarpedIntegration) -> bool:
         """
@@ -151,7 +101,7 @@ class WarpedIntegration:
     warped_informations: list[WarpedInformation]  # * could change it to a sequence for subclassing
 
     # METADATA optional
-    integration_time: int | None = field(default=None, init=False)
+    integration_time: int | None
 
     def sort(self) -> None:
         """
@@ -186,7 +136,7 @@ class WarpedIntegration:
                 f"\033[1;31mCannot append {type(other)} to {type(self)}. "
                 "Could be due to wrong type or duplicate warped information instances.\033[0m"
             )
-        
+
         # METADATA update
         self.dates.append(other.date)
 
@@ -283,15 +233,15 @@ class WarpedDataGroup:
             ]):
 
             # METADATA update
-            if other.fit_order not in self.fit_orders:
-                self.fit_orders.append(other.fit_order)
-            elif other.integration_time not in self.integration_times:
+            if other.fit_order not in self.fit_orders: self.fit_orders.append(other.fit_order)
+            if other.integration_time not in self.integration_times:
                 self.integration_times.append(other.integration_time)
 
             # DATA update
             self.warped_integrations.append(WarpedIntegration(
                 name=f"warped integration",
                 dates=[other.date],
+                integration_time=other.integration_time,
                 arc_lengths=[other.arc_length],
                 fit_order=other.fit_order,
                 integration_type=other.integration_type,
