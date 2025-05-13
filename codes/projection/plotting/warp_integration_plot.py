@@ -9,6 +9,7 @@ import os
 import numpy as np
 
 # IMPORTs sub
+from datetime import datetime
 import matplotlib.pyplot as plt
 
 # IMPORTs personal
@@ -18,6 +19,8 @@ from codes.projection.sdo_reprojection import OrthographicalProjection
 
 # TYPE ANNOTATIONs
 from typing import TypeGuard
+
+# todo add a plot with the max arc length for each date
 
 
 
@@ -36,7 +39,25 @@ class WarpIntegrationPlot:
             polynomial_order: list[int] = [4],
             with_fake_data: bool = False,
             ) -> None:
-        # todo add docstring
+        """
+        To get the final plots of the warped integration data. The initialisation creates the
+        corresponding plots without having to call an instance method.
+
+        Args:
+            plot_choices (list[str]): the choices for the plots. These choices are used in the
+                OrthographicalProjection class to get the warped data.
+            integration_time (list[int], optional): the integration time(s) (in hours) to use in
+                the datasets. Defaults to [24].
+            with_feet (bool, optional): deciding to use the datasets that contains added feet.
+                Defaults to False.
+            polynomial_order (list[int], optional): the polynomial order(s) to use for the 3D
+                fitting. Defaults to [4].
+            with_fake_data (bool, optional): deciding to use the HDF5 file that also contains fake
+                data (important as the data group paths are different). Defaults to False.
+
+        Raises:
+            ValueError: if no warped information is given.
+        """
 
         # WARPED DATA
         processing = OrthographicalProjection(
@@ -66,7 +87,9 @@ class WarpIntegrationPlot:
     
     @Decorators.running_time
     def plot_all(self) -> None:
-        # todo add docstring
+        """
+        To plot all the warped integration data.
+        """
 
         for data in [
             self.warped_information.full_integration_no_duplicates,
@@ -79,7 +102,12 @@ class WarpIntegrationPlot:
                     self.warped_integration_plot(warped_integration)
 
     def warped_integration_plot(self, data: WarpedIntegration) -> None:
-        # todo add docstring
+        """
+        To plot the warped integration data for a given dataset.
+
+        Args:
+            data (WarpedIntegration): the warped integration data to plot.
+        """
 
         # todo add the arc_lengths somewhere or on the plots.
         
@@ -99,11 +127,11 @@ class WarpIntegrationPlot:
         # PLOT
         self.plot_data(
             name=(
-                f"warp_{data.integration_type}integration_fit{data.fit_order}" +
+                f"warp_{data.integration_type}_fit{data.fit_order}_" +
                 (
-                    f"_{data.integration_time}hours"
+                    f"{data.integration_time}hours"
                     if data.integration_time is not None
-                    else "_full"
+                    else "full"
                 )
             ),
             data=image,
@@ -111,17 +139,27 @@ class WarpIntegrationPlot:
         self.plot_data(
             name=(
                 f"warp_angles_fit{data.fit_order}_" +
-                f"{data.integration_time}hours" if data.integration_time is not None else "_full"
+                (
+                    f"{data.integration_time}hours"
+                    if data.integration_time is not None
+                    else "full"
+                )
             ),
             data=angles,
         )
     
     def plot_data(self, name: str, data: np.ndarray) -> None:
-        # todo add docstring
+        """
+        Simple matplotlib.pyplot plotting function to plot a given ndarray.
+
+        Args:
+            name (str): the name to give to the saved plot.
+            data (np.ndarray): the data to plot.
+        """
 
         # PLOT
         plt.figure(figsize=(18, 5))
-        plt.imshow(data, cmap='gray', origin='lower', aspect='auto')
+        plt.imshow(data.T, cmap='gray', origin='lower', aspect='auto')
         plt.title('Mean rows of the warped data')
         plt.xlabel('Time')
         plt.ylabel('Radial distance')
