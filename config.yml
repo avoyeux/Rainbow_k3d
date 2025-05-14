@@ -34,6 +34,7 @@ path:
             projection: 
                 path: &projectionpath !join [*pathcode, 'projection']
 
+                plot: !join [*projectionpath, 'plotting']
                 helpers: !join [*projectionpath, 'helpers']
                 dataclasses: !join [*projectionpath, 'format_data']
 
@@ -41,11 +42,11 @@ path:
         data: 
             path: &datapath !join [*rootpath, 'data_files']
             
-            hdf5: &datahdf5 !join [*datapath, 'hdf5_files']
-            mp4: !join [*datapath, 'mp4_saves']
-            synoptic_maps: !join [*datapath, 'synoptic_maps'] # ! subdirectories are not given here
             sdo: !join [*datapath, 'sdo']
+            mp4: !join [*datapath, 'mp4_saves']
             temp: !join [*datapath, 'temporary']
+            hdf5: &datahdf5 !join [*datapath, 'hdf5_files']
+            synoptic_maps: !join [*datapath, 'synoptic_maps']
 
             cubes:
                 path: &datacubes !join [*datapath, 'cubes']
@@ -99,7 +100,7 @@ path:
 
 # RUN configuration
 run:
-    processes: 10
+    processes: 14
     verbose: 2
     flush: False
     test_plots: False
