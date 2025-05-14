@@ -111,7 +111,7 @@ class WarpIntegrationPlot:
 
         # todo add the arc_lengths somewhere or on the plots.
         
-        # SORT dates
+        # SORT data on dates
         data.sort()
 
         # WARPED INTEGRATION image
@@ -124,29 +124,36 @@ class WarpIntegrationPlot:
             for warped_information in data.warped_informations
         ], axis=0)
 
+        # NAMING
+        name_end = (
+            f"fit{data.fit_order}_" +
+            (
+                f"{data.integration_time}hours"
+                if data.integration_time is not None
+                else "full"
+            )
+        )
+
         # PLOT
         self.plot_data(
-            name=(
-                f"warp_{data.integration_type}_fit{data.fit_order}_" +
-                (
-                    f"{data.integration_time}hours"
-                    if data.integration_time is not None
-                    else "full"
-                )
-            ),
+            name=f"warp_{data.integration_type}_" + name_end,
             data=image,
         )
         self.plot_data(
-            name=(
-                f"warp_angles_fit{data.fit_order}_" +
-                (
-                    f"{data.integration_time}hours"
-                    if data.integration_time is not None
-                    else "full"
-                )
-            ),
+            name=f"warp_angles_" + name_end,
             data=angles,
         )
+
+        # ARC LENGTHs plot
+        name = "arc_lengths_" + name_end
+        max_lengths = np.array([lengths[-1] for lengths in data.arc_lengths])
+        plt.figure(figsize=(18, 5))
+        plt.plot(max_lengths)
+        plt.xlabel('Date')
+        plt.ylabel('Max arc length')
+        plt.title('Max arc length for each date')
+        plt.savefig(os.path.join(config.path.dir.data.temp, name + '.png'), dpi=500)
+        plt.close()
     
     def plot_data(self, name: str, data: np.ndarray) -> None:
         """
@@ -159,7 +166,7 @@ class WarpIntegrationPlot:
 
         # PLOT
         plt.figure(figsize=(18, 5))
-        plt.imshow(data.T, cmap='gray', origin='lower', aspect='auto')
+        plt.imshow(data.T, cmap='gray', origin='lower', aspect='auto', interpolation='none')
         plt.title('Mean rows of the warped data')
         plt.xlabel('Time')
         plt.ylabel('Radial distance')
