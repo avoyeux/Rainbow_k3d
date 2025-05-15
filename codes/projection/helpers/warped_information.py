@@ -3,13 +3,17 @@ To create and format the needed information for the final warped image integrati
 """
 
 # IMPORTs
-import scipy 
+import os
+import scipy
 
 # IMPORTs alias
 import numpy as np
 
+# IMPORTs sub
+import matplotlib.pyplot as plt
+
 # IMPORTs personal
-from common import Decorators
+from common import Decorators, config
 from codes.projection.helpers.warp_sdo_image import WarpSdoImage, EnvelopeProcessing
 from codes.projection.format_data import (
     ImageBorders, FitWithEnvelopes, EnvelopeInformation, WarpedInformation,
@@ -18,6 +22,8 @@ from codes.projection.format_data import (
 # TYPE ANNOTATIONs
 from typing import Literal, TypeGuard
 
+# API public
+__all__ = ['AllWarpedTreatment']
 
 """
 ! need to pay attention to the ordering of the data as I might be changing it in some of the codes
@@ -42,7 +48,6 @@ class AllWarpedTreatment:
             integration_time: int | str | None,
             fit_n_envelopes: FitWithEnvelopes,
             borders: ImageBorders,
-            image_shape: tuple[int, int] = (1280, 1280),
             pixel_interpolation_order: int = 3,
             nb_of_points: int = 300,
             integration_type: Literal['mean', 'median'] = 'mean',
@@ -65,7 +70,6 @@ class AllWarpedTreatment:
         instance = WarpSdoImage(
             sdo_image=sdo_image,
             borders=borders,
-            image_shape=image_shape,
             pixel_interpolation_order=pixel_interpolation_order,
             envelopes=[fit_n_envelopes.envelopes.upper, fit_n_envelopes.envelopes.lower],
             nb_of_points=nb_of_points,
@@ -90,6 +94,9 @@ class AllWarpedTreatment:
         # RUN
         self._warped_information = self._format_warped_information()
 
+        # TEST plot
+        if config.run.test_plots: self.test_plot_angles(fit_angles=fit_n_envelopes.fit_angles)
+
     @property
     def warped_information(self) -> WarpedInformation: return self._warped_information
         
@@ -110,6 +117,26 @@ class AllWarpedTreatment:
 
         return envelopes is not None
 
+    def normalise_coords(self, coords: np.ndarray) -> np.ndarray:
+        """
+        To normalise the coordinates so that they are between 0 and 1. This is done so that the
+        nearest neighbour search is not biased by the scale of the coordinates.
+
+        Args:
+            coords (np.ndarray): the coordinates to be normalised.
+
+        Returns:
+            np.ndarray: the normalised coordinates.
+        """
+        # ! most likely need to normalise the processed fit and then use the same min and max for
+        # ! the other coordinates
+
+        # NORMALISE
+        min_vals = np.min(coords, axis=0, keepdims=True)
+        max_vals = np.max(coords, axis=0, keepdims=True)
+        coords = (coords - min_vals) / (max_vals - min_vals)
+        return coords
+
     def get_closest_angles(self, angles: np.ndarray) -> np.ndarray:
         """
         To get the closest angles to the processed fit.
@@ -122,12 +149,13 @@ class AllWarpedTreatment:
         """
 
         # KDTree angles
-        tree = scipy.spatial.cKDTree(self.processed_fit)
+        tree = scipy.spatial.cKDTree(self.normalise_coords(self.processed_fit))
         
-        # COORDs closest angle  
-        dist, closest_indices = tree.query(
-            np.stack([self.processed_middle.polar_r, self.processed_middle.polar_theta], axis=1),
-        )
+        # COORDs closest angle
+        query_points = np.stack([
+            self.processed_middle.polar_r, self.processed_middle.polar_theta
+        ], axis=1)
+        dist, closest_indices = tree.query(self.normalise_coords(query_points), k=1)
         return angles[closest_indices]
     
     def coords_to_cartesian(self, polar_r: np.ndarray, polar_theta: np.ndarray) -> np.ndarray:
@@ -199,3 +227,33 @@ class AllWarpedTreatment:
             warped_values=self.warped_image,
         )
         return information
+
+    def test_plot_angles(self, fit_angles: np.ndarray) -> None:
+        """
+        To plot the angles and the fitted angles.
+        This is only for testing purposes.
+
+        Args:
+            fit_angles (np.ndarray): the fitted angles to be plotted.
+        """
+
+        filename = f"angles_{self.date}.png"
+        plt.figure(figsize=(18, 5))
+        plt.plot(
+            self.angles,
+            label='angles',
+            color='red',
+        )
+        plt.plot(
+            fit_angles,
+            label='fit angles',
+            color='blue',
+        )
+        plt.title('Angles')
+        plt.xlabel('Angle index')
+        plt.ylabel('Angle (rad)')
+        plt.legend()
+        plt.savefig(os.path.join(config.path.dir.data.temp, filename), dpi=500)
+        plt.close()
+
+        print(f"TEST - {filename}")
