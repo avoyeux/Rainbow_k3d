@@ -107,7 +107,6 @@ class WarpSdoImage:
             self,
             sdo_image: np.ndarray,
             borders: ImageBorders,
-            image_shape: tuple[int, int],  # ? should I make it as a function of the nb_of_points.
             pixel_interpolation_order: int,
             envelopes: list[FitEnvelopes],
             nb_of_points: int,
@@ -120,16 +119,16 @@ class WarpSdoImage:
             sdo_image (np.ndarray): the SDO image to warp.
             borders (ImageBorders): the polar border values of the sdo image. The radial distance
                 is given in Mm and the polar angle in degrees.
-            image_shape (tuple[int, int]): the final image shape wanted after the warping.
             pixel_interpolation_order (int): the order used in scipy.ndimage.map_coordinates.
             envelopes (list[FitEnvelopes]): the lower and upper envelope.
-            nb_of_points (int): the final number of points used in the interpolation.
+            nb_of_points (int): the final number of points used in the interpolation. Also defines
+                the shape of the warped image. This is done so so that the radial distance axis has
+                as many pixels as there are points in the middle path.
         """
 
         # ATTRIBUTEs
         self.sdo_image = sdo_image
         self.borders = borders
-        self.image_shape = image_shape
         self.pixel_interpolation_order = pixel_interpolation_order
         self.envelopes = envelopes
         self.nb_of_points = nb_of_points
@@ -168,8 +167,8 @@ class WarpSdoImage:
         """
 
         # NEW IMAGE setup
-        columns = np.linspace(0, 1, self.image_shape[1])
-        rows = np.linspace(0, 1, self.image_shape[0])
+        columns = np.linspace(0, 1, self.nb_of_points)
+        rows = np.linspace(0, 1, self.nb_of_points)
         C, R = np.meshgrid(columns, rows)
 
         # COORDs transformation
@@ -181,7 +180,7 @@ class WarpSdoImage:
             self.sdo_image,
             coords,
             order=self.pixel_interpolation_order,
-        ).reshape(self.image_shape)
+        ).reshape((self.nb_of_points, self.nb_of_points))
         return warped_image
 
     def transform(

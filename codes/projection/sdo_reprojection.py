@@ -39,6 +39,8 @@ __all__ = ['OrthographicalProjection']
 
 # ? should I force the creation of a fit and Auchere's envelope as it is necessary for the last 
 # ? warped integration plot. As opposed to adding multiple if statements
+# ! need to decide how to use different values for the shape of the warped image and the number of
+# ! points used in the polynomial fit and the resulting radial distance.
 
 
 
@@ -251,7 +253,7 @@ class OrthographicalProjection(BaseReprojection):
         # ENVELOPE get
         envelope_data = ExtractEnvelope.get(
             polynomial_order=6,
-            number_of_points=int(1e5),
+            number_of_points=1280,  # ! need to make this value global so that there are no issues in array sizes later on
             borders=self.projection_borders,
             verbose=self.verbose,
         ) if self.plot_choices['envelope'] else None
@@ -395,9 +397,8 @@ class OrthographicalProjection(BaseReprojection):
         # WARP KWARGS
         warp_kwargs = {
             'borders': self.projection_borders,
-            'image_shape': (1280, 1280),  # ? why is this here ?
             'pixel_interpolation_order': 3,
-            'nb_of_points': 300,
+            'nb_of_points': 1280,
             'integration_type': 'mean',
         }
 
@@ -747,7 +748,7 @@ class OrthographicalProjection(BaseReprojection):
                         group_path=data.group_path,
                         dx=self.constants.dx,
                         polynomial_order=polynomial_order,
-                        number_of_points=300,  # ? should I add it as an argument ?
+                        number_of_points=1280,  # ? should I add it as an argument ?
                         feet_sigma=0.1,
                         feet_threshold=0.1,
                         envelope_radius=4e4,
