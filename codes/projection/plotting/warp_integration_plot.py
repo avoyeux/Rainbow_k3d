@@ -11,6 +11,7 @@ import numpy as np
 # IMPORTs sub
 from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # IMPORTs personal
 from common import config, Decorators
@@ -20,7 +21,7 @@ from codes.projection.sdo_reprojection import OrthographicalProjection
 # TYPE ANNOTATIONs
 from typing import TypeGuard
 
-# todo add a plot with the max arc length for each date
+# todo need a constant time step for the x axis of the warp integration plot
 
 
 
@@ -38,7 +39,7 @@ class WarpIntegrationPlot:
             with_feet: bool = False,
             polynomial_order: list[int] = [4],
             with_fake_data: bool = False,
-            ) -> None:
+        ) -> None:
         """
         To get the final plots of the warped integration data. The initialisation creates the
         corresponding plots without having to call an instance method.
@@ -71,9 +72,12 @@ class WarpIntegrationPlot:
         warped_information = processing.warped_information
         
         # DATA CHECK
-        if not self.information_check(warped_information): # todo take this away after corresponding code update
+        if not self.information_check(warped_information):
             raise ValueError('\033[1;31mNo warped information given.\033[0m')
         self.warped_information = warped_information
+
+        # PATHs
+        self.paths = self.paths_setup()
 
         # RUN
         self.plot_all()
@@ -85,6 +89,23 @@ class WarpIntegrationPlot:
         
         return data is not None
     
+    def paths_setup(self) -> dict[str, str]:
+        """
+        To setup and format the paths needed for the plotting.
+
+        Returns:
+            dict[str, str]: the path(s) to the directory(s).
+        """
+
+        # PATHs formatting
+        paths = {
+            'warped': os.path.join(config.path.dir.data.result.projection, 'warped_integration'),
+        }
+
+        # PATHs creation
+        os.makedirs(paths['warped'], exist_ok=True)
+        return paths
+
     @Decorators.running_time
     def plot_all(self) -> None:
         """
@@ -108,8 +129,6 @@ class WarpIntegrationPlot:
         Args:
             data (WarpedIntegration): the warped integration data to plot.
         """
-
-        # todo add the arc_lengths somewhere or on the plots.
         
         # SORT data on dates
         data.sort()
@@ -120,11 +139,11 @@ class WarpIntegrationPlot:
             for warped_information in data.warped_informations
         ], axis=0)
         angles = np.stack([
-            warped_information.angles
+            np.rad2deg(warped_information.angles)
             for warped_information in data.warped_informations
         ], axis=0)
 
-        # NAMING
+        # NAMING saved plots suffix
         name_end = (
             f"fit{data.fit_order}_" +
             (
@@ -134,14 +153,21 @@ class WarpIntegrationPlot:
             )
         )
 
+        # DATEs setup
+        matplotlib_dates = self.date_treatment(data.dates)
+
         # PLOT
         self.plot_data(
             name=f"warp_{data.integration_type}_" + name_end,
             data=image,
+            arc_length=data.arc_lengths[0],
+            dates=matplotlib_dates,
         )
         self.plot_data(
             name=f"warp_angles_" + name_end,
             data=angles,
+            arc_length=data.arc_lengths[0],
+            dates=matplotlib_dates,
         )
 
         # ARC LENGTHs plot
@@ -152,34 +178,73 @@ class WarpIntegrationPlot:
         plt.xlabel('Date')
         plt.ylabel('Max arc length')
         plt.title('Max arc length for each date')
-        plt.savefig(os.path.join(config.path.dir.data.temp, name + '.png'), dpi=500)
+        plt.savefig(os.path.join(self.paths['warped'], name + '.png'), dpi=500)
         plt.close()
     
-    def plot_data(self, name: str, data: np.ndarray) -> None:
+    def date_treatment(self, dates: list[str]) -> np.ndarray:
         """
-        Simple matplotlib.pyplot plotting function to plot a given ndarray.
+        To treat the dates so that they can be used in one of the axes of the plot.
 
         Args:
-            name (str): the name to give to the saved plot.
-            data (np.ndarray): the data to plot.
+            dates (list[str]): the dates to treat.
+
+        Returns:
+            np.ndarray: the corresponding matplotlib dates.
         """
 
+        datetimes = [datetime.strptime(date,'%Y-%m-%dT%H-%M-%S') for date in dates]
+        matplotlib_dates = mdates.date2num(datetimes)
+        return matplotlib_dates
+
+    def plot_data(
+            self,
+            name: str,
+            data: np.ndarray,
+            arc_length: np.ndarray,  # ! only works when arc_length is the same for all dates.
+            dates: np.ndarray,
+        ) -> None:
+        """
+        To plot the warped integration data for a given dataset.
+
+        Args:
+            name (str): the filename of the PNG figure to save.
+            data (np.ndarray): the data to plot.
+            arc_length (np.ndarray): the arc length to use for the y axis.
+            dates (np.ndarray): the dates to use for the x axis.
+        """
+
+        # AXEs setup
+        X, Y = np.meshgrid(arc_length, dates)
+
+        # PLOT init
+        fig, ax = plt.subplots(figsize=(18, 5))
+
+        # IMAGE
+        im = ax.pcolormesh(Y.T, X.T, data.T, cmap='gray', shading='nearest')
+
+        # TIME axis
+        ax.xaxis_date()
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%dT%H-%M-%S'))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
         # PLOT
-        plt.figure(figsize=(18, 5))
-        plt.imshow(data.T, cmap='gray', origin='lower', aspect='auto', interpolation='none')
-        plt.title('Mean rows of the warped data')
-        plt.xlabel('Time')
-        plt.ylabel('Radial distance')
-        plt.colorbar(label='angles' if 'angles' in name else 'intensity')
-        plt.savefig(os.path.join(config.path.dir.data.temp, name + '.png'), dpi=500)
+        ax.set_title('Mean rows of the warped data')
+        ax.set_xlabel('Time [hours]')
+        ax.set_ylabel('Distance [Mm]')
+        plt.colorbar(im, label='angles [degrees]' if 'angles' in name else 'intensity')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.paths['warped'], name + '.png'), dpi=500)
         plt.close()
+
+        print(f"SAVED - {name}.png")
 
 
 
 if __name__ == '__main__':
 
     WarpIntegrationPlot(
-        integration_time=[24],
+        integration_time=[],
         polynomial_order=[4],
         plot_choices=[
             'no duplicates',
