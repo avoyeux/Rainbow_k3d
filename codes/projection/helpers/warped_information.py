@@ -49,10 +49,31 @@ class AllWarpedTreatment:
             fit_n_envelopes: FitWithEnvelopes,
             borders: ImageBorders,
             pixel_interpolation_order: int = 3,
-            nb_of_points: int = 300,
+            nb_of_points: int = 1280,
             integration_type: Literal['mean', 'median'] = 'mean',
         ) -> None:
-        # todo add docstring
+        """
+        To warp the SDO image and keep the relevant information.
+        The warped information is stored in the warped_information attribute.
+
+        Args:
+            sdo_image (np.ndarray): the SDO image to be warped.
+            date (str): the date of the SDO image.
+            integration_time (int | str | None): the integration time of the SDO image.
+            fit_n_envelopes (FitWithEnvelopes): the fit and envelope information.
+            borders (ImageBorders): the borders of the SDO image.
+            pixel_interpolation_order (int, optional): the interpolation order used when warping
+                the SDO image. Defaults to 3.
+            nb_of_points (int, optional): the number of points used to compute the envelope.
+                Furthermore, is will also directly define the number of pixels in the resulting
+                warped image. Defaults to 1280.
+            integration_type (Literal['mean', 'median'], optional): the integration method used
+                when converting the warped 2D SDO image to a 1D array (for the final warped
+                integration figure). Defaults to 'mean'.
+
+        Raises:
+            ValueError: if the envelope information doesn't exist.
+        """
 
         # ATTRIBUTEs
         self.date = date
@@ -117,25 +138,31 @@ class AllWarpedTreatment:
 
         return envelopes is not None
 
-    def normalise_coords(self, coords: np.ndarray) -> np.ndarray:
-        """
-        To normalise the coordinates so that they are between 0 and 1. This is done so that the
+    def normalise_coords(
+            self,
+            query_points: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
+        """  # todo update docstring
+        To normalise the fit coordinates so that they are between 0 and 1. This is done so that the
         nearest neighbour search is not biased by the scale of the coordinates.
 
         Args:
-            coords (np.ndarray): the coordinates to be normalised.
+            query_points (np.ndarray): the coordinates of the middle curve for which we want to
+                find the closest fit coordinates (to get the corresponding angles).
 
         Returns:
-            np.ndarray: the normalised coordinates.
+            tuple[np.ndarray, np.ndarray]: the normalised coordinates of the fit and the middle
+                curve.
         """
-        # ! most likely need to normalise the processed fit and then use the same min and max for
-        # ! the other coordinates
 
-        # NORMALISE
-        min_vals = np.min(coords, axis=0, keepdims=True)
-        max_vals = np.max(coords, axis=0, keepdims=True)
-        coords = (coords - min_vals) / (max_vals - min_vals)
-        return coords
+        # NORMALISE fit
+        min_vals = np.min(self.processed_fit, axis=0, keepdims=True)
+        max_vals = np.max(self.processed_fit, axis=0, keepdims=True)
+        fit_coords = (self.processed_fit - min_vals) / (max_vals - min_vals)
+
+        # CURVE middle change
+        middle_coords = (query_points - min_vals) / (max_vals - min_vals)
+        return fit_coords, middle_coords
 
     def get_closest_angles(self, angles: np.ndarray) -> np.ndarray:
         """
@@ -148,14 +175,16 @@ class AllWarpedTreatment:
             np.ndarray: the closest angles to the middle curve.
         """
 
-        # KDTree angles
-        tree = scipy.spatial.cKDTree(self.normalise_coords(self.processed_fit))
-        
-        # COORDs closest angle
-        query_points = np.stack([
-            self.processed_middle.polar_r, self.processed_middle.polar_theta
-        ], axis=1)
-        dist, closest_indices = tree.query(self.normalise_coords(query_points), k=1)
+        # COORDs 'normalisation'
+        fit_coords, query_points = self.normalise_coords(
+            query_points=np.stack([
+                self.processed_middle.polar_r, self.processed_middle.polar_theta
+            ], axis=1),
+        )
+
+        # ANGLEs closest to fit
+        tree = scipy.spatial.cKDTree(fit_coords)
+        dist, closest_indices = tree.query(query_points, k=1)
         return angles[closest_indices]
     
     def coords_to_cartesian(self, polar_r: np.ndarray, polar_theta: np.ndarray) -> np.ndarray:
