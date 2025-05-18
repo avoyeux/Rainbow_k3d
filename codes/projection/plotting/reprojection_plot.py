@@ -426,7 +426,7 @@ class Plotting(OrthographicalProjection):
 
 if __name__ == '__main__':
     Plotting(
-        integration_time=[24],
+        integration_time=[],
         polynomial_order=[4],
         plot_choices=[
             'no duplicates',

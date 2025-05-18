@@ -123,7 +123,7 @@ class AllSDOMetadata:
         """
 
         # INDEXEs to keep
-        used_indexes = [
+        used_indexes = [  # ? do I need to change this to add a break inside the loop ?
             i
             for i, data in enumerate(all_data)
             for used_date in used_datetimes
