@@ -81,7 +81,7 @@ class AllSDOMetadata:
             series='aia.lev1',
             cadence=['12s'],
         )
-        return aia_data_list
+        return aia_data_list  # ? is the list sorted by date ?
 
     def _protuberance_datetimes(self) -> list[datetime]:
         """
@@ -92,7 +92,7 @@ class AllSDOMetadata:
             list[datetime]: the datetimes of used in the protuberance data.
         """
 
-        # ! need to check for the exception cases if it still applies to the fetched data
+        # ! need to check for the exception dates if it still applies to the fetched data
 
         # TIMESTAMPs get
         with open(config.path.data.sdo_timestamp, 'r') as files:

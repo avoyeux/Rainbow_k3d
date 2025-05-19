@@ -39,10 +39,11 @@ from sitools2.clients.sdo_data import SdoData
 type ManagerQueueProxy = queue.Queue[Any]  # used parent: actual queue type is not known
 type SharedMemoryAlias = multiprocessing.shared_memory.SharedMemory
 
+# API public
+__all__ = ['DataSaver']
+
 # todo change the code so each cube processing is done in a separate process
-# ! I am changing the dates values, the code shouldn't work for now.
 # todo descriptions change as dates changed and (e.g. raw data) most cube indexes contain no data
-# todo change the cube number values so that they represent the cube index where initially existed
 
 
 
@@ -209,11 +210,12 @@ class DataSaver(BaseHDF5Protuberance):
         filepaths = glob.glob(os.path.join(self.paths['cubes'], 'cube*.save'))
 
         # NUMBERs cubes
-        self.cube_numbers = [  # * keep this as it is used for the raw data
+        cube_numbers = [  # * keep this as it is used for the raw data
             int(matched.group(1))
             for filepath in filepaths
             if (matched := self.cube_pattern.match(os.path.basename(filepath))) is not None
         ]
+        self.cube_numbers = self._cube_numbers_to_cube_index(sorted(cube_numbers))
 
         # DATEs in seconds
         self.dates_seconds = [
@@ -235,17 +237,44 @@ class DataSaver(BaseHDF5Protuberance):
         return round((date - self.first_datetime).total_seconds())
 
     @Decorators.running_time
-    def _cube_numbers_to_cube_index(self) -> None:
-        # todo add docstring
+    def _cube_numbers_to_cube_index(self, cube_indexes: list[int]) -> list[int]:
+        """
+        To convert the cube numbers to the new cube indexes (given the cadence of 1 minute).
 
-        # * to get the cube index corresponding to each cube number
-        # * this will be computed based on which date index each cube number corresponds to
+        Args:
+            cube_indexes (list[int]): the initial cube indexes.
 
-        stereo_filepaths = glob.glob(os.path.join(self.paths['intensities'], '*.png'))
+        Returns:
+            list[int]: the new cube indexes given the cadence of 1 minute.
+        """
 
-        # ! finish here
+        stereo_filepaths = sorted(glob.glob(os.path.join(self.paths['intensities'], '*.png')))
 
-    def _number_to_date_mapping(self, fi)
+        # INDEX to date
+        cube_to_date = {
+            int(matched.group('number')): datetime.strptime(
+                matched.group('date'),
+                '%Y-%m-%dT%H-%M-%S',
+            )
+            for filepath in stereo_filepaths
+            if (matched := self.date_pattern.match(os.path.basename(filepath))) is not None
+        }
+        
+        # DATEs of initial cubes
+        cube_dates = [cube_to_date[index] for index in cube_indexes]
+
+        # DATEs to new indexes
+        date_to_index: dict[datetime, int] = cast(
+            dict[datetime, int],
+            {
+                meta.date_obs: index
+                for index, meta in enumerate(self.sdo_metadata)
+            },
+        )
+
+        # INDEXEs new
+        cube_indexes = [date_to_index[date] for date in cube_dates]
+        return cube_indexes
 
     def setup_feet(
             self,
@@ -303,8 +332,11 @@ class DataSaver(BaseHDF5Protuberance):
                 "integrated data)." 
             ),
         }
-        cube_dates_info = {  # ? should I get the dates directly from the png names ?
-            'data': np.array(self.dates).astype('S19'),
+        cube_dates_info = {
+            'data': np.array([
+                cast(datetime, meta.date_obs).strftime("%Y-%m-%dT%H-%M-%S")
+                for meta in self.sdo_metadata
+            ]).astype('S19'),
             'unit': 'none',
             'description': (
                 "The dates of the STEREO B 30.4nm acquisitions. These represent all the possible "
@@ -315,7 +347,7 @@ class DataSaver(BaseHDF5Protuberance):
         # SAVE reformat
         information = {
             'Time indexes': cube_numbers_info,
-            'Dates': cube_dates_info,  # todo add all the dates here
+            'Dates': cube_dates_info,
         }
         return information
     
@@ -382,7 +414,7 @@ class DataSaver(BaseHDF5Protuberance):
         # METADATA
         meta_info = self.get_cube_dates_info()
         sdo_info = self.get_pos_sdo_info()
-        stereo_info = self.get_pos_stereo_info()
+        # stereo_info = self.get_pos_stereo_info()
 
         # RUN information
         run_info = self.get_run_information()
@@ -392,7 +424,7 @@ class DataSaver(BaseHDF5Protuberance):
         self.add_dataset(H5PYFile, self.dx, 'dx')
         for key in meta_info.keys(): self.add_dataset(H5PYFile, meta_info[key], key)
         self.add_dataset(H5PYFile, sdo_info, 'SDO positions')
-        self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
+        # self.add_dataset(H5PYFile, stereo_info, 'STEREO B positions')
         self.add_group(H5PYFile, run_info, 'Specific information')
 
     def get_run_information(self) -> dict[str, dict[str, str | int | float]]:
@@ -460,9 +492,8 @@ class DataSaver(BaseHDF5Protuberance):
             'unit': 'km',
             'description': (
                 "The position of the SDO satellite during the observations in cartesian "
-                "heliocentric coordinates.\nThe shape of the data is (N), 3) where N "
-                "represents the time indexes for the data and the 3 the x, y, z position of the "
-                "satellite."
+                "heliocentric coordinates.\nThe shape of the data is (N, 3) where N represents "
+                "the time indexes for the data and the 3 the x, y, z position of the satellite."
             ),
         }
         return information
@@ -476,8 +507,8 @@ class DataSaver(BaseHDF5Protuberance):
             dict[str, str | np.ndarray]: the data and metadata for the STEREO B satellite position
         """
 
-        # ! find the STEREO B position for all the SDO dates or the 3D visualisation will become
-        # ! harder (or make following from the STEREO pov impossible for the new data).
+        # ! wrong as don't have the positions for all the cubes given the 1 minute cadence
+        # * Not using this method for now till discussed with Dr. Auchere.
 
         # DATA
         stereo_information = scipy.io.readsav(self.paths['stereo info']).datainfos
@@ -635,9 +666,9 @@ class DataSaver(BaseHDF5Protuberance):
         group = H5PYFile.create_group('Raw')
         group.attrs['description'] = (
             "The filament voxels in sparse COO format (i.e. with a coords and values arrays) of "
-            "the initial cubes gotten from Dr. Karine [...]'s work.\n Furthermore, the necessary "
-            "information to be able to position the filament relative to the Sun are also "
-            "available. Both cubes, with or without feet, are inside this group."
+            "the initial cubes gotten from Dr. Karine Bocchialini's work.\nFurthermore, the "
+            "necessary information to be able to position the filament relative to the Sun are "
+            "also available. Both cubes, with or without feet, could be inside this group."
         )
 
         # GROUP raw cubes
@@ -939,8 +970,7 @@ class DataSaver(BaseHDF5Protuberance):
         manager = mp.Manager()
         input_queue = manager.Queue()
         output_queue = manager.Queue()
-        for i in range(len(self.dates_seconds)):
-            input_queue.put((i, data, self.dates_seconds, time))
+        for i in range(self.max_len): input_queue.put((i, data, self.dates_seconds, time))
         for _ in range(self.nb_processes): input_queue.put(None)
 
         # RUN processes
@@ -956,11 +986,6 @@ class DataSaver(BaseHDF5Protuberance):
         while not output_queue.empty():
             identification, result = output_queue.get()
             data_list[identification] = result
-        data_list = [
-            sparse.COO(coords=[], data=[], shape=data.shape[1:]).astype('uint8')
-            if value is None else value
-            for value in data_list
-        ]
         data: sparse.COO = cast(sparse.COO, sparse.stack(data_list, axis=0).astype('uint8'))
 
         # BORDERs update
@@ -1095,7 +1120,6 @@ class DataSaver(BaseHDF5Protuberance):
         """
 
         # ! dates have changed so the rawCubes list indexes will be wrong too
-        # todo create a dict to get the relation between the new dates and the cube indexes.
 
         # SETUP multiprocessing
         cube_nb = len(self.cube_numbers)
@@ -1124,7 +1148,7 @@ class DataSaver(BaseHDF5Protuberance):
         for p in processes: p.join()
 
         # RESULTs formatting
-        rawCubes_list: list[sparse.COO] = cast(list[sparse.COO], [None] * len(self.dates))
+        rawCubes_list: list[sparse.COO] = cast(list[sparse.COO], [None] * self.max_len)
         while not output_queue.empty():
             identifier, result = output_queue.get()
             rawCubes_list[identifier] = result
