@@ -143,7 +143,7 @@ class AllSDOMetadata:
         keep_indexes = sorted(list(set(used_indexes + new_indexes)))
 
         # SDO data filtering
-        return [all_metadata[i] for i in keep_indexes]
+        return [self._no_microseconds(all_metadata[i]) for i in keep_indexes]
 
     def _needed_datetime(self, time_coef: int) -> datetime:
         """
@@ -157,6 +157,20 @@ class AllSDOMetadata:
         """
 
         return self._first_datetime + timedelta(minutes=1 * time_coef)
+
+    def _no_microseconds(self, metadata: SdoData) -> SdoData:
+        """
+        To set the microseconds to 0 from the SDO metadata date_obs.
+
+        Args:
+            metadata (SdoData): the SDO metadata to set the microseconds to 0.
+
+        Returns:
+            SdoData: the SDO metadata with the microseconds set to 0.
+        """
+
+        metadata.date_obs = cast(datetime, metadata.date_obs).replace(microsecond=0)
+        return metadata
 
     def check_dates(self) -> bool:
 

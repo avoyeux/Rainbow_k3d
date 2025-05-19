@@ -123,7 +123,7 @@ class DataSaver(BaseHDF5Protuberance):
         super().__init__(filename, compression, compression_lvl)
 
         # CONSTANTs
-        self.sdo_metadata: list[SdoData] = AllSDOMetadata().all_sdo_dates
+        self.sdo_metadata: list[SdoData] = AllSDOMetadata().sdo_metadata
         self.max_len: int = len(self.sdo_metadata)
         self.nb_processes: int = min(self.processes, self.max_len)
         self.feet_options: list[str] = ['', ' with feet'] if not no_feet else ['']
@@ -264,13 +264,10 @@ class DataSaver(BaseHDF5Protuberance):
         cube_dates = [cube_to_date[index] for index in cube_indexes]
 
         # DATEs to new indexes
-        date_to_index: dict[datetime, int] = cast(
-            dict[datetime, int],
-            {
-                meta.date_obs: index
-                for index, meta in enumerate(self.sdo_metadata)
-            },
-        )
+        date_to_index: dict[datetime, int] = {
+            cast(datetime, meta.date_obs): index
+            for index, meta in enumerate(self.sdo_metadata)
+        }
 
         # INDEXEs new
         cube_indexes = [date_to_index[date] for date in cube_dates]
