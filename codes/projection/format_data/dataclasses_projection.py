@@ -2,6 +2,9 @@
 To store the global dataclasses used in the SDO projection code.
 """
 
+# IMPORTs
+import h5py
+
 # IMPORTs alias
 import numpy as np
 
@@ -35,9 +38,9 @@ class GlobalConstants:
     # CONSTANTs
     dx: float
     solar_r: float
-    dates: np.ndarray
-    ias_paths: np.ndarray
-    time_indexes: np.ndarray
+    dates: h5py.Dataset
+    ias_paths: h5py.Dataset
+    time_indexes: h5py.Dataset
 
     # PLACEHOLDERs
     d_theta: float = field(init=False)

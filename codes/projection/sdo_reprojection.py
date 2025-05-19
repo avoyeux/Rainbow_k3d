@@ -842,9 +842,9 @@ class OrthographicalProjection(BaseReprojection):
 
         # DATA open
         dx = float(cast(h5py.Dataset, H5PYFile['dx'])[...])
-        time_indexes: np.ndarray = cast(h5py.Dataset, H5PYFile[init_path + 'Time indexes'])[...]
-        dates: np.ndarray = cast(h5py.Dataset, H5PYFile['Dates'])[...]
-        ias_paths: np.ndarray = cast(h5py.Dataset, H5PYFile['IAS paths'])[...]
+        time_indexes: h5py.Dataset = cast(h5py.Dataset, H5PYFile[init_path + 'Time indexes'])
+        dates: h5py.Dataset = cast(h5py.Dataset, H5PYFile['Dates'])
+        ias_paths: h5py.Dataset = cast(h5py.Dataset, H5PYFile['IAS paths'])
 
         # FORMAT data
         constants = GlobalConstants(
@@ -977,7 +977,7 @@ class OrthographicalProjection(BaseReprojection):
 
         else:
             # FAKE time indexes
-            time_indexes: np.ndarray = cast(h5py.Dataset, H5PYFile['Fake/Time indexes'])[...]
+            time_indexes: h5py.Dataset = cast(h5py.Dataset, H5PYFile['Fake/Time indexes'])
 
             # FORMAT cube
             cube_info = FakeDataPointer(

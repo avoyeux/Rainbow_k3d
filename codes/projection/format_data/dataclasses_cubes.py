@@ -148,8 +148,8 @@ class FakeDataPointer(BasePointer):
     fit_information: None = field(default=None, init=False)
 
     # INDEXes time
-    real_time_indexes: np.ndarray
-    fake_time_indexes: np.ndarray
+    real_time_indexes: h5py.Dataset
+    fake_time_indexes: h5py.Dataset
 
     # PLACEHOLDERs
     value_to_index: dict[int, int] = field(init=False)
