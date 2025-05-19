@@ -11,7 +11,7 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # TYPE ANNOTATIONs
-from typing import Self, Literal, cast
+from typing import Self, Literal
 
 # API public
 __all__ = [
@@ -20,8 +20,6 @@ __all__ = [
     'WarpedDataGroup',
     'AllWarpedInformation',
 ]
-
-# todo take away the __radd__ method and the __add__ method from the WarpedInformation class
 
 
 

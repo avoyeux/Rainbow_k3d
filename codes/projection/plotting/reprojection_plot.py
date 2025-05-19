@@ -288,9 +288,6 @@ class Plotting(OrthographicalProjection):
                             fit_order=fit_n_envelope.fit_order,
                             envelope_order=fit_n_envelope.envelopes.upper.order,
                         )
-
-                        # WARPED INTEGRATION to save RAM
-                        fit_n_envelope.warped_information.warped_integration()
         return sc
     
     def plot_contours(

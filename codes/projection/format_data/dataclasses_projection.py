@@ -36,6 +36,7 @@ class GlobalConstants:
     dx: float
     solar_r: float
     dates: np.ndarray
+    ias_paths: np.ndarray
     time_indexes: np.ndarray
 
     # PLACEHOLDERs

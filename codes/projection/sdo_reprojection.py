@@ -29,7 +29,7 @@ from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProces
 
 # TYPE ANNOTATIONs
 import queue
-from typing import Any, cast, overload, Literal
+from typing import cast, overload, Literal
 type QueueAlias[T] = queue.Queue[T]  # used parent function
 
 # API public
@@ -57,11 +57,14 @@ class OrthographicalProjection(BaseReprojection):
             processes: int | None = None,
             integration_time: list[int] = [24],
             filepath: str | None = None,
-            with_feet: bool = False,
             polynomial_order: list[int] = [4],
             plot_choices: list[str] = [
                 'sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data',
-            ], 
+            ],
+            arc_length_points: int = 1280,
+            warp_pixel_interpolation_order: int = 3,
+            warp_integration_type: Literal['mean', 'median'] = 'mean',
+            with_feet: bool = False,
             with_fake_data: bool = False,
             verbose: int | None = None,
             flush: bool | None = None,
@@ -78,8 +81,7 @@ class OrthographicalProjection(BaseReprojection):
                 reprojected. Defaults to 24.
             filepath (str | None, optional): the filepath of the HDF5 containing all the relevant
                 3D data. When None, uses the config file. Defaults to None.
-            with_feet (bool, optional): deciding to use the data with or without added feet.
-                Defaults to False.
+
             polynomial_order (list[int], optional): the order(s) of the polynomial function(s) that
                 represent the fitting of the integrated 3D volume. Defaults to [4].
             plot_choices (list[str], optional): the main choices that the user wants to be in the
@@ -88,6 +90,14 @@ class OrthographicalProjection(BaseReprojection):
                 'no duplicates', 'sdo image', 'sdo mask', 'test cube', 'fake data', 'envelope',
                 'fit', 'fit envelope', 'test data', 'line of sight', 'all data', 'warp']
                 ['sdo image', 'no duplicates', 'envelope', 'polynomial', 'test data'].
+            arc_length_points (int, optional): the number of points used to compute the arc length
+                for the polynomial fit. Defaults to 1280.
+            warp_pixel_interpolation_order (int, optional): the order of the interpolation used to
+                warp the data. Defaults to 3.
+            warp_integration_type (Literal['mean', 'median'], optional): the type of integration
+                used to compute the final warped image. Defaults to 'mean'.
+            with_feet (bool, optional): deciding to use the data with or without added feet.
+                Defaults to False.
             with_fake_data (bool, optional): if the input data is the fusion HDF5 file.
                 Defaults to False.
             verbose (int | None, optional): gives the verbosity in the outputted prints. The higher
@@ -124,6 +134,9 @@ class OrthographicalProjection(BaseReprojection):
             radial_distance=(690, 870),  # in Mm
             polar_angle=(245, 295),  # in degrees
         )
+        self.arc_length_points = arc_length_points
+        self.warp_integration_type: Literal['mean', 'median'] = warp_integration_type
+        self.warp_pixel_interpolation_order = warp_pixel_interpolation_order
 
         # ATTRIBUTEs
         self.with_fake_data = with_fake_data
@@ -139,7 +152,6 @@ class OrthographicalProjection(BaseReprojection):
             os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
         )
         self.paths = self.path_setup()  # path setup
-        self.sdo_timestamps = self.sdo_image_finder()  # sdo image timestamps
 
         # GLOBAL data
         self.Auchere_envelope, self.plot_kwargs = self.global_information()
@@ -393,15 +405,6 @@ class OrthographicalProjection(BaseReprojection):
             np.ndarray | None: the warped data if no multiprocessing is used. Otherwise, None.
         """
 
-
-        # WARP KWARGS
-        warp_kwargs = {
-            'borders': self.projection_borders,
-            'pixel_interpolation_order': 3,
-            'nb_of_points': 1280,
-            'integration_type': 'mean',
-        }
-
         # DATA open
         with h5py.File(self.filepath, 'r') as H5PYFile:
             # PATH setup
@@ -523,7 +526,7 @@ class OrthographicalProjection(BaseReprojection):
                 projection_data = ProjectionData(ID=process)  # ! what the ID represents changed
 
                 # SDO information
-                filepath = self.sdo_timestamps[process_constants.date[:-3]]
+                filepath = self.constants.ias_paths[process].decode('utf8')
                 if self.in_local: filepath = self.get_file_from_server(filepath)
                 sdo_image_info = self.sdo_image(filepath, colour='')
                 sdo_image_info.image = self.sdo_image_treatment(sdo_image_info.image)
@@ -569,7 +572,6 @@ class OrthographicalProjection(BaseReprojection):
                         colour='pink',
                         sdo_info=sdo_image_info,
                         warp=self.plot_choices['warp'],
-                        warp_kwargs=warp_kwargs,
                     )
 
                 if data_pointers.line_of_sight is not None:
@@ -589,7 +591,6 @@ class OrthographicalProjection(BaseReprojection):
                             colour=cast(list[str], self.plot_kwargs['colours'])[i],
                             sdo_info=sdo_image_info,
                             warp=self.plot_choices['warp'],
-                            warp_kwargs=warp_kwargs,
                         )
                         for i, integration in enumerate(data_pointers.integration)
                     ]
@@ -697,7 +698,6 @@ class OrthographicalProjection(BaseReprojection):
             colour: str,
             sdo_info: PolarImageInfo,
             warp: bool = False,
-            warp_kwargs: dict[str, Any] = {},
         ) -> ProjectedData:
             """
             To format the cube data for the projection.
@@ -711,8 +711,6 @@ class OrthographicalProjection(BaseReprojection):
                 sdo_info (PolarImageInfo): the SDO information (e.g. the position, the image).
                 warp (bool, optional): if the image section inside the fit envelope should be
                     warped. Defaults to False.
-                warp_kwargs (dict[str, Any], optional): the kwargs used for the warping of the SDO
-                    image section. Defaults to {} (when there is no warping done).
 
             Returns:
                 ProjectedCube: the formatted and reprojected data cube.
@@ -775,7 +773,10 @@ class OrthographicalProjection(BaseReprojection):
                             date=constants.date,
                             integration_time=data.integration_time,
                             fit_n_envelopes=fit_n_envelope,
-                            **warp_kwargs,
+                            borders=self.projection_borders,
+                            nb_of_points=self.arc_length_points,
+                            integration_type=self.warp_integration_type,
+                            pixel_interpolation_order=self.warp_pixel_interpolation_order,
                         )
                         fit_n_envelope.warped_information = warped_instance.warped_information
                     # RESULT save
@@ -843,13 +844,15 @@ class OrthographicalProjection(BaseReprojection):
         dx = float(cast(h5py.Dataset, H5PYFile['dx'])[...])
         time_indexes: np.ndarray = cast(h5py.Dataset, H5PYFile[init_path + 'Time indexes'])[...]
         dates: np.ndarray = cast(h5py.Dataset, H5PYFile['Dates'])[...]
+        ias_paths: np.ndarray = cast(h5py.Dataset, H5PYFile['IAS paths'])[...]
 
         # FORMAT data
         constants = GlobalConstants(
             dx=dx,
-            solar_r=self.solar_r,
-            time_indexes=time_indexes,
             dates=dates,
+            solar_r=self.solar_r,
+            ias_paths=ias_paths,
+            time_indexes=time_indexes,
         )
         return constants
     
@@ -1112,66 +1115,13 @@ class OrthographicalProjection(BaseReprojection):
         image[image < lower_cut] = lower_cut
         image[image > higher_cut] = higher_cut
         return np.log(image)
-    
-    def sdo_image_finder(self) -> dict[str, str]:
-        """ 
-        To find the SDO image given its header timestamp and a list of corresponding paths to the
-        corresponding fits file.
 
-        Returns:
-            dict[str, str]: the timestamps as keys with the item being the SDO image filepath.
-        """
-
-        # SETUP
-        filepath_end = '/S00000/image_lev1.fits'
-        with open(self.paths['sdo times'], 'r') as files:
-            strings = files.read().splitlines()
-        tuple_list = [s.split(" ; ") for s in strings]
-    
-        timestamp_to_path = {}
-        for s in tuple_list:
-            path, timestamp = s
-            timestamp = timestamp.replace(':', '-')[:-6]
-
-            # EXCEPTION weird cases...
-            if timestamp == '2012-07-24T20-07': timestamp = '2012-07-24T20-06'
-            if timestamp == '2012-07-24T20-20': timestamp = '2012-07-24T20-16'
-
-            timestamp_to_path[timestamp] = path + filepath_end
-        return timestamp_to_path
-
-    def plotting(
-            self,
-            process_constants: ProcessConstants,
-            projection_data: ProjectionData,
-        ) -> None:
+    def plotting(self, *args, **kwargs) -> None:
         """
         Placeholder for a child class to plot the data.
-        The placeholder only integrates the warped image data to save memory space as only the
-        integration is needed for the final plot.
         """
 
-        for data in [
-            projection_data.integration,
-            projection_data.full_integration_no_duplicates,
-            ]:
-
-            # CHECKs
-            if data is None: continue
-            if not isinstance(data, list): data = [data]
-
-            for value in data:
-                value = cast(ProjectedData, value)
-                fit_n_envelopes = value.fit_n_envelopes
-                if fit_n_envelopes is None: continue
-
-                for fit_n_envelope in fit_n_envelopes:
-                    # ENVELOPE fit
-                    if fit_n_envelope.envelopes is not None:
-                        # WARP image
-                        if fit_n_envelope.warped_information is not None:
-                            # WARPED INTEGRATION to save RAM
-                            fit_n_envelope.warped_information.warped_integration()
+        pass
 
     def create_fake_fits(self , *args, **kwargs) -> None:
         """

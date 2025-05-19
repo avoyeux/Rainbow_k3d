@@ -78,6 +78,9 @@ class FitWithEnvelopes:
         Returns:
             dict[str, str | int | WarpedInformation | None]: the state of the object.
         """
+        
+        # INTEGRATION image
+        if self.warped_information is not None: self.warped_information.warped_integration()
 
         state = {  # ? should I keep the envelopes ?
             'name': self.name,
