@@ -29,7 +29,7 @@ from astropy import units as u
 from codes.data.helpers.all_sdo_dates import AllSDOMetadata
 from codes.data.polynomial_fit.base_polynomial_fit import Polynomial
 from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
-from common import config, Decorators, CustomDate, DatesUtils, MultiProcessing
+from common import config, Decorators, CustomDate, MultiProcessing
 
 # TYPE ANNOTATIONs
 import queue
@@ -343,11 +343,23 @@ class DataSaver(BaseHDF5Protuberance):
                 "dates and are indexed in the same way than the data cubes."
             ),
         }
+        ias_path_info = {  
+            'data': np.array([
+                cast(str, meta.ias_path) 
+                for meta in self.sdo_metadata
+            ]).astype('S50'),  # todo decide on the appropriate maximum string length
+            'unit': 'none',
+            'description': (
+                "The IAS server paths to the SDO FITS files corresponding to the dates given in "
+                "the 'Dates' dataset."
+            ),
+        }
         
         # SAVE reformat
         information = {
             'Time indexes': cube_numbers_info,
             'Dates': cube_dates_info,
+            'IAS paths': ias_path_info,
         }
         return information
     
