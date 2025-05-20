@@ -22,6 +22,8 @@ __all__ = ['AllSDOMetadata']
 
 # ? should I keep the datetimes with 30 seconds difference when using the first dates from the 
 # ? protuberance data ?
+# todo need to change the date filtering as there is a lot of weird cases after 12.07.24T20.04.00
+# ! the last todo comment is quite important.
 
 
 
@@ -31,16 +33,16 @@ class AllSDOMetadata:
     that are needed for the final warped integration plot.
     """
 
+    # CONSTANTs
+    _first_datetime: datetime = datetime(2012, 7, 23, 0, 0, 43)
+    _search_date_begin: datetime = datetime(2012, 7, 23, 0, 0, 42)
+    _search_date_end: datetime = datetime(2012, 7, 25, 12, 0, 0)
+
     def __init__(self) -> None:
         """
         To get the SDO metadata needed for the final warped integration plot.
         To get the data, only the instance attribute 'sdo_metadata' needs to be called.
         """
-        
-        # CONSTANTs
-        self._first_datetime: datetime = datetime(2012, 7, 23, 0, 0, 43)
-        self._search_date_begin: datetime = datetime(2012, 7, 23, 0, 0, 42)
-        self._search_date_end: datetime = datetime(2012, 7, 25, 12, 0, 0)
 
         # RUN
         all_metadata = self._fetch_all_dates()
@@ -54,7 +56,7 @@ class AllSDOMetadata:
     def sdo_metadata(self) -> list[SdoData]:
         """
         Attribute that returns all the needed SDO metadata.
-        The date_obs and .ias_path are of importance for me.
+        The date_obs and .ias_location are of importance for me.
 
         Returns:
             list[SdoData]: the SDO metadata of the dates of interest.
@@ -136,7 +138,22 @@ class AllSDOMetadata:
         keep_indexes = sorted(list(set(used_indexes + new_indexes)))
 
         # SDO data filtering
-        return [all_metadata[i] for i in keep_indexes]
+        return [self._fits_location_update(all_metadata[i]) for i in keep_indexes]
+
+    def _fits_location_update(self, metadata: SdoData) -> SdoData:
+        """
+        To change the value of the ias_location attribute so that it points directly to the
+        corresponding fits file.
+
+        Args:
+            metadata (SdoData): the SDO metadata to update.
+
+        Returns:
+            SdoData: the updated SDO metadata.
+        """
+
+        metadata.ias_location = cast(str, metadata.ias_location) + '/S00000/image_lev1.fits'
+        return metadata
 
     def _needed_datetime(self, time_coef: int) -> datetime:
         """
