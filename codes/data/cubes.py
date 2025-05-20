@@ -29,7 +29,7 @@ from astropy import units as u
 from codes.data.helpers.all_sdo_dates import AllSDOMetadata
 from codes.data.polynomial_fit.base_polynomial_fit import Polynomial
 from codes.data.base_hdf5_creator import VolumeInfo, BaseHDF5Protuberance
-from common import config, Decorators, CustomDate, MultiProcessing
+from common import config, Decorators, CustomDate, MultiProcessing, StringFormatter
 
 # TYPE ANNOTATIONs
 import queue
@@ -51,6 +51,10 @@ class DataSaver(BaseHDF5Protuberance):
     """
     To create cubes with and/or without feet in an HDF5 file.
     """
+
+    # CONSTANTs
+    _weird_stereo_datetime0: datetime = datetime(2012, 7, 24, 20, 6, 44)
+    _weird_stereo_datetime1: datetime = datetime(2012, 7, 24, 20, 16, 44)
 
     @Decorators.running_time
     def __init__(
@@ -215,7 +219,8 @@ class DataSaver(BaseHDF5Protuberance):
             for filepath in filepaths
             if (matched := self.cube_pattern.match(os.path.basename(filepath))) is not None
         ]
-        self.cube_numbers = self._cube_numbers_to_cube_index(sorted(cube_numbers))
+        self.numbers = sorted(cube_numbers)
+        self.cube_numbers = self._cube_numbers_to_cube_index(self.numbers)
 
         # DATEs in seconds
         self.dates_seconds = [
@@ -236,7 +241,6 @@ class DataSaver(BaseHDF5Protuberance):
 
         return round((date - self.first_datetime).total_seconds())
 
-    @Decorators.running_time
     def _cube_numbers_to_cube_index(self, cube_indexes: list[int]) -> list[int]:
         """
         To convert the cube numbers to the new cube indexes (given the cadence of 1 minute).
@@ -252,10 +256,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # INDEX to date
         cube_to_date = {
-            int(matched.group('number')): datetime.strptime(
-                matched.group('date'),
-                '%Y-%m-%dT%H-%M-%S',
-            )
+            int(matched.group('number')): self._stereo_to_sdo_date_conversion(matched)
             for filepath in stereo_filepaths
             if (matched := self.date_pattern.match(os.path.basename(filepath))) is not None
         }
@@ -272,6 +273,35 @@ class DataSaver(BaseHDF5Protuberance):
         # INDEXEs new
         cube_indexes = [date_to_index[date] for date in cube_dates]
         return cube_indexes
+
+    def _stereo_to_sdo_date_conversion(self, matched: re.Match[str]) -> datetime:
+        """
+        To convert the STEREO B 30.4nm date to a corresponding SDO datetime object.
+        If statements are needed as not all dates are exactly the same when comparing with SDO.
+
+        Args:
+            matched (re.Match[str]): the matched object from the filename of the STEREO
+                acquisitions.
+
+        Returns:
+            datetime: the datetime object corresponding to an SDO date.
+        """
+
+        # DATETIME
+        date = datetime.strptime(matched.group('date'), '%Y-%m-%dT%H-%M-%S')
+
+        # CONVERSION (with some weird cases)
+        if date.second == 13:
+            date = date.replace(second=19)
+        elif date == self._weird_stereo_datetime0:
+            date = datetime(2012, 7, 24, 20, 7, 19)
+        elif date == self._weird_stereo_datetime1:
+            date = datetime(2012, 7, 24, 20, 20, 31)
+        elif date.second == 44:
+            date = date.replace(second=43)
+                
+        # DATE converted
+        return date
 
     def setup_feet(
             self,
@@ -342,9 +372,9 @@ class DataSaver(BaseHDF5Protuberance):
         }
         ias_path_info = {  
             'data': np.array([
-                cast(str, meta.ias_path) 
+                cast(str, meta.ias_location)
                 for meta in self.sdo_metadata
-            ]).astype('S50'),  # todo decide on the appropriate maximum string length
+            ]).astype('S40'),
             'unit': 'none',
             'description': (
                 "The IAS server paths to the SDO FITS files corresponding to the dates given in "
@@ -370,7 +400,7 @@ class DataSaver(BaseHDF5Protuberance):
 
             # BORDERs
             cube = scipy.io.readsav(
-                os.path.join(self.paths['cubes'], f"cube{self.cube_numbers[0]:03d}.save"),
+                os.path.join(self.paths['cubes'], f"cube{self.numbers[0]:03d}.save"),
             )
             self.volume = VolumeInfo(
                 dx=float(cube.dx),
@@ -491,7 +521,7 @@ class DataSaver(BaseHDF5Protuberance):
 
         # COORDs
         coordinates = self.get_pos_code(
-            data=[metadata.ias_path for metadata in self.sdo_metadata], 
+            data=[metadata.ias_location for metadata in self.sdo_metadata], 
             function=self.get_pos_sdo_sub,
         )
 
@@ -596,7 +626,7 @@ class DataSaver(BaseHDF5Protuberance):
             identification, filepath = arguments
 
             # DATA hdu
-            header = astropy.io.fits.getheader(filepath)
+            header = astropy.io.fits.getheader(filepath, 1)
             coords = sunpy.coordinates.frames.HeliographicCarrington(
                 header['CRLN_OBS'] * u.deg,  #type:ignore
                 header['CRLT_OBS'] * u.deg,  #type:ignore
@@ -605,6 +635,7 @@ class DataSaver(BaseHDF5Protuberance):
                 observer='self',
             )
             coords = coords.represent_as(astropy.coordinates.CartesianRepresentation)
+            header.close()
 
             # CONVERSION to km
             result = np.array([
@@ -1086,7 +1117,10 @@ class DataSaver(BaseHDF5Protuberance):
         data_coords: np.ndarray = cast(h5py.Dataset, H5PYFile[group_path + '/coords'])[...]
         data_data: np.ndarray = cast(h5py.Dataset, H5PYFile[group_path + '/values'])[...]
         data_shape = np.max(data_coords, axis=1) + 1
-        return sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
+        result = sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
+
+        print(f"Data memory size is {StringFormatter.nbytes_to_human(result.nbytes)}", flush=True)
+        return result
     
     @Decorators.running_time
     def polynomial_group(self, H5PYFile: h5py.File) -> None:
@@ -1138,10 +1172,10 @@ class DataSaver(BaseHDF5Protuberance):
         output_queue = manager.Queue()
 
         # INPUT populate
-        for cube_number in self.cube_numbers:
+        for number, identifier in enumerate(self.cube_numbers):
             input_queue.put((
-                cube_number,
-                os.path.join(self.paths['cubes'], f'cube{cube_number:03d}.save'),
+                identifier,
+                os.path.join(self.paths['cubes'], f'cube{self.numbers[number]:03d}.save'),
             ))
         for _ in range(processes_nb): input_queue.put(None)
 
@@ -1488,8 +1522,8 @@ class DataSaver(BaseHDF5Protuberance):
 if __name__=='__main__':
 
     instance = DataSaver(
-        integration_time=[12, 18, 24],
-        polynomial_order=[4, 6],
+        integration_time=[24],
+        polynomial_order=[4],
         feet_sigma=20,
         south_leg_sigma=20,
         leg_threshold=0.03,
