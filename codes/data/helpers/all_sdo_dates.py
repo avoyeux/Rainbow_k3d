@@ -79,7 +79,7 @@ class AllSDOMetadata:
             series='aia.lev1',
             cadence=['12s'],
         )
-        return aia_data_list  # ? is the list sorted by date ?
+        return [self._no_microseconds(metadata) for metadata in aia_data_list]
 
     def _protuberance_datetimes(self) -> list[datetime]:
         """
@@ -128,22 +128,15 @@ class AllSDOMetadata:
         used_indexes: list[int] = cast(list[int], [None] * len(used_datetimes))
         for i, used_date in enumerate(used_datetimes):
             for j, metadata in enumerate(all_metadata):
-                if cast(datetime, metadata.date_obs).replace(microsecond=0) == used_date:
-                    used_indexes[i] = j
-                    break
+                if metadata.date_obs == used_date: used_indexes[i] = j; break
         new_indexes: list[int] = []
         for i in range(date_range):
             for j, metadata in enumerate(all_metadata):
-                if (
-                    cast(datetime, metadata.date_obs).replace(microsecond=0) ==
-                    self._needed_datetime(i)
-                ):
-                    new_indexes.append(j) # ! 20 dates missing
-                    break
+                if metadata.date_obs == self._needed_datetime(i): new_indexes.append(j); break # ! 20 missing
         keep_indexes = sorted(list(set(used_indexes + new_indexes)))
 
         # SDO data filtering
-        return [self._no_microseconds(all_metadata[i]) for i in keep_indexes]
+        return [all_metadata[i] for i in keep_indexes]
 
     def _needed_datetime(self, time_coef: int) -> datetime:
         """
