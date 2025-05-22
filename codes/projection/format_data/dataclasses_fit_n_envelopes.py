@@ -71,6 +71,9 @@ class FitWithEnvelopes:
     # WARPED image
     warped_information: WarpedInformation | None = field(default=None, init=False)
 
+    # PICKLE metadata
+    _warped_integration_done: bool = field(default=False, init=False)
+
     def __getstate__(self) -> dict[str, str | int | WarpedInformation | None]:
         """
         To pickle only what is needed. In my case, only the warping data is needed.
@@ -80,13 +83,16 @@ class FitWithEnvelopes:
         """
         
         # INTEGRATION image
-        if self.warped_information is not None: self.warped_information.warped_integration()
+        if (self.warped_information is not None) and (not self._warped_integration_done): 
+            self.warped_information.warped_integration()
+            self._warped_integration_done = True
 
         state = {  # ? should I keep the envelopes ?
             'name': self.name,
             'colour': self.colour,
             'fit_order': self.fit_order,
             'warped_information': self.warped_information,
+            '_warped_integration_done': self._warped_integration_done,
         }
         return state
     
@@ -112,3 +118,4 @@ class FitWithEnvelopes:
             envelopes=None,
         )
         self.warped_information = cast(WarpedInformation | None, state['warped_information'])
+        self._warped_integration_done = cast(bool, state['_warped_integration_done'])
