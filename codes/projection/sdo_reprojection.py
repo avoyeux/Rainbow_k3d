@@ -149,7 +149,7 @@ class OrthographicalProjection(BaseReprojection):
         self.feet = ' with feet' if with_feet else ''
         self.filepath = self.filepath_setup(filepath)
         self.foldername = (
-            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' ')) + '_test'
+            os.path.basename(self.filepath).split('.')[0] + ''.join(self.feet.split(' '))
         )
         self.paths = self.path_setup()  # path setup
 
@@ -377,12 +377,16 @@ class OrthographicalProjection(BaseReprojection):
     def data_setup(self, inputs: int, output_queue: QueueAlias | None = ...) -> np.ndarray: ...
 
     @overload
-    def data_setup(self, inputs: QueueAlias, output_queue: QueueAlias | None = ...) -> None: ...
+    def data_setup(
+            self,
+            inputs: QueueAlias[int],
+            output_queue: QueueAlias | None = ...,
+        ) -> None: ...
 
     @overload  #fallback
     def data_setup(
             self,
-            inputs: QueueAlias | int,
+            inputs: QueueAlias[int] | int,
             output_queue: QueueAlias | None = ...,
         ) -> np.ndarray | None: ...
 
@@ -627,7 +631,7 @@ class OrthographicalProjection(BaseReprojection):
                         )
                 
                 # PRINT
-                print(f'nb {process} - DONE')
+                print(f'nb {process:04d} - DONE', flush=True)
         return np.stack(outputs, axis=0) if output_queue is None else None
 
     def restructure_warped_information(

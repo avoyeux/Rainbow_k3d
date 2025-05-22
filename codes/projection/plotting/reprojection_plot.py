@@ -213,7 +213,7 @@ class Plotting(OrthographicalProjection):
 
         if self.verbose > 1: 
             print(
-                f'SAVED - nb {process_constants.time_index:03d} - {plot_name}',
+                f'SAVED - nb {process_constants.time_index:04d} - {plot_name}',
                 flush=self.flush,
             )
 
@@ -427,7 +427,6 @@ if __name__ == '__main__':
         polynomial_order=[4],
         plot_choices=[
             'no duplicates',
-            'integration',
             'full integration',
             'fit',
             'sdo image', 'envelope',
