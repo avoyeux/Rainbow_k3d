@@ -213,6 +213,10 @@ class WarpIntegrationPlot:
             dates (np.ndarray): the dates to use for the x axis.
         """
 
+        print(f"arc_length shape is {arc_length.shape}")
+        print(f"data shape is {data.shape}")
+        print(f"dates shape is {dates.shape}", flush=True)
+
         # AXEs setup
         X, Y = np.meshgrid(arc_length, dates)
 

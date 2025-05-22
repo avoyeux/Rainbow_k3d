@@ -1143,8 +1143,6 @@ class DataSaver(BaseHDF5Protuberance):
         data_data: np.ndarray = cast(h5py.Dataset, H5PYFile[group_path + '/values'])[...]
         data_shape = np.max(data_coords, axis=1) + 1
         result = sparse.COO(coords=data_coords, data=data_data, shape=data_shape)
-
-        print(f"Data memory size is {StringFormatter.nbytes_to_human(result.nbytes)}", flush=True)
         return result
     
     @Decorators.running_time

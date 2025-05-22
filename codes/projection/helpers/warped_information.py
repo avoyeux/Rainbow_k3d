@@ -40,7 +40,6 @@ class AllWarpedTreatment:
         ValueError: if the envelopes information is not provided.
     """
 
-    @Decorators.running_time
     def __init__(
             self,
             sdo_image: np.ndarray,
