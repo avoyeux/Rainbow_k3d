@@ -21,20 +21,24 @@ from astropy.io import fits
 from matplotlib import colors as mcolors
 
 # IMPORTs personal
-from codes.animation.animation_dataclasses import *
 from common import config, Decorators, Plot
+from codes.animation.animation_dataclasses import (
+    CubesData, CubesConstants, CubeInfo, FakeCubeInfo, UniqueCubeInfo,
+    PolynomialData, UniquePolynomialData,
+)
+
 
 # TYPE ANNOTATIONs
-from numpy.typing import NDArray
-from typing import Any, overload, Literal, cast, TypeAlias
-VoxelAlias: TypeAlias = Any
-JsLinkAlias: TypeAlias = Any
+from typing import Any, overload, Literal, cast
+type VoxelAlias = Any
+type JsLinkAlias = Any
+
+# API public
+__all__ = ['Setup', 'K3dAnimation']
 
 # todo need to improve the names of the different datasets in the visualisation
 # todo need to be able to add the extended version of the polynomial fit
 
-# todo change the indexes for the cubes as now the cube indexes should always be the based on the 
-# * maximum indexes (i.e. the same value than the 'Time indexes').
 
 
 class Setup:
@@ -147,7 +151,7 @@ class Setup:
             'no duplicate', 'no duplicate integration', 'no duplicate full integration',
             'line of sight sdo', 'line of sight stereo',
             'pov sdo', 'pov stereo',
-            'fit', 'with feet',
+            'fit', 'with feet', 'extended fit',
             'test points', 'test cube', 'fake data',
         ]
         choices_kwargs = {
@@ -279,7 +283,7 @@ class Setup:
 
             # DATA formatting
             cubes.sdo_pos = cast(
-                np.ndarray,
+                np.ndarray[tuple[int], np.dtype[np.float32]],
                 (sdo_positions[self.constants.time_indexes] / self.constants.dx).astype('float32'),
             )
         if self.choices['pov stereo']:
@@ -288,7 +292,7 @@ class Setup:
 
             # DATA formatting
             cubes.stereo_pos = cast(
-                np.ndarray,
+                np.ndarray[tuple[int], np.dtype[np.float32]],
                 (
                     stereo_positions[self.constants.time_indexes] / self.constants.dx
                 ).astype('float32'),
@@ -345,14 +349,20 @@ class Setup:
         """
         
         # DATEs
-        dates_bytes: NDArray[np.bytes_] = cast(h5py.Dataset, HDF5File['Dates'])[...]
+        dates_bytes: np.ndarray[tuple[int], np.dtype[np.bytes_]] = cast(
+            h5py.Dataset,
+            HDF5File['Dates'],
+        )[...]
 
         if self.choices['all dates']:
             # TIME INDEXEs all
-            time_indexes: np.ndarray = np.arange(0, len(dates_bytes))
+            time_indexes: np.ndarray[tuple[int], np.dtype[np.int_]] = np.arange(
+                0,
+                len(dates_bytes),
+            )
         else:
             # TIME INDEXEs with data
-            time_indexes: np.ndarray = cast(
+            time_indexes: np.ndarray[tuple[int], np.dtype[np.int_]] = cast(
                 h5py.Dataset,
                 HDF5File[init_path + 'Time indexes'],
             )[...]
@@ -589,7 +599,9 @@ class Setup:
                 fits information. If there is no polynomial data, it returns None.
         """
 
-        if self.choices['fit'] and interpolate:
+        # ! need to change this so that I can also decide to visualise the extended polynomial fit
+
+        if self.choices['fit'] and interpolate:  # todo add 'or self.choices['extended fit']'
             # POLYNOMIALs setup
             polynomials: list[PolynomialData | UniquePolynomialData] = cast(
                 list[PolynomialData | UniquePolynomialData],
@@ -598,8 +610,8 @@ class Setup:
 
             for i, order in enumerate(self.polynomial_order):
                 # DATA get
-                dataset_path = group_path + f'/{order}th order polynomial/coords'
-                interpolation_coords = cast(h5py.Dataset, HDF5File[dataset_path])
+                dataset_path = group_path + f'/{order}th order polynomial'
+                interpolation_coords = cast(h5py.Dataset, HDF5File[dataset_path + '/coords'])
 
                 if cube_type != 'unique':
                     # DATA formatting

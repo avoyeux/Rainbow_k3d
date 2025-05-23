@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 # IMPORTs sub
-from typing import Any
+from typing import Any, Literal
 from dataclasses import dataclass, field
 
 # API public
@@ -39,7 +39,7 @@ class CubeInformation:
     zt_min : float
 
     # VALUEs
-    coords: np.ndarray
+    coords: np.ndarray[tuple[Literal[3], int], Any]
     order: int | None = None 
 
 
@@ -57,7 +57,7 @@ class FitPointer:
     # POINTERs
     parameters: h5py.Dataset
 
-    def __getitem__(self, item: int) -> np.ndarray:
+    def __getitem__(self, item: int) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To get the data coordinates for the corresponding fit.
 
@@ -79,7 +79,7 @@ class UniqueFitPointer(FitPointer):
     Created like so that the usage can be exactly the same than for the normal datasets.
     """
 
-    def __getitem__(self, item: Any) -> np.ndarray:
+    def __getitem__(self, item: Any) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To get the data coordinates for the unique polynomial fit.
         The 'item' argument here is just a placeholder and is not used at all.
@@ -123,7 +123,7 @@ class DataPointer(BasePointer):
     # POINTERs fit
     fit_information: list[FitPointer] | None
 
-    def __getitem__(self, item: int) -> np.ndarray:  # ! change this dunder method bcs of the fit
+    def __getitem__(self, item: int) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To get the data cube from the corresponding pointer.
 
@@ -158,7 +158,7 @@ class FakeDataPointer(BasePointer):
 
         self.value_to_index = {value: index for index, value in enumerate(self.fake_time_indexes)}
 
-    def __getitem__(self, item: int) -> np.ndarray:
+    def __getitem__(self, item: int) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To get the fake data cube corresponding to the real data cube gotten from the 'item' index.
 
@@ -189,7 +189,7 @@ class UniqueDataPointer(BasePointer):
     # POINTERs fit
     fit_information: list[FitPointer] | None
 
-    def __getitem__(self, item: Any) -> np.ndarray:
+    def __getitem__(self, item: Any) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To get the test data cube from the corresponding pointer.
         This dunder method was created only so that the class can be used like it's Parent or 

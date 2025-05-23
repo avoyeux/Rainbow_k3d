@@ -12,6 +12,12 @@ import numpy as np
 from codes.projection.format_data import CubeInformation
 from codes.data.polynomial_fit.base_polynomial_fit import GetPolynomialFit
 
+# TYPE ANNOTATIONs
+from typing import Any, Literal
+
+# API public
+__all__ = ['ProcessedBorderedPolynomialFit']
+
 
 
 class ProcessedBorderedPolynomialFit(GetPolynomialFit):
@@ -59,7 +65,10 @@ class ProcessedBorderedPolynomialFit(GetPolynomialFit):
         self.solar_r = 6.96e5  # in km
         self.number_of_points = number_of_points
 
-    def to_cartesian(self, data: np.ndarray) -> np.ndarray:
+    def to_cartesian(
+            self,
+            data: np.ndarray[tuple[Literal[3], int], np.dtype[np.floating[Any]]],
+        ) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.floating[Any]]]:
         """
         To calculate the heliographic cartesian positions given a ndarray of index positions.
 

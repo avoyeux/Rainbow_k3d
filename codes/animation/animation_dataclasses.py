@@ -13,7 +13,18 @@ import numpy as np
 from dataclasses import dataclass, field
 
 # TYPE ANNOTATIONs
-from typing import Self, Any
+from typing import Any, Self
+
+# API public
+__all__ = [
+    'CubesConstants',
+    'CubesData',
+    'PolynomialData',
+    'UniquePolynomialData',
+    'CubeInfo',
+    'FakeCubeInfo',
+    'UniqueCubeInfo',
+]
 
 
 
@@ -26,7 +37,7 @@ class CubesConstants:
 
     dx: float
     dates: list[str]
-    time_indexes: np.ndarray
+    time_indexes: np.ndarray[tuple[int], np.dtype[np.int_]]
 
 
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
@@ -44,7 +55,7 @@ class PolynomialData:
     # DATA
     dataset: h5py.Dataset
 
-    def __getitem__(self, index: int) -> np.ndarray:
+    def __getitem__(self, index: int) -> np.ndarray[tuple[int, int, int], np.dtype[np.uint8]]:
         """
         To get a single cube from the polynomial data.
 
@@ -68,10 +79,11 @@ class PolynomialData:
         cube[tuple(cube_coords)] = 1
         return cube
 
+
 @dataclass(slots=True, frozen=True, repr=False, eq=False)
 class UniquePolynomialData(PolynomialData):
 
-    def __getitem__(self, index: Any) -> np.ndarray:
+    def __getitem__(self, index: Any) -> np.ndarray[tuple[int, int, int], np.dtype[np.uint8]]:
         """
         Just gives back the dense representation of the polynomial data.
         The index argument is not used as in this case, there is only one fit in the dataset.
@@ -89,6 +101,7 @@ class UniquePolynomialData(PolynomialData):
         cube = np.zeros(cube_shape, dtype='uint8')
         cube[tuple(self.dataset)] = 1
         return cube
+
 
 @dataclass(slots=True, repr=False, eq=False)
 class ParentInfo:
@@ -177,7 +190,7 @@ class CubeInfo(ParentInfo):
         # POLYNOMIALs
         if self.polynomials is not None:
             result += [polynomial[index] for polynomial in self.polynomials]
-        return result
+        return results
 
 
 @dataclass(slots=True, repr=False, eq=False)
@@ -187,8 +200,8 @@ class FakeCubeInfo(ParentInfo):
     """
     
     # DATA
-    time_indexes_fake: np.ndarray
-    time_indexes_real: np.ndarray
+    time_indexes_fake: np.ndarray[tuple[int], np.dtype[np.int_]]
+    time_indexes_real: np.ndarray[tuple[int], np.dtype[np.int_]]
 
     # PLACEHOLDERs
     value_to_index: dict[int, int] = field(init=False)
@@ -274,8 +287,11 @@ class CubesData:
     hdf5File: h5py.File
 
     # POS satellites
-    sdo_pos: np.ndarray | None = field(default=None, init=False)
-    stereo_pos: np.ndarray | None = field(default=None, init=False)
+    sdo_pos: np.ndarray[tuple[int], np.dtype[np.floating]] | None = field(default=None, init=False)
+    stereo_pos: np.ndarray[tuple[int], np.dtype[np.floating]] | None = field(
+        default=None,
+        init=False,
+    )
 
     # CUBES data
     all_data: CubeInfo | None = field(default=None, init=False)

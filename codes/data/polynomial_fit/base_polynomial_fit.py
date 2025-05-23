@@ -13,17 +13,18 @@ import numpy as np
 import multiprocessing as mp
 
 # IMPORTs sub
-from typing import Any, Callable, cast
 from dataclasses import dataclass, field
 
 # IMPORTs personal
 from common import config, Decorators, MultiProcessing
 
 # PLACEHOLDERs type annotation
-LockProxy = Any
-ValueProxy = Any
-QueueProxy = Any
-SharedMemoryProxy = Any
+import queue
+from typing import Any, Callable, cast, Literal
+from multiprocessing import shared_memory
+type LockProxy = Any
+type ValueProxy = Any
+type QueueProxy[T] = queue.Queue[T]  # parent type
 
 
 
@@ -103,8 +104,8 @@ class Polynomial:
         """
 
         # CONFIG attributes
-        self.verbose = cast(int, config.run.verbose if verbose is None else verbose)  #type:ignore
-        self.flush = cast(bool, config.run.flush if flush is None else flush)  #type:ignore
+        self.verbose: int = config.run.verbose if verbose is None else verbose
+        self.flush: bool = config.run.flush if flush is None else flush
 
         # AXES ORDER init
         self.axes_order = AxesOrder(data.coords.shape).axes_order
@@ -223,12 +224,12 @@ class Polynomial:
         value = manager.Value('i', self.time_len)
         processes_nb = min(self.processes, self.time_len)
         shm, data = cast(
-            tuple[SharedMemoryProxy, np.ndarray],
+            tuple[shared_memory.SharedMemory, np.ndarray],
             MultiProcessing.create_shared_memory(data),
         )
 
         # RUN processes
-        processes: list[mp.Process] = [None] * processes_nb  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * processes_nb)
         for i in range(processes_nb):
             p = mp.Process(
                 target=self.no_duplicates_data_sub,
@@ -240,7 +241,7 @@ class Polynomial:
         shm.unlink()
 
         # RESULTs formatting
-        polynomials_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
+        polynomials_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.time_len)
         while not output_queue.empty():
             identifier, result = output_queue.get()
             polynomials_list[identifier] = result
@@ -252,7 +253,7 @@ class Polynomial:
             data_dict: dict[str, Any],
             lock: LockProxy,
             value: ValueProxy,
-            output_queue: QueueProxy,
+            output_queue: QueueProxy[tuple[int, np.ndarray]],
         ) -> None:
         """
         To multiprocess the no duplicates uint16 voxel positions treatment.
@@ -267,7 +268,7 @@ class Polynomial:
         
         # DATA open
         shm, array = cast(  # todo change this when the @overload is added to the method.
-            tuple[SharedMemoryProxy, np.ndarray],
+            tuple[shared_memory.SharedMemory, np.ndarray],
             MultiProcessing.open_shared_memory(data_dict),
         )
 
@@ -322,18 +323,18 @@ class Polynomial:
 
         # MULTIPROCESSING setup
         shm_coords, coords = cast(  # todo change this when the @overload is added to the method.
-            tuple[SharedMemoryProxy, np.ndarray], 
+            tuple[shared_memory.SharedMemory, np.ndarray], 
             MultiProcessing.create_shared_memory(self.data.coords.astype('float64')),
         )
         shm_sigma, sigma = cast(
-            tuple[SharedMemoryProxy, dict],
+            tuple[shared_memory.SharedMemory, dict],
             MultiProcessing.create_shared_memory(sigma),
         )
         manager = mp.Manager()
         lock = manager.Lock()
         value = manager.Value('i', self.time_len)
         # * tried 'i' but clearly didn't give a signed integer
-        output_queue = manager.Queue()
+        output_queue: QueueProxy[tuple[int, np.ndarray, np.ndarray]] = manager.Queue()
         
         # INPUTs
         kwargs = {
@@ -356,7 +357,7 @@ class Polynomial:
         }
 
         # RUN processes
-        processes: list[mp.Process] = [None] * process_nb  #type:ignore
+        processes: list[mp.Process] = cast(list[mp.Process], [None] * process_nb) 
         for i in range(process_nb):
             p = mp.Process(
                 target=self.get_data_sub,
@@ -369,8 +370,8 @@ class Polynomial:
         shm_sigma.unlink()
 
         # RESULTs formatting
-        parameters_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
-        polynomials_list: list[np.ndarray] = [None] * self.time_len  #type:ignore
+        parameters_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.time_len)
+        polynomials_list: list[np.ndarray] = cast(list[np.ndarray], [None] * self.time_len)
         while not output_queue.empty():
             identifier, fit, params = output_queue.get()
             polynomials_list[identifier] = fit
@@ -389,7 +390,7 @@ class Polynomial:
             sigma_dict: dict[str, Any],
             lock: LockProxy,
             value: ValueProxy,
-            output_queue: QueueProxy,
+            output_queue: QueueProxy[tuple[int, np.ndarray, np.ndarray]],
             kwargs_sub: dict[str, Any],
         ) -> None:
         """
@@ -408,11 +409,11 @@ class Polynomial:
         
         # DATA open
         shm_coords, coords = cast(  # todo change this when the @overload is added to the method.
-            tuple[SharedMemoryProxy, np.ndarray],
+            tuple[shared_memory.SharedMemory, np.ndarray],
             MultiProcessing.open_shared_memory(coords_dict),
         )
         shm_sigma, sigma = cast(  # todo change this when the @overload is added to the method.
-            tuple[SharedMemoryProxy, np.ndarray],
+            tuple[shared_memory.SharedMemory, np.ndarray],
             MultiProcessing.open_shared_memory(sigma_dict),
         )
         
@@ -683,7 +684,7 @@ class Polynomial:
             """
 
             # Initialisation
-            result: np.ndarray = 0  #type:ignore
+            result: np.ndarray = cast(np.ndarray, 0)
 
             # Calculating the polynomial
             for i in range(self.poly_order + 1): result += coeffs[i] * t**i
@@ -704,6 +705,7 @@ class HDF5GroupPolynomialInformation:
 
     # PARAMETERs
     params: h5py.Dataset
+
 
 class GetPolynomialFit:
     """
@@ -777,7 +779,10 @@ class GetPolynomialFit:
         )
         return H5PYFile, information
 
-    def get_params(self, cube_index: int) -> np.ndarray:
+    def get_params(
+            self,
+            cube_index: int,
+        ) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         To filter the polynomial fit parameters to keep only the parameters for a given 'cube'
         (i.e. for a given time index).
@@ -823,7 +828,10 @@ class GetPolynomialFit:
         for i in range(self.order + 1): result += coeffs[i] * t**i
         return result
 
-    def get_polynomial(self, cube_index: int) -> np.ndarray:
+    def get_polynomial(
+            self,
+            cube_index: int,
+        ) -> np.ndarray[tuple[Literal[3], int], np.dtype[np.float64]]:
         """
         Gives the polynomial fit coordinates with a certain number of points. The fit here is
         defined for t in [0, 1].
@@ -843,7 +851,7 @@ class GetPolynomialFit:
         # COORDs
         return self.get_coords(params)
 
-    def get_coords(self, params: np.ndarray) -> np.ndarray:
+    def get_coords(self, params: np.ndarray) -> np.ndarray[tuple[Literal[3], int], Any]:
         """
         Gives the coordinates of the polynomial fit given the polynomial parameters defined for a
         given cumulative distance 't_fine'.

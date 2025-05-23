@@ -30,7 +30,7 @@ from codes.data.polynomial_fit.polynomial_reprojection import ReprojectionProces
 # TYPE ANNOTATIONs
 import queue
 from typing import cast, overload, Literal
-type QueueAlias[T] = queue.Queue[T]  # used parent function
+type QueueAlias[T] = queue.Queue[T]  # used parent class
 
 # API public
 __all__ = ['OrthographicalProjection']
@@ -1076,7 +1076,9 @@ class OrthographicalProjection(BaseReprojection):
                 parameters=params,
             )
         else:
-            raise ValueError("Wrong cube type for function 'get_fit_pointer_information.")
+            raise ValueError(
+                "\033[1;31mWrong cube type for function 'get_fit_pointer_information.\033[0m"
+            )
         return info
 
     def sdo_image(self, filepath: str, colour: str) -> PolarImageInfo:
